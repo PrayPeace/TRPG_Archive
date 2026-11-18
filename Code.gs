@@ -139,7 +139,7 @@ function noteSave(sec, item) {
   try {
     const n = readNotes() || emptyNotes();
     const clean = {};
-    ['name', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'title'].forEach(k => { if (item[k] != null) clean[k] = String(item[k]).slice(0, 4000); });
+    ['name', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'title', 'img', 'age', 'affil'].forEach(k => { if (item[k] != null) clean[k] = String(item[k]).slice(0, 4000); });
     clean.locked = true; clean.editedAt = now();
     const i = item.id ? n[sec].findIndex(x => x.id === item.id) : -1;
     if (i >= 0) n[sec][i] = Object.assign({ id: item.id }, clean);
@@ -160,6 +160,19 @@ function noteDelete(sec, id) {
     n.deleted[sec] = (n.deleted[sec] || []).concat([itemKey(sec, it)]).slice(-200);
     writeNotes(n); bump('notesVer');
     return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+function noteImage(sec, id, data) {
+  if (!data) return { ok: false, error: '사진이 없어요' };
+  const url = storePortrait(Utilities.newBlob(Utilities.base64Decode(data), 'image/jpeg', 'n.jpg'), 'note_' + sec + '_' + Date.now());
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const n = readNotes() || emptyNotes();
+    const it = (n[sec] || []).find(x => x.id === id);
+    if (!it) return { ok: false, error: '항목을 찾지 못했어요' };
+    it.img = url; it.locked = true; it.editedAt = now();
+    writeNotes(n); bump('notesVer');
+    return { ok: true, url };
   } finally { lock.releaseLock(); }
 }
 function noteUnlock(sec, id) {
@@ -230,6 +243,7 @@ function doPost(e) {
       case 'noteSave':   return out(noteSave(b.sec, b.item));
       case 'noteDelete': return out(noteDelete(b.sec, b.id));
       case 'noteUnlock': return out(noteUnlock(b.sec, b.id));
+      case 'noteImage':  return out(noteImage(b.sec, b.id, b.data));
       case 'sumSave':    return out(sumSave(b.id, b.text));
       case 'storySave':  setConf('story', String(b.text || '').slice(0, 20000)); bump('sumVer'); return out({ ok: true });
       case 'correct':    return out(correct(b.text, b.name));
@@ -381,7 +395,7 @@ function tick() {
 
 const NOTES_RULE =
   '정리(notes) 규칙: places=[{id,name,desc,found}] 장소와 거기서 일어난 일·발견한 것, ' +
-  'npcs=[{id,name,traits,said,relation}] NPC의 특징·했던 중요한 말·탐사자들과의 관계, ' +
+  'npcs=[{id,name,affil,age,traits,said,relation}] NPC의 소속·직업(affil), 나이(age, 언급됐을 때만), 특징(쉼표로 구분한 짧은 말들), 가장 인상적인 대사 한두 개(said), 탐사자들과의 관계, ' +
   'clues=[{id,text,status}] 얻은 정보와 단서, status는 "미해결" 또는 "해결", ' +
   'handouts=[{id,title,text}] 핸드아웃 내용. ' +
   '기존 항목은 id를 그대로 유지하고, 새 항목은 id를 비워라. 바뀐 항목과 새 항목만 출력하면 되고, 바뀌지 않은 항목은 출력하지 않아도 남는다. 같은 대상을 새 항목으로 또 만들지 말고 기존 id에 보강하라. ' +
