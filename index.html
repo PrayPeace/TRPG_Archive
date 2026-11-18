@@ -390,7 +390,7 @@ async function startMic(){
     const fx = $('micFx').checked;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: fx, noiseSuppression: fx, autoGainControl: fx } }); }
     catch (e) { micState('err', micError(e)); return; }
-    meter(stream);
+    // 소리 막대(AudioContext)는 일부 헤드셋에서 잡음을 내서 받아쓰기 중에는 쓰지 않는다
   }
   wantStop = false; micState('', '연결 중…');
   let tk;
