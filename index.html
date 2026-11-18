@@ -130,6 +130,8 @@
     <section id="t-set" class="panel hide">
       <label>내 이름</label>
       <div class="row"><input id="sName" style="flex:1"><button class="ghost" id="sNameSave">바꾸기</button></div>
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="micFx" style="width:auto"> 브라우저 마이크 보정 켜기 (에코·잡음 제거)</label>
+      <div class="note">켜면 일부 헤드셋에서 귀에 지지직 소리가 나거나 디스코드 소리가 작아질 수 있어요. 기본은 꺼짐입니다. 바꾼 뒤에는 받아쓰기를 껐다 켜 주세요.</div>
       <label>마이크 확인</label>
       <div class="row"><button class="ghost" id="micTest">마이크 권한 요청·소리 확인</button><span id="micMsg" class="note"></span></div>
       <div class="row" style="margin-top:14px">
@@ -385,7 +387,8 @@ function micError(e){
 
 async function startMic(){
   if (!stream) {
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+    const fx = $('micFx').checked;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: fx, noiseSuppression: fx, autoGainControl: fx } }); }
     catch (e) { micState('err', micError(e)); return; }
     meter(stream);
   }
@@ -442,6 +445,8 @@ $('micTest').onclick = async () => {
 };
 
 /* ── 설정 ── */
+$('micFx').checked = S.get('t_fx') === '1';
+$('micFx').onchange = () => S.set('t_fx', $('micFx').checked ? '1' : '0');
 $('sNameSave').onclick = () => { const n = $('sName').value.trim(); if (!n) return; cfg.name = n; S.set('t_name', n); $('meName').textContent = n; };
 $('leave').onclick = () => { stopAll(); ['t_url','t_pw','t_name','t_kpw'].forEach(S.del); location.reload(); };
 
