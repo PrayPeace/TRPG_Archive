@@ -246,6 +246,17 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .kst{font-size:11px;padding:2px 8px;border-radius:5px;font-weight:700;white-space:nowrap;flex:none}
 .kst.found{background:#173726;color:#8fe0b3}.kst.partial{background:#3a2f1a;color:var(--gold2)}.kst.unfound{background:#3a1d1c;color:#ffb3ae}.kst.none{background:var(--bg2);color:var(--faint)}
 .kerr{color:#ffb3ae!important}
+.kwarn2{font-size:13px;color:#ffd9a8;background:#3a2414;border:1px solid #6b4423;border-radius:9px;padding:10px 12px;margin:0 0 10px;line-height:1.55}
+.ksrc{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;margin-right:6px;white-space:nowrap}
+.ksrc.digest{background:#2a2f3d;color:#b9c6e8}.ksrc.raw{background:#173726;color:#8fe0b3}.ksrc.ai{background:#3a2f1a;color:var(--gold2)}.ksrc.hand{background:#33263d;color:#d8b7ee}
+.ksent{font-size:12px;color:var(--faint);margin:6px 0 0;line-height:1.5}
+.kguide{font-size:12.5px;color:var(--faint);margin:0 0 12px;line-height:1.6}
+.kguide summary{cursor:pointer;color:#c9ad6e}
+.kguide table{border-collapse:collapse;margin-top:6px}.kguide td{border-top:1px solid var(--line);padding:3px 10px 3px 0;vertical-align:top}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px;margin:12px 0;max-height:46vh;overflow:auto}
+.pg{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:500;margin:0;cursor:pointer}
+.pg canvas{width:92px;height:auto;background:#fff;border-radius:3px}
+.pg input{width:auto}
 .kbar{height:8px;background:var(--bg2);border-radius:4px;overflow:hidden;border:1px solid var(--line);margin-top:6px}
 .kbar i{display:block;height:100%;background:var(--gold);transition:width .3s}
 .share{display:grid;grid-template-columns:120px 1fr 110px;gap:10px;align-items:center;margin:6px 0;font-size:13.5px}
@@ -412,9 +423,9 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
         <div class="kbox" style="margin-top:22px">
           <h3>키퍼 메뉴</h3>
           <div id="kLock">
-            <div class="note" style="margin-bottom:8px">키퍼 비밀번호를 넣으면 열려요. 비밀번호는 이 기기에 저장하지 않고, 12시간짜리 로그인만 유지해요.</div>
+            <div class="note" style="margin-bottom:8px">키퍼 비밀번호를 넣으면 열려요. 비밀번호는 로그인할 때 한 번만 서버로 보내고 이 기기에 저장하지 않아요. 그 뒤로는 12시간짜리 로그인 표식만 써요.</div>
             <div class="row"><input id="kPw" type="password" placeholder="키퍼 비밀번호" class="grow" autocomplete="off"><button class="pri" id="kGo">키퍼로 전환</button></div>
-            <label style="display:flex;gap:8px;align-items:center;font-weight:500;margin-top:8px"><input type="checkbox" id="kRemember" style="width:auto"> 이 기기에서 12시간 동안 로그인 유지 (내 PC에서만 켜세요. PC방에서는 끄세요)</label>
+            <label style="display:flex;gap:8px;align-items:center;font-weight:500;margin-top:8px"><input type="checkbox" id="kRemember" style="width:auto"> 이 기기에서 로그인 유지 (끄면 이 탭을 닫을 때 로그인이 풀려요. 내 PC에서만 켜고, PC방에서는 끄세요)</label>
             <span id="kMsg" class="note"></span>
           </div>
           <div id="kMenu" class="hide">
@@ -456,6 +467,17 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 <template id="keeperTpl">
   <div class="ph"><h2>키퍼 전용</h2><span class="grow"></span><button id="kReload">새로 고침</button><button id="kLockBtn">🔒 키퍼 잠그기</button></div>
   <div class="kwarn">이 탭은 키퍼만 볼 수 있어요. 디스코드에서 <b>화면 공유</b> 중일 때는 열지 마세요. 자리를 비울 때는 "키퍼 잠그기"를 눌러 주세요.</div>
+  <div id="kVer" class="kwarn2 hide"></div>
+  <div id="kWeak" class="kwarn2 hide">⚠ 키퍼 비밀번호가 10자보다 짧아요. 지금도 쓸 수는 있지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워요. Code.gs 맨 위의 KEEPER_PW를 10자 이상으로 바꾸고 다시 배포하는 것을 권해요.</div>
+  <details class="kguide" id="kGuide"><summary>AI를 몇 번 부르는지 (비용 가늠용)</summary>
+    <table>
+      <tr><td>현황 갱신 · NPC 반응 · 시작 카드 · 피드백 · 진상 다듬기</td><td>누를 때마다 1번</td></tr>
+      <tr><td>판정 보조</td><td>"시나리오에서 찾기" 0번 · "AI 제안도 받기" 1번</td></tr>
+      <tr><td>시상식</td><td>통계 계산 0번 · 판정 로그 올리기 0번 · "AI 활약 장면 후보 받기" 1번 · "진상과 견줘 보기"를 누르면 1번 더</td></tr>
+      <tr><td>시나리오 자료 올리기</td><td>글자가 있는 PDF·TXT·붙여 넣은 글: 조각(7,000자쯤)마다 1번. AI 답이 길어서 끊기면 그 조각을 반으로 나눠 다시 하므로 2~3번이 될 수 있어요<br>그림(스캔) 쪽: 읽겠다고 고른 쪽마다 1번이 따로 더 들어요</td></tr>
+      <tr><td>공통</td><td>실패해서 다시 누르거나 자동으로 다시 시도하면 그만큼 더 불러요. 걸리는 시간은 그때그때 달라요 (화면의 "20~40초"는 어림값)</td></tr>
+    </table>
+  </details>
   <nav class="ktabs" id="ktabs"></nav>
   <div id="kview"></div>
 </template>
@@ -507,9 +529,13 @@ async function post(body){
   const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify(body) });
   return r.json();
 }
+/* 키퍼 요청. 보낸 뒤에 키퍼를 잠갔거나 회의록이 초기화됐으면(K.epoch가 바뀜) 늦게 도착한 답은 쓰지 않는다.
+ * 키퍼 토큰은 요청 본문(POST)으로만 보낸다. 주소(GET)에는 싣지 않는다. */
 async function kpost(b){
-  const r = await post(Object.assign(b, { kt: cfg.kt }));
-  if (r && r.kexp) keeperOff('키퍼 로그인이 만료됐어요. 다시 로그인해 주세요');
+  const ep = K.epoch, kt = cfg.kt, guarded = /^k[A-Z]/.test(String(b.action || ''));
+  const r = await post(Object.assign(b, { kt }));
+  if (r && r.kexp) { if (cfg.kt === kt) keeperOff('키퍼 로그인이 만료됐어요. 다시 로그인해 주세요'); return r; }
+  if (guarded && ep !== K.epoch) return { ok: false, stale: true, late: true, error: '기다리는 사이에 회의록이 지워졌거나 키퍼를 잠가서, 늦게 도착한 결과는 쓰지 않았어요' };
   return r;
 }
 
@@ -566,7 +592,8 @@ function showTab(t){
 $('tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.t); };
 
 /* ── 창(모달) ── */
-function closeModal(){ $('modal').classList.add('hide'); $('modalBody').innerHTML = ''; $('modalBody').className = 'm'; $('modalBody').style.position = ''; }
+let modalOnClose = null;
+function closeModal(){ $('modal').classList.add('hide'); $('modalBody').innerHTML = ''; $('modalBody').className = 'm'; $('modalBody').style.position = ''; const f = modalOnClose; modalOnClose = null; if (f) f(); }
 $('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
 function openForm(title, fields, values, onSave, opts){
   const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
@@ -1132,6 +1159,7 @@ async function pollOnce(){
     const v = r.v;
     if (live.resetVer !== undefined && v.resetVer !== live.resetVer) {
       resetLog(); ver = {}; live = {};
+      keeperReset();                                  // 지워진 회의록으로 만들던 키퍼 쪽 결과·초안도 버린다 (늦게 오는 답 포함)
       toast('키퍼가 기록을 초기화했어요');
       setTimeout(pollOnce, 300); return;
     }
@@ -1371,7 +1399,8 @@ $('kTabs').onclick = async () => {
   const r = await kpost({ action: 'tabs', url: $('kCharUrl').value.trim() });
   if (!r.ok) { $('kCharMsg').textContent = r.error + ' (키퍼 구글 계정이 열 수 있는 시트여야 해요)'; return; }
   const same = data && data.charUrl === $('kCharUrl').value.trim();
-  drawMap(r.tabs, same ? data.charMap : []); $('kCharMsg').textContent = '캐릭터 탭에 체크하고 플레이어 이름을 적은 뒤 연결 저장';
+  drawMap(r.tabs, same ? data.charMap : []);
+  $('kCharMsg').textContent = '캐릭터 탭에 체크하고 플레이어 이름을 적은 뒤 연결 저장' + (r.same ? ' · 이 주소는 이 앱의 저장용 시트라서, 앱이 쓰는 탭 ' + r.hidden + '개(설정·대화·키퍼자료 등)는 목록에서 뺐어요' : '');
 };
 $('kCharSave').onclick = async () => {
   const map = [...$('kMap').querySelectorAll('.row')].map(r => { const i = r.querySelectorAll('input'); return i[0].checked ? { tab: i[0].dataset.tab, player: i[1].value.trim() } : null; }).filter(Boolean);
@@ -1398,7 +1427,12 @@ $('imgGo').onclick = async () => {
 /* ══════════════ 키퍼 전용 탭 ══════════════
  * 이 탭의 내용은 키퍼 로그인(12시간 토큰)이 있을 때만 서버에서 받아 온다.
  * 잠그면 받아 둔 자료와 화면을 모두 지운다. 받은 자료는 이 기기에 저장하지 않는다. */
-const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', stats: {}, aw: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null };
+/* K.epoch: 키퍼를 잠그거나 회의록이 초기화될 때마다 1씩 오른다. 요청을 보낼 때의 값과 답이 왔을 때의 값이 다르면 그 답은 버린다.
+ * K.rv / K.gen: 마지막으로 받은 회의록 번호(초기화번호)·시나리오 자료 번호. 바뀌면 그것으로 만든 화면 기억(초안·제안·통계)을 지운다. */
+const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
+  stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
+  boardFull: false, fbFull: false, upNote: '', uploading: false };
+const APP_VER = '2026-11-19';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -1426,22 +1460,33 @@ function keeperShow(){
   const id = (S.get('t_url') || '').match(/\/s\/([^/]+)/);
   $('kLink').value = location.origin + location.pathname + '#s=' + encodeURIComponent(id ? id[1] : (S.get('t_url') || '')) + '&p=' + encodeURIComponent(cfg.pw);
 }
+// 회의록(세션 기록)으로 만든 화면 기억을 지운다
+function kForgetSession(){ K.stats = {}; K.statsRv = {}; K.aw = {}; K.awMeta = {}; K.recapF = {}; K.npcR = null; K.rollR = null; K.ccf = null; K.ccfMis = false; }
 function keeperOff(msg){
-  cfg.kt = ''; SS.del('t_kt'); S.del('t_kt');
-  K.d = null; K.stats = {}; K.aw = {}; K.npcR = null; K.rollR = null; K.npcF = null; K.rollF = null; K.kbF = null; K.recapF = {}; K.ccf = null; K.stop = true;
+  K.epoch++;                                                      // 이 뒤에 도착하는 키퍼 답은 모두 버린다
+  cfg.kt = ''; SS.del('t_kt'); S.del('t_kt'); S.del('t_kpw');
+  kForgetSession();
+  K.d = null; K.rv = null; K.gen = null; K.npcF = null; K.rollF = null; K.kbF = null; K.upNote = ''; K.digestErr = ''; K.stop = true;
+  if (modalOnClose) closeModal();
   $('t-keeper').innerHTML = '';                                   // 받아 둔 키퍼 자료를 화면에서도 지운다
   $('tabKeeper').classList.add('hide'); $('kMenu').classList.add('hide'); $('imgUp').classList.add('hide'); $('kLock').classList.remove('hide');
   $('kPw').value = ''; $('kMsg').textContent = msg || '';
   if (!$('t-keeper').classList.contains('hide')) showTab('set');
 }
+// 회의록이 초기화됐다 (이 탭에서 지웠든 다른 탭·다른 기기에서 지웠든): 그 회의록으로 만든 것을 버리고 새로 받는다
+function keeperReset(){
+  K.epoch++;
+  kForgetSession();
+  if (cfg.kt && K.d && $('kview')) kLoad();
+}
 async function keeperLogin(pw, remember){
   let r;
   try { r = await post({ action: 'klogin', kpw: pw }); } catch (e) { return '서버에 연결하지 못했어요'; }
-  if (!r.ok) return r.error || '키퍼 비밀번호가 틀렸어요';
+  if (!r.ok) return (r.error || '키퍼 비밀번호가 틀렸어요') + (r.left != null && r.left <= 5 ? ' · 앞으로 ' + r.left + '번 더 틀리면 10분 동안 잠겨요' : '');
   cfg.kt = r.kt; SS.set('t_kt', r.kt);
   if (remember) S.set('t_kt', r.kt); else S.del('t_kt');
   keeperShow();
-  return '';
+  return r.weak ? '로그인했어요 · ⚠ 키퍼 비밀번호가 10자보다 짧아요. 10자 이상으로 바꾸는 것을 권해요' : '';
 }
 async function keeperLock(all){
   const kt = cfg.kt;
@@ -1452,12 +1497,12 @@ $('kGo').onclick = async () => {
   const pw = $('kPw').value; if (!pw) return;
   $('kMsg').textContent = '확인 중…'; $('kGo').disabled = true;
   const err = await keeperLogin(pw, $('kRemember').checked);
-  $('kGo').disabled = false; $('kPw').value = ''; $('kMsg').textContent = err;
+  $('kGo').disabled = false; $('kPw').value = ''; $('kMsg').textContent = err; $('kOut').textContent = cfg.kt ? err : '';
 };
 $('kPw').onkeydown = e => { if (e.key === 'Enter') $('kGo').click(); };
 $('kLock2').onclick = () => keeperLock(false);
 async function keeperResume(){
-  // 예전 버전이 이 기기에 저장해 둔 키퍼 비밀번호는 로그인에 한 번 쓰고 지운다
+  // 예전 버전이 이 기기에 저장해 둔 키퍼 비밀번호는 지운다. 유효한 로그인이 없을 때만 로그인 요청에 한 번 쓰고, 그 뒤로는 어디에도 두지 않는다.
   const old = S.get('t_kpw'); S.del('t_kpw');
   if (cfg.kt) {
     try { const r = await post({ action: 'kping', kt: cfg.kt }); if (r.ok && r.keeper) { keeperShow(); return; } } catch (_) { return; }
@@ -1481,13 +1526,15 @@ function kDatalist(id, items){ const d = el('datalist'); d.id = id; uniq(items).
 function kKV(parent, label, value, cls){ if (!value) return; parent.append(el('div', 'kk', label)); const v = el('div', 'kv2' + (cls ? ' ' + cls : ''), value); parent.append(v); return v; }
 function kEmpty(text){ return el('div', 'empty', text); }
 // 버튼을 잠그고 키퍼 요청을 보낸다. 실패하면 msg 칸에 이유를 적는다.
+// stale: 서버가 "기다리는 사이 기록이 지워져서 버렸다"고 한 답. 화면 기억에 넣지 않고, 지금 상태를 새로 받는다.
 async function kDo(btn, busy, body, msg){
   const label = btn.textContent; btn.disabled = true; btn.textContent = busy;
   if (msg) { msg.textContent = ''; msg.className = 'note'; }
   let r;
-  try { r = await kpost(body); } catch (e) { r = { ok: false, error: '응답을 못 받았어요 (' + e.message + '). 잠시 뒤 새로 고침을 눌러 확인해 주세요' }; }
+  try { r = await kpost(body); } catch (e) { r = { ok: false, error: '응답을 받지 못했어요 (' + e.message + '). 서버에서는 끝났을 수도 있으니, 잠시 뒤 "새로 고침"을 눌러 확인한 다음 다시 시도해 주세요' }; }
   btn.disabled = false; btn.textContent = label;
   if (!r.ok && msg) { msg.textContent = r.error || '실패'; msg.className = 'note kerr'; }
+  if (r.stale) { toast(r.error || '지워진 기록으로 만든 결과라서 버렸어요'); if (!r.late && cfg.kt) kLoad(); }
   return r;
 }
 function kSessSel(){
@@ -1503,7 +1550,11 @@ const withChar = player => { const c = charOf(player); return c ? player + ' (' 
 async function kLoad(){
   let r;
   try { r = await kpost({ action: 'kData' }); } catch (e) { toast('키퍼 자료를 못 받아 왔어요: ' + e.message); return false; }
-  if (!r.ok) { if (!r.kexp) toast(r.error || '키퍼 자료를 못 받아 왔어요'); return false; }
+  if (!r.ok) { if (!r.kexp && !r.late) toast(r.error || '키퍼 자료를 못 받아 왔어요'); return false; }
+  // 다른 탭·다른 기기에서 지웠을 수도 있다: 번호가 바뀌었으면 그것으로 만든 화면 기억을 버린다
+  if (K.rv != null && r.resetVer !== K.rv) kForgetSession();
+  if (K.gen != null && r.kbGen !== K.gen) { K.npcR = null; K.rollR = null; }
+  K.rv = r.resetVer; K.gen = r.kbGen;
   K.d = r; if (!K.sess) K.sess = r.session;
   if (!K.view) K.view = (r.kb.clues.length || r.kb.truth) ? 'board' : 'kb';
   kRender();
@@ -1521,6 +1572,8 @@ async function kOpen(){
 }
 function kRender(){
   if (!K.d || !$('kview')) return;
+  if ($('kWeak')) $('kWeak').classList.toggle('hide', !K.d.weak);
+  if ($('kVer')) { const diff = K.d.code !== APP_VER; $('kVer').classList.toggle('hide', !diff); if (diff) $('kVer').textContent = '⚠ 화면과 서버의 판이 달라요 (화면 ' + APP_VER + ' / 서버 ' + (K.d.code || '예전 판') + '). Code.gs를 새 버전으로 다시 배포했는지, 이 페이지를 새로 고쳤는지 확인해 주세요. 판이 다르면 일부 키퍼 기능이 동작하지 않을 수 있어요.'; }
   const nav = $('ktabs'); nav.innerHTML = '';
   KVIEWS.forEach(([k, label]) => { const b = el('button', K.view === k ? 'act' : '', label); b.dataset.k = k; b.onclick = () => { K.view = k; kRender(); }; nav.append(b); });
   const box = $('kview'); box.innerHTML = '';
@@ -1535,10 +1588,15 @@ function kvBoard(box){
     const go = el('button', 'pri', '시나리오 자료 올리러 가기'); go.onclick = () => { K.view = 'kb'; kRender(); }; box.append(go);
     return;
   }
-  const top = el('div', 'row'); const btn = el('button', 'pri', '현황 갱신 (AI)'); const msg = el('span', 'note');
-  top.append(btn, el('span', 'note', b ? '마지막 갱신 ' + String(log.at).slice(5, 16) + ' · 요약된 ' + b.basis.processedId + '줄 기준' + (b.basis.total > b.basis.processedId ? ' (그때 요약 전 ' + (b.basis.total - b.basis.processedId) + '줄)' : '') : '아직 갱신한 적 없어요. 누르면 20~40초 걸려요'), msg);
-  btn.onclick = async () => { const r = await kDo(btn, 'AI가 비교하는 중…', { action: 'kBoard' }, msg); if (r.ok) kLoad(); };
+  const top = el('div', 'row'); const btn = el('button', 'pri', '현황 갱신 (AI 호출 1번)'); const msg = el('span', 'note');
+  top.append(btn, kCheck(K.boardFull, '진상 전체도 AI에 보내기', v => { K.boardFull = v; }), msg);
+  btn.onclick = async () => { const r = await kDo(btn, 'AI가 비교하는 중…', { action: 'kBoard', full: K.boardFull }, msg); if (r.ok) kLoad(); };
   box.append(top);
+  const nNpc = kb.npcs.filter(n => n.secret || n.lies).length;
+  box.append(el('div', 'ksent', 'AI에 보내는 자료: 단서 목록 ' + kb.clues.length + '개 · NPC의 비밀·거짓말 ' + nNpc + '명 · 공개 기록(누적 줄거리·플레이어 쪽 단서·최근 요약 8개). "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요. 끄면 "잘못 짚고 있는 것" 판단이 덜 정확할 수 있어요.'));
+  if (b) box.append(el('div', 'ksent', '지금 보이는 현황: ' + String(log.at).slice(5, 16) + ' 갱신 · 요약된 ' + b.basis.processedId + '줄 기준' + (b.basis.total > b.basis.processedId ? ' (그때 요약 전 ' + (b.basis.total - b.basis.processedId) + '줄)' : '') +
+    ' · 만들 때 보낸 것: ' + (b.sent ? '단서 ' + b.sent.clues + '개, NPC ' + b.sent.npcs + '명, 진상 전체 ' + (b.sent.truth ? '포함' : '미포함') : '예전 버전에서 만든 것이라 진상 전체가 포함됐어요')));
+  else box.append(el('div', 'ksent', '아직 갱신한 적 없어요.'));
   if (b && b.next) { const q = el('div', 'quote'); q.textContent = '👉 ' + b.next; box.append(q); }
 
   const st = {}; ((b && b.clues) || []).forEach(c => { st[c.id] = c; });
@@ -1556,7 +1614,7 @@ function kvBoard(box){
     const t = el('b', 'ttl', c.text); t.style.flex = '1'; head.append(t);
     [['found', '찾음'], ['unfound', '아직'], ['', 'AI 판단대로']].forEach(([m, l]) => {
       const x = el('button', 'icon', l); if ((c.mark || '') === m) x.style.color = 'var(--gold2)';
-      x.onclick = async () => { const r = await kpost({ action: 'kClueMark', id: c.id, mark: m }); if (r.ok) { c.mark = m; kRender(); } else toast(r.error); };
+      x.onclick = async () => { const r = await kpost({ action: 'kClueMark', id: c.id, mark: m, gen: K.gen }); if (r.ok) { c.mark = m; kRender(); } else { toast(r.error); if (r.stale && !r.late) kLoad(); } };
       head.append(x);
     });
     card.append(head);
@@ -1567,7 +1625,7 @@ function kvBoard(box){
   });
   if (b && b.wrong.length) { box.append(kH('플레이어가 잘못 짚고 있는 것')); b.wrong.forEach(w => { const c = el('div', 'kcard'); c.append(el('div', '', w.text)); if (w.why) c.append(el('div', 'note', '실제: ' + w.why)); box.append(c); }); }
   if (b && b.lies.length) {
-    box.append(kH('NPC의 주장과 실제', '공개 기록에 남은 주장을 진상과 견준 결과'));
+    box.append(kH('NPC의 주장과 실제', '공개 기록에 남은 주장을 키퍼 자료와 견준 결과 (AI 판단)'));
     b.lies.forEach(l => { const c = el('div', 'kcard'); const h = el('div', 'row'); h.append(el('span', 'kst ' + (l.verdict === '거짓' ? 'unfound' : l.verdict === '참' ? 'found' : 'partial'), l.verdict || '불명'), el('b', '', l.npc)); c.append(h, el('div', '', l.claim)); if (l.truth) c.append(el('div', 'note', '실제: ' + l.truth)); box.append(c); });
   }
   if (b && b.hints.length) { box.append(kH('막혔을 때 줄 만한 힌트')); b.hints.forEach(h => box.append(el('div', 'kcard', '💡 ' + h))); }
@@ -1603,7 +1661,7 @@ function kvNpc(box){
     const r = await kDo(btn, 'AI가 생각하는 중… (10~30초)', { action: 'kNpc', npc: f.npc, place: f.place, situation: f.situation, skill: f.skill, level: f.level, full: f.full }, msg);
     if (r.ok) { K.npcR = { name: f.npc, result: r.result, used: r.used }; await kLoad(); }
   };
-  box.append(row, cardBox); drawCard();
+  box.append(row, el('div', 'ksent', 'AI 호출 1번. 보내는 자료: 이 NPC의 비공개 설정 · 이름이 겹치는 관계 자료(장소·단서·판정·다른 NPC) · 공개 기록의 NPC 주장 · 방금 대화 30줄. "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요.'), cardBox); drawCard();
   const out = el('div'); box.append(out);
   const show = (name, res, used, when) => {
     out.innerHTML = '';
@@ -1621,7 +1679,11 @@ function kvNpc(box){
   }
 }
 
-/* ── 판정 보조 ── */
+/* ── 판정 보조 ──
+ * 화면에 나오는 것은 세 종류이고 서로 다른 딱지를 붙인다.
+ *   [AI 정리본]  AI가 시나리오를 읽고 만든 정리 (원문 그대로가 아니다). 키퍼가 고친 항목은 [키퍼가 고침]
+ *   [원문 그대로] 올린 자료에서 글자 그대로 잘라 온 대목 (파일 이름·쪽 번호 표시)
+ *   [AI 제안]    지금 새로 만든 제안 ("AI 제안도 받기"를 눌렀을 때만) */
 function kvRoll(box){
   const kb = K.d.kb, f = K.rollF || (K.rollF = { skill: '', level: '성공', place: '', text: '', full: false });
   const pubP = ((data && data.notes && data.notes.places) || []).map(x => x.name);
@@ -1630,87 +1692,174 @@ function kvRoll(box){
   g.append(kWrap('기술', kInput(f.skill, '예: 자료조사', v => { f.skill = v.trim(); }, 'klSkill2')), kWrap('결과', kSelect(f.level, LEVELS, v => { f.level = v; })),
     kWrap('장소 (선택)', kInput(f.place, '예: 서재', v => { f.place = v.trim(); }, 'klPlace2')), kWrap('상황 메모 (선택, AI 제안에 쓰여요)', kInput(f.text, '예: 책장을 뒤진다', v => { f.text = v; })));
   box.append(g);
-  const row = el('div', 'row'); row.style.margin = '12px 0'; const b1 = el('button', 'pri', '시나리오에서 찾기'); const b2 = el('button', '', 'AI 제안도 받기 (10~30초)'); const msg = el('span', 'note');
-  const run = async (btn, ai) => { const r = await kDo(btn, ai ? 'AI가 생각하는 중…' : '찾는 중…', { action: 'kRoll', skill: f.skill, level: f.level, place: f.place, text: f.text, ai, full: f.full }, msg); if (r.ok) { K.rollR = Object.assign({ skill: f.skill }, r); kRender(); } };
+  const row = el('div', 'row'); row.style.margin = '12px 0 4px'; const b1 = el('button', 'pri', '시나리오에서 찾기 (AI 호출 0번)'); const b2 = el('button', '', 'AI 제안도 받기 (AI 호출 1번)'); const msg = el('span', 'note');
+  const run = async (btn, ai) => { const r = await kDo(btn, ai ? 'AI가 생각하는 중…' : '찾는 중…', { action: 'kRoll', skill: f.skill, level: f.level, place: f.place, text: f.text, ai, full: ai && f.full }, msg); if (r.ok) { K.rollR = Object.assign({ skill: f.skill, place: f.place }, r); kRender(); } };
   b1.onclick = () => run(b1, false); b2.onclick = () => run(b2, true);
-  row.append(b1, b2, msg); box.append(row);
-  const r = K.rollR; if (!r) { box.append(el('div', 'note', '먼저 시나리오에 적힌 내용을 보여 주고, 시나리오에 없을 때만 AI 제안(표시가 붙어요)을 참고하세요.')); return; }
-  box.append(kH('시나리오에 적힌 판정 · ' + r.skill + (r.level ? ' · ' + r.level : '')));
+  const fullCk = kCheck(f.full, 'AI 제안에 진상 전체 포함', v => { f.full = v; }); fullCk.id = 'kRollFull';
+  row.append(b1, b2, fullCk, msg); box.append(row);
+  box.append(el('div', 'ksent', '"시나리오에서 찾기"는 정리본과 올린 원문에서 찾기만 하고 AI에는 아무것도 보내지 않아요. "AI 제안도 받기"는 찾은 판정·원문 대목, 장소와 이름이 겹치는 관계 자료, 방금 대화 20줄을 보내요. "사건의 진상" 글 전체는 위 칸을 켰을 때만 함께 보내요.'));
+  const r = K.rollR; if (!r) { box.append(el('div', 'note', '먼저 시나리오에 적힌 내용을 확인하고, 시나리오에 없을 때만 AI 제안을 참고하세요.')); return; }
+  const srcTag = (cls, t) => el('span', 'ksrc ' + cls, t);
+
+  // ① AI 정리본
+  const h1 = kH('정리본의 판정 · ' + r.skill + (r.level ? ' · ' + r.level : ''), 'AI가 시나리오를 읽고 정리한 것이에요. 원문 그대로가 아니니 중요한 판정은 아래 원문도 확인하세요'); box.append(h1);
+  if (r.otherPlace) {
+    const places = uniq(r.written.map(w => w.where || '(장소가 적혀 있지 않음)'));
+    const w = el('div', 'kwarn2'); w.id = 'kOtherPlace';
+    w.append(el('b', '', '⚠ "' + r.place + '"에서 하는 ' + r.skill + ' 판정은 정리본에 없어요. '), '아래는 다른 장소의 같은 기술 판정이에요: ', el('b', '', places.join(', ')), '. 이 장소에 그대로 쓰지 마세요.');
+    box.append(w);
+  }
   if (!r.written.length) box.append(kEmpty('정리본에는 이 판정이 없어요.'));
   r.written.forEach(w => {
-    const c = el('div', 'kcard'); c.append(el('b', 'ttl', (w.where ? w.where + ' · ' : '') + w.skill));
-    if (w.otherPlace) c.append(el('span', 'tag', '다른 장소의 같은 기술'));
+    const c = el('div', 'kcard'); const head = el('div');
+    head.append(w.locked ? srcTag('hand', '키퍼가 고침') : srcTag('digest', 'AI 정리본'));
+    if (w.otherPlace) { const t = el('b', 'ttl kerr', '다른 장소: ' + (w.where || '(장소 미상)')); head.append(t, ' · ' + w.skill); }
+    else head.append(el('b', 'ttl', (w.where ? w.where + ' · ' : '') + w.skill));
+    c.append(head);
     const tb = el('table', 'rtable'); const hit = LEVEL_FIELD[r.level];
     [['success', '성공'], ['hard', '어려운 성공'], ['extreme', '극단적 성공·대성공'], ['fail', '실패'], ['fumble', '대실패']].forEach(([k, l]) => { if (!w[k]) return; const tr = el('tr', k === hit ? 'hit' : ''); tr.append(el('th', '', l), el('td', '', w[k])); tb.append(tr); });
     if (tb.children.length) c.append(tb); else c.append(el('div', 'note', '결과별 내용은 적혀 있지 않아요'));
-    if (hit && !w[hit] && tb.children.length) c.append(el('div', 'note', '이 결과(' + r.level + ')에 해당하는 칸은 시나리오에 없어요.'));
+    if (hit && !w[hit] && tb.children.length) c.append(el('div', 'note', '이 결과(' + r.level + ')에 해당하는 칸은 정리본에 없어요.'));
     box.append(c);
   });
-  box.append(kH('원문에서 찾은 대목', r.excerpts.length ? '기술 이름이 나오는 곳' : ''));
+
+  // ② 원문 그대로
+  box.append(kH('원문 그대로', r.excerpts.length ? '올린 자료에서 "' + r.skill + '"이(가) 나오는 대목을 글자 그대로 잘라 온 것' : ''));
   if (!r.excerpts.length) box.append(kEmpty('올린 원문에 "' + r.skill + '"이(가) 나오는 곳이 없어요.'));
-  r.excerpts.forEach(e => { const c = el('div', 'kcard'); c.append(el('div', 'note', e.source + ' · 조각 ' + e.n)); const t = el('div', 'kv2', e.text); c.append(t); box.append(c); });
+  r.excerpts.forEach(e => {
+    const c = el('div', 'kcard'); const head = el('div', 'note');
+    head.append(srcTag('raw', '원문 그대로'), '📄 ' + e.source + ' · ' + (e.page != null ? 'PDF의 ' + e.page + '번째 쪽' : '쪽 번호 정보 없음') + ' · 조각 ' + (e.part != null ? e.part : e.n));
+    if (r.place) head.append(' · ' + (e.place === 'near' ? '"' + r.place + '"이(가) 같은 대목에 나옴' : e.place === 'part' ? '"' + r.place + '"은(는) 같은 조각의 다른 곳에만 나옴' : '⚠ "' + r.place + '"이(가) 근처에 없음 (다른 장소의 판정일 수 있어요)'));
+    c.append(head); const t = el('div', 'kv2', e.text); c.append(t); box.append(c);
+  });
+
+  // ③ AI 제안
   if (r.ai) {
-    box.append(kH('AI 제안', r.ai.basis === 'scenario' ? '시나리오 내용을 바탕으로 정리' : ''));
-    const c = el('div', 'kcard sec');
+    box.append(kH('AI 제안', '방금 새로 만든 것이에요 (시나리오에 적힌 글이 아님)'));
+    const c = el('div', 'kcard sec'); const head = el('div');
+    head.append(srcTag('ai', 'AI 제안'), el('span', 'note', r.ai.basis === 'scenario' ? '위 정리본·원문의 판정 결과를 따라 정리했다고 AI가 표시함' : '시나리오에 해당 판정이 없어서 AI가 새로 제안함'));
+    c.append(head);
     if (r.ai.basis !== 'scenario') { const w = el('div', 'note kerr', '⚠ 시나리오에 없어서 AI가 제안한 내용이에요. 그대로 쓰기 전에 진상과 맞는지 확인하세요.'); c.append(w); }
     kKV(c, '줄 정보', r.ai.give); kKV(c, '읽어 줄 묘사', r.ai.flavor); kKV(c, '아직 주지 말 것', r.ai.hold); kKV(c, '실패했을 때 다른 길', r.ai.alt);
     box.append(c);
   }
+  if (r.sent) box.append(el('div', 'ksent', r.sent.ai ? '이 제안을 만들 때 AI에 보낸 것: 정리본 판정 ' + r.sent.written + '개 · 원문 대목 ' + r.sent.excerpts + '개 · 관계 자료 ' + r.sent.related + '개 · 진상 전체 ' + (r.sent.full ? '포함' : '미포함') : '이번에는 AI를 부르지 않았어요 (보낸 자료 없음).'));
 }
 
 /* ── 시나리오 자료 ── */
-// PDF 읽기 도구(pdf.js)는 PDF를 올릴 때만 불러온다. 파일이 바뀌면 실행되지 않도록 해시(integrity)를 고정해 둔다.
-const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
-const PDFJS_SRI = 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e';
-const PDFJS_WORKER_SRI = 'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2';
+/* PDF 읽기 도구(pdf.js)는 PDF를 올릴 때만 불러온다.
+ *  - 버전 4.10.38을 쓴다. 3.11.174는 조작된 PDF로 스크립트가 실행될 수 있는 결함(CVE-2024-4367, 4.2.67에서 고쳐짐) 범위에 있었다.
+ *    5.6.83~6.2.107은 다른 결함(CVE-2026-16633) 범위라서 고르지 않았다.
+ *  - 본체와 작업용 스크립트(같은 버전)를 해시(integrity)를 확인하며 받아서, 이 페이지 안의 주소(blob)로 실행한다. 파일이 바뀌어 있으면 실행되지 않는다.
+ *  - 넓은 범위의 브라우저에서 돌도록 legacy 빌드를 쓴다. 글꼴 속 코드를 실행하는 기능은 끈다(isEvalSupported:false).
+ *  - 한글 글자표(cmaps)와 기본 글꼴(standard_fonts)은 같은 버전 폴더에서 필요할 때 받는다 (실행되는 코드가 아니라 자료 파일). */
+const PDFJS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/';
+const PDFJS_SRI = 'sha384-z/XbAtvhBXJoK+yvYimnFuTCF6/2wTCDSIFD09/HtIfwFtvDKOMdAe5Z3wOChkmW';          // legacy/build/pdf.min.mjs
+const PDFJS_WORKER_SRI = 'sha384-vbNBYP03jHFPlgtK4qSXtazEmGfmpTWlSsfq9OiU20MroW/Q9TbaEXiM7PpeWg+6';   // legacy/build/pdf.worker.min.mjs
 let pdfReady = null;
 function loadPdfJs(){
   return pdfReady || (pdfReady = (async () => {
     try {
-      await new Promise((res, rej) => {
-        const s = document.createElement('script'); s.src = PDFJS + 'build/pdf.min.js'; s.integrity = PDFJS_SRI; s.crossOrigin = 'anonymous';
-        s.onload = res; s.onerror = () => rej(new Error('PDF 읽기 도구를 불러오지 못했어요 (인터넷 연결 확인)'));
-        document.head.append(s);
-      });
-      // 작업용 스크립트도 해시를 확인한 뒤 이 페이지 안의 주소(blob)로 돌린다
-      const w = await fetch(PDFJS + 'build/pdf.worker.min.js', { integrity: PDFJS_WORKER_SRI });
-      if (!w.ok) throw new Error('PDF 읽기 도구를 불러오지 못했어요');
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([await w.text()], { type: 'application/javascript' }));
-      return window.pdfjsLib;
+      const grab = async (path, sri) => {
+        let r;
+        try { r = await fetch(PDFJS + path, { integrity: sri, mode: 'cors', credentials: 'omit' }); }
+        catch (e) { throw new Error('PDF 읽기 도구를 불러오지 못했어요 (인터넷 연결을 확인해 주세요. 받은 파일이 정해 둔 것과 다를 때도 이 오류가 나요)'); }
+        if (!r.ok) throw new Error('PDF 읽기 도구를 불러오지 못했어요 (' + r.status + ')');
+        return URL.createObjectURL(new Blob([await r.arrayBuffer()], { type: 'text/javascript' }));
+      };
+      const urls = await Promise.all([grab('legacy/build/pdf.min.mjs', PDFJS_SRI), grab('legacy/build/pdf.worker.min.mjs', PDFJS_WORKER_SRI)]);
+      const lib = await import(urls[0]);
+      if (lib.version !== '4.10.38') throw new Error('PDF 읽기 도구의 버전이 예상과 달라요 (' + lib.version + ')');
+      lib.GlobalWorkerOptions.workerSrc = urls[1];
+      return lib;
     } catch (e) { pdfReady = null; throw e; }
   })());
 }
-// PDF에서 글자를 뽑는다 (이 기기 안에서만 처리). 글자가 거의 없으면 스캔본으로 본다.
+/* PDF에서 글자를 뽑는다 (이 기기 안에서만 처리).
+ * 쪽마다 따로 본다: 글자가 거의 없는데(빈칸 빼고 40자 미만) 그림이 있는 쪽 = "그림 쪽"(scan). 글자 쪽과 그림 쪽이 섞인 PDF도 쪽별로 나뉜다. */
 async function pdfExtract(file, prog){
   const lib = await loadPdfJs();
-  const doc = await lib.getDocument({ data: await file.arrayBuffer(), cMapUrl: PDFJS + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS + 'standard_fonts/' }).promise;
+  const doc = await lib.getDocument({ data: await file.arrayBuffer(), cMapUrl: PDFJS + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS + 'standard_fonts/', isEvalSupported: false, enableXfa: false }).promise;
+  const IMG = ['paintImageXObject', 'paintInlineImageXObject', 'paintImageXObjectRepeat', 'paintImageMaskXObject', 'paintJpegXObject'].map(k => lib.OPS[k]).filter(x => x != null);
   const pages = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i), tc = await page.getTextContent();
     let s = '';
     tc.items.forEach(it => { if (typeof it.str !== 'string') return; s += it.str; if (it.hasEOL) s += '\n'; });
-    pages.push(s.replace(/[ \t]+\n/g, '\n').trim());
+    s = s.replace(/[ \t]+\n/g, '\n').trim();
+    const chars = s.replace(/\s/g, '').length;
+    let image = false;
+    if (chars < 40) { try { const ops = await page.getOperatorList(); image = ops.fnArray.some(fn => IMG.indexOf(fn) >= 0); } catch (e) { image = true; } }
+    pages.push({ n: i, text: s, chars, scan: chars < 40 && image });
     prog('PDF 읽는 중 ' + i + '/' + doc.numPages + '쪽');
   }
-  const chars = pages.reduce((a, p) => a + p.replace(/\s/g, '').length, 0);
-  return { doc, pages, scanned: chars < doc.numPages * 40 };
+  return { doc, pages };
 }
-async function pdfOcr(doc, prog){
-  const pages = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    if (K.stop) throw new Error('멈췄어요');
-    prog('스캔 쪽을 AI가 읽는 중 ' + i + '/' + doc.numPages + '쪽 (쪽당 20~40초)');
-    const page = await doc.getPage(i), v0 = page.getViewport({ scale: 1 });
-    const vp = page.getViewport({ scale: Math.min(2, 1500 / Math.max(v0.width, v0.height)) });
-    const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
-    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
-    const r = await kpost({ action: 'kOcr', data: cv.toDataURL('image/jpeg', 0.8).split(',')[1], mime: 'image/jpeg' });
-    if (!r.ok) throw new Error(r.error || (i + '쪽을 읽지 못했어요'));
-    pages.push(r.text || '');
+async function pdfCanvas(doc, n, maxSide){
+  const page = await doc.getPage(n), v0 = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: Math.min(2, maxSide / Math.max(v0.width, v0.height)) });
+  const cv = document.createElement('canvas'); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+  await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+  return cv;
+}
+// 고른 쪽만 그림으로 AI에게 보내 글자로 옮긴다 (쪽마다 AI 호출 1번). 중간에 멈추거나 실패해도 그때까지 읽은 쪽은 돌려준다.
+async function pdfOcrPages(doc, nums, prog){
+  const got = {}, failed = []; let calls = 0, error = '';
+  for (let k = 0; k < nums.length; k++) {
+    const n = nums[k];
+    if (K.stop || !cfg.kt) { failed.push(...nums.slice(k)); error = '멈춤'; break; }
+    prog('그림 쪽을 AI가 읽는 중 ' + (k + 1) + '/' + nums.length + ' (' + n + '쪽)');
+    let r = null;
+    try {
+      const cv = await pdfCanvas(doc, n, 1500), data = cv.toDataURL('image/jpeg', 0.8).split(',')[1];
+      for (let t = 0; t < 2; t++) {                        // 한 번은 다시 해 본다
+        calls++;
+        try { r = await kpost({ action: 'kOcr', data, mime: 'image/jpeg' }); } catch (e) { r = { ok: false, error: '응답을 받지 못했어요' }; }
+        if (r.ok || r.kexp || r.stale) break;
+        await sleep(3000);
+      }
+    } catch (e) { r = { ok: false, error: e.message }; }
+    if (r && r.ok) { got[n] = r.text || ''; continue; }
+    error = (r && r.error) || '읽기 실패';
+    failed.push(...nums.slice(k)); break;                  // 같은 까닭으로 계속 실패할 테니 여기서 그친다 (읽은 쪽은 남긴다)
   }
-  return pages;
+  return { got, failed, calls, error };
 }
-// 문단 경계를 살려서 max 글자 이하 조각으로 나눈다
+const rangeText = a => { const out = []; let i = 0; while (i < a.length) { let j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++; out.push(j > i ? a[i] + '~' + a[j] : String(a[i])); i = j + 1; } return out.join(', '); };
+/* 그림 쪽을 어떻게 할지 묻는 창. 돌려주는 값: 읽을 쪽 번호 목록 / [] (그림 쪽은 빼고 글자만) / null (이 파일 건너뛰기) */
+function kAskPages(name, r, cand){
+  return new Promise(res => {
+    const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
+    const textN = r.pages.filter(p => !p.scan && p.chars > 0).length;
+    m.append(el('h3', '', '그림으로 된 쪽이 있어요'));
+    const info = el('div', 'note'); info.id = 'kPgInfo';
+    info.textContent = '"' + name + '" · 전체 ' + r.pages.length + '쪽 가운데 글자를 뽑은 쪽 ' + textN + '쪽, 글자가 거의 없고 그림만 있는 쪽 ' + cand.length + '쪽 (' + rangeText(cand.map(p => p.n)) + '쪽).';
+    m.append(info, el('div', 'note', '체크한 쪽만 AI가 그림으로 읽어요. 쪽마다 AI 호출이 1번씩 들고 그만큼 시간과 비용이 들어요. 체크하지 않은 그림 쪽은 올리지 않아요. 글자 쪽은 어느 쪽을 고르든 그대로 올려요.'));
+    const grid = el('div', 'pgrid'), boxes = [];
+    const go = el('button', 'pri'); go.id = 'kPgGo';
+    const upd = () => { const n = boxes.filter(b => b.checked).length; go.textContent = '체크한 ' + n + '쪽을 AI로 읽고 올리기 (AI 호출 ' + n + '번)'; go.disabled = !n; };
+    cand.forEach(p => {
+      const l = el('label', 'pg'), cb = el('input'); cb.type = 'checkbox'; cb.checked = true; cb.dataset.n = p.n; cb.onchange = upd;
+      const ph = el('canvas'); ph.width = 92; ph.height = 120; l.append(ph, cb, el('span', '', p.n + '쪽')); grid.append(l); boxes.push(cb);
+      pdfCanvas(r.doc, p.n, 220).then(cv => { if (ph.isConnected) ph.replaceWith(cv); }).catch(() => {});
+    });
+    m.append(grid);
+    const pick = el('div', 'row'); const all = el('button', 'icon', '모두 체크'), none = el('button', 'icon', '모두 풀기');
+    all.onclick = () => { boxes.forEach(b => { b.checked = true; }); upd(); }; none.onclick = () => { boxes.forEach(b => { b.checked = false; }); upd(); };
+    pick.append(all, none); m.append(pick);
+    const row = el('div', 'row'); row.style.marginTop = '14px';
+    const txt = el('button', '', '그림 쪽은 빼고 글자 쪽만 올리기 (AI 호출 0번)'); txt.id = 'kPgText';
+    const skip = el('button', '', '이 파일 건너뛰기'); skip.id = 'kPgSkip';
+    const done = v => { modalOnClose = null; closeModal(); res(v); };
+    go.onclick = () => done(boxes.filter(b => b.checked).map(b => Number(b.dataset.n)));
+    txt.onclick = () => done([]); skip.onclick = () => done(null);
+    row.append(go, txt, skip); m.append(row); upd();
+    modalOnClose = () => res(null);                        // 창 바깥을 눌러 닫으면 이 파일은 건너뛴다
+    $('modal').classList.remove('hide');
+  });
+}
+const PAGE_MARK = /⟦(\d+)쪽(?: 이어짐)?⟧/g;
+// 문단 경계를 살려서 max 글자 이하 조각으로 나눈다. 조각이 쪽 중간에서 시작하면 앞에 ⟦N쪽 이어짐⟧을 붙여 쪽 번호를 잇는다.
 function chunkText(text, max){
   const out = []; let cur = '';
   String(text).replace(/\r/g, '').split(/\n{2,}/).forEach(par => {
@@ -1725,27 +1874,44 @@ function chunkText(text, max){
     cur += (cur ? '\n\n' : '') + par;
   });
   if (cur) out.push(cur);
-  return out;
+  let last = null;
+  return out.map(c => {
+    const head = last != null && !/^⟦\d+쪽/.test(c) ? '⟦' + last + '쪽 이어짐⟧\n' : '';
+    let m; const re = new RegExp(PAGE_MARK.source, 'g'); while ((m = re.exec(c))) last = m[1];
+    return head + c;
+  });
 }
 function kProg(text, err){ const p = $('kProgTxt'); if (p) { p.textContent = text; p.className = 'note' + (err ? ' kerr' : ''); } const bar = $('kProgBar'); if (bar && K.d && K.d.chunks) bar.style.width = Math.round((K.d.chunks - K.d.pending) / K.d.chunks * 100) + '%'; }
 async function kUpload(fileInput){
   const f = K.kbF, files = [...fileInput.files], pasted = f.paste.trim(), label = f.source.trim();
   if (!files.length && !pasted) { kProg('파일을 고르거나 글을 붙여 넣어 주세요', true); return; }
-  K.stop = false; const jobs = [];
+  K.stop = false; K.uploading = true; K.upNote = '';
+  const jobs = [], notes = [], gen = K.gen; let ocrCalls = 0;      // gen: 올리기를 시작할 때의 자료 번호 (도중에 전체 지우기가 있었으면 서버가 받지 않는다)
+  const stopBtn = $('kUpStop'); if (stopBtn) { stopBtn.classList.remove('hide'); stopBtn.disabled = false; stopBtn.textContent = '멈추기'; }
   try {
     if (pasted) jobs.push({ source: label || '붙여 넣은 글', text: pasted });
     for (const file of files) {
       let text;
       if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
         const r = await pdfExtract(file, kProg);
-        let pages = r.pages;
-        if (r.scanned) {
-          if (!confirm('"' + file.name + '"은(는) 글자가 없는 스캔 PDF 같아요.\n쪽마다 그림으로 AI가 읽게 할까요? (' + r.doc.numPages + '쪽, 쪽당 20~40초, AI 비용이 더 들어요)\n\n취소를 누르면 이 파일은 건너뛰어요.')) continue;
-          pages = await pdfOcr(r.doc, kProg);
+        const cand = r.pages.filter(p => p.scan); let got = {};
+        if (cand.length) {
+          kProg('"' + file.name + '": 그림 쪽 ' + cand.length + '쪽을 어떻게 할지 골라 주세요');
+          const pick = await kAskPages(file.name, r, cand);
+          if (pick === null) { notes.push('"' + file.name + '"은(는) 건너뛰었어요'); continue; }
+          if (pick.length) {
+            const o = await pdfOcrPages(r.doc, pick, kProg); got = o.got; ocrCalls += o.calls;
+            if (o.failed.length) notes.push('"' + file.name + '": 그림 쪽 가운데 ' + rangeText(o.failed) + '쪽은 읽지 못해서 빠졌어요 (' + o.error + '). 글자 쪽과 이미 읽은 쪽은 올렸어요');
+          }
+          const left = cand.map(p => p.n).filter(n => pick.indexOf(n) < 0);
+          if (left.length) notes.push('"' + file.name + '": 체크하지 않은 그림 쪽 ' + rangeText(left) + '쪽은 올리지 않았어요');
         }
-        text = pages.map((p, i) => '[' + (i + 1) + '쪽]\n' + p).join('\n\n');
+        // 원래 쪽 순서대로 합친다. 쪽마다 ⟦N쪽⟧ 표시를 붙여서 나중에 원문 대목 옆에 쪽 번호를 보여 줄 수 있게 한다.
+        text = r.pages.map(p => { const t = String(got[p.n] != null ? got[p.n] : p.text).trim(); return t ? '⟦' + p.n + '쪽⟧\n' + t : ''; }).filter(Boolean).join('\n\n');
+        try { r.doc.destroy(); } catch (_) {}
+        if (!text.trim()) { notes.push('"' + file.name + '"에서 올릴 글자가 없었어요'); continue; }
       } else if (/\.(txt|md|text)$/i.test(file.name) || /^text\//.test(file.type)) text = await file.text();
-      else { toast('"' + file.name + '"은(는) 읽을 수 없는 형식이에요. PDF·TXT로 바꾸거나 내용을 붙여 넣어 주세요'); continue; }
+      else { toast('"' + file.name + '"은(는) 읽을 수 없는 형식이에요. PDF·TXT로 바꾸거나 내용을 붙여 넣어 주세요'); notes.push('"' + file.name + '"은(는) 읽을 수 없는 형식이라 건너뛰었어요'); continue; }
       if (text.trim()) jobs.push({ source: files.length === 1 && label && !pasted ? label : file.name, text });
     }
     let added = 0;
@@ -1753,47 +1919,60 @@ async function kUpload(fileInput){
       const parts = chunkText(job.text, 7000);
       for (let i = 0; i < parts.length; i += 6) {
         kProg('"' + job.source + '" 올리는 중 ' + Math.min(parts.length, i + 6) + '/' + parts.length + '조각');
-        const r = await kpost({ action: 'kSrcAdd', source: job.source, parts: parts.slice(i, i + 6) });
+        const r = await kpost({ action: 'kSrcAdd', source: job.source, parts: parts.slice(i, i + 6), gen });
         if (!r.ok) throw new Error(r.error || '올리기 실패');
         added += r.added;
       }
     }
-    if (!added) { kProg('올릴 내용이 없었어요', true); return; }
+    if (ocrCalls) notes.push('그림 쪽 읽기에 AI 호출 ' + ocrCalls + '번');
+    K.upNote = notes.join(' · ');
+    if (!added) { kProg('올릴 내용이 없었어요' + (K.upNote ? ' · ' + K.upNote : ''), true); return; }
     f.paste = ''; f.source = ''; fileInput.value = '';
+    const stopped = K.stop;
+    K.uploading = false;
     await kLoad();
-    kDigestLoop();
+    if (stopped) { K.digestErr = '멈췄어요. 올린 원문 ' + added + '조각은 남아 있어요. "남은 조각 이어서 정리"를 누르면 AI 정리를 시작해요'; kRender(); }
+    else kDigestLoop();
   } catch (e) { kProg('실패: ' + e.message, true); }
+  finally { K.uploading = false; if ($('kUpStop')) $('kUpStop').classList.add('hide'); }
 }
-// 정리 안 된 조각이 없어질 때까지 한 조각씩 AI에게 맡긴다 (조각당 20~40초). 창을 닫아도 다음에 이어서 할 수 있다.
+/* 정리 안 된 조각이 없어질 때까지 한 조각씩 AI에게 맡긴다 (조각마다 AI 호출 1번, 답이 끊기면 조각을 나눠 더 부른다).
+ * 창을 닫아도 원문은 남아 있어서 다음에 이어서 할 수 있다. 서버가 알려 준 실패 종류에 따라 기다리거나 멈춘다. */
 async function kDigestLoop(){
   if (K.digesting) return;
-  K.digesting = true; K.stop = false; K.digestErr = ''; let errs = 0;
+  K.digesting = true; K.stop = false; K.digestErr = ''; let errs = 0, calls = 0, splits = 0, skipped = 0;
   kRender();
   while (!K.stop && cfg.kt) {
-    kProg('AI가 읽고 정리하는 중… ' + (K.d.chunks - K.d.pending) + '/' + K.d.chunks + '조각 (조각당 20~40초)');
+    kProg('AI가 읽고 정리하는 중… ' + (K.d.chunks - K.d.pending) + '/' + K.d.chunks + '조각 · 이번에 AI 호출 ' + calls + '번' + (splits ? ' (조각 나눔 ' + splits + '번)' : ''));
     let r;
-    try { r = await kpost({ action: 'kDigest' }); } catch (e) { r = { ok: false, retry: true, error: e.message }; }
+    try { r = await kpost({ action: 'kDigest' }); } catch (e) { r = { ok: false, retry: true, wait: 3000, error: '응답을 받지 못했어요 (' + e.message + ')' }; }
     if (!r.ok) {
-      if (r.kexp) break;
-      if (r.retry && ++errs <= 4) { kProg(r.error + ' (다시 시도 ' + errs + ')', true); await sleep(1500); continue; }
-      K.digestErr = r.error || '정리 실패'; break;
+      if (r.kexp || r.late) break;
+      if (r.stale) { K.digestErr = r.error; break; }
+      calls++;
+      if (r.split) { splits++; errs = 0; kProg(r.error, true); await sleep(800); continue; }
+      if (r.retry && ++errs <= 4) { kProg(r.error + ' · ' + Math.round((r.wait || 1500) / 1000) + '초 뒤 다시 시도 (' + errs + '/4)', true); await sleep(r.wait || 1500); continue; }
+      K.digestErr = (r.error || '정리 실패') + (r.retry ? ' · 여러 번 다시 해도 안 돼서 멈췄어요. 잠시 뒤 "남은 조각 이어서 정리"를 눌러 주세요' : ''); break;
     }
+    if (r.ai) calls++;
+    if (r.skipped) skipped++;
     errs = 0; K.d.pending = r.left; K.d.chunks = r.total;
     if (!r.left) break;
   }
   K.digesting = false;
+  if (calls && !K.digestErr) K.upNote = (K.upNote ? K.upNote + ' · ' : '') + '정리에 AI 호출 ' + calls + '번' + (splits ? ' (답이 끊겨 조각을 ' + splits + '번 나눔)' : '') + (skipped ? ' · 정리 중 지워진 조각 ' + skipped + '개의 결과는 버림' : '');
   if (cfg.kt) await kLoad();
 }
 function kbEdit(sec, item){
   const def = KSEC[sec], extra = [];
   if (item && item.id) {
     const del = el('button', 'danger', '삭제'); del.dataset.label = '삭제';
-    twoStep(del, async () => { const r = await kpost({ action: 'kKbDelete', sec, id: item.id }); if (r.ok) { closeModal(); kLoad(); } else toast(r.error); });
+    twoStep(del, async () => { const r = await kpost({ action: 'kKbDelete', sec, id: item.id, gen: K.gen }); if (r.ok) { closeModal(); kLoad(); } else toast(r.error); });
     extra.push(del);
-    if (item.locked) { const un = el('button', '', 'AI가 보강해도 됨'); un.onclick = async () => { const r = await kpost({ action: 'kKbUnlock', sec, id: item.id }); if (r.ok) { closeModal(); kLoad(); } }; extra.push(un); }
+    if (item.locked) { const un = el('button', '', 'AI가 보강해도 됨'); un.onclick = async () => { const r = await kpost({ action: 'kKbUnlock', sec, id: item.id, gen: K.gen }); if (r.ok) { closeModal(); kLoad(); } else toast(r.error); }; extra.push(un); }
   }
   const vals = Object.assign({}, item || {}); if (sec === 'clues') vals.core = item ? (item.core ? '예' : '아니오') : '예';
-  openForm((item ? '고치기 · ' : '추가 · ') + def.title, def.fields, vals, v => kpost({ action: 'kKbSave', sec, item: Object.assign({}, v, { id: item && item.id }) }),
+  openForm((item ? '고치기 · ' : '추가 · ') + def.title, def.fields, vals, v => kpost({ action: 'kKbSave', sec, item: Object.assign({}, v, { id: item && item.id }), gen: K.gen }),
     { extra, hint: '저장하면 🔒 키퍼가 확정한 항목이 되어, 자료를 더 올려도 AI가 바꾸지 않아요.', after: () => kLoad() });
 }
 function kvKb(box){
@@ -1806,8 +1985,10 @@ function kvKb(box){
     kWrap('또는 글 붙여 넣기', kArea(f.paste, 4, '진상, NPC 설정, 직접 쓴 메모 등을 그대로 붙여 넣어도 돼요', v => { f.paste = v; }), 'wide'));
   up.append(g);
   const row = el('div', 'row'); row.style.marginTop = '10px';
-  const ub = el('button', 'pri', '올리고 정리 시작'); ub.id = 'kUpBtn'; ub.disabled = K.digesting; ub.onclick = async () => { ub.disabled = true; await kUpload(fi); ub.disabled = K.digesting; };
-  row.append(ub);
+  const ub = el('button', 'pri', '올리고 정리 시작'); ub.id = 'kUpBtn'; ub.disabled = K.digesting || K.uploading; ub.onclick = async () => { ub.disabled = true; await kUpload(fi); if ($('kUpBtn')) $('kUpBtn').disabled = K.digesting; };
+  // 올리는 도중에 화면이 다시 그려져도 멈출 수 있게, 올리는 중이면 처음부터 보이게 그린다
+  const us = el('button', K.uploading ? '' : 'hide', '멈추기'); us.id = 'kUpStop'; us.onclick = () => { K.stop = true; us.disabled = true; us.textContent = '지금 하던 쪽까지만 하고 멈춰요'; };
+  row.append(ub, us);
   if (d.pending && !K.digesting) { const cont = el('button', '', '남은 ' + d.pending + '조각 이어서 정리'); cont.onclick = () => kDigestLoop(); row.append(cont); }
   if (K.digesting) { const stop = el('button', '', '멈추기'); stop.onclick = () => { K.stop = true; stop.disabled = true; stop.textContent = '이번 조각까지만 하고 멈춰요'; }; row.append(stop); }
   const pt = el('span', 'note'); pt.id = 'kProgTxt';
@@ -1815,22 +1996,23 @@ function kvKb(box){
   if (K.digestErr) pt.className = 'note kerr';
   row.append(pt); up.append(row);
   if (d.chunks) { const bar = el('div', 'kbar'); const fill = el('i'); fill.id = 'kProgBar'; fill.style.width = Math.round((d.chunks - d.pending) / d.chunks * 100) + '%'; bar.append(fill); up.append(bar); }
-  up.append(el('div', 'note', 'PDF는 이 기기에서 글자만 뽑아 보내고, 원문은 키퍼 구글 시트의 "키퍼원문" 탭에만 저장돼요. AI가 한 조각씩 읽어 아래 정리본을 채워요.'));
+  if (K.upNote) { const un = el('div', 'note', '지난번 올리기: ' + K.upNote); un.id = 'kUpNote'; un.style.marginTop = '6px'; up.append(un); }
+  up.append(el('div', 'note', 'PDF는 이 기기에서 글자만 뽑아 보내고, 원문은 키퍼 구글 시트의 "키퍼원문" 탭에만 저장돼요. AI가 한 조각(7,000자쯤)씩 읽어 아래 정리본을 채워요 (조각마다 AI 호출 1번). 글자가 없는 그림 쪽이 있으면 어느 쪽을 AI로 읽을지 먼저 물어봐요.'));
   box.append(up);
   if (d.sources.length) {
     d.sources.forEach(sx => {
       const c = el('div', 'kcard'); const r2 = el('div', 'row');
       r2.append(el('b', '', '📄 ' + sx.source), el('span', 'note', sx.chunks + '조각 · ' + sx.chars.toLocaleString() + '자' + (sx.pending ? ' · 정리 대기 ' + sx.pending : ' · 정리 끝')), el('span', 'grow'));
       const del = el('button', 'icon', '원문 지우기'); del.dataset.label = '원문 지우기';
-      twoStep(del, async () => { const r = await kpost({ action: 'kSrcDel', source: sx.source }); toast(r.ok ? r.message : r.error); kLoad(); });
+      twoStep(del, async () => { const r = await kpost({ action: 'kSrcDel', source: sx.source }); toast(r.ok ? r.message : r.error); K.rollR = null; kLoad(); });
       r2.append(del); c.append(r2); box.append(c);
     });
   }
 
-  box.append(kH('사건의 진상', 'AI가 조각마다 덧붙인 메모예요. 직접 고쳐도 돼요.'));
+  box.append(kH('사건의 진상', 'AI가 조각마다 덧붙인 메모예요. 직접 고쳐도 돼요. 이 글 전체는 각 도구에서 "진상 전체" 칸을 켰을 때만 AI에 보내요.'));
   const ta = kArea(f.truth != null ? f.truth : kb.truth, 7, '시나리오의 진상·배경·흑막', v => { f.truth = v; });
   const tr = el('div', 'row'); tr.style.marginTop = '8px'; const ts = el('button', 'pri', '진상 저장'); const tp = el('button', '', 'AI로 다듬기 (겹치는 내용 합치기)'); const tm = el('span', 'note');
-  ts.onclick = async () => { const r = await kDo(ts, '저장 중…', { action: 'kKbText', key: 'truth', text: ta.value }, tm); if (r.ok) { f.truth = null; tm.textContent = '저장됨'; kLoad(); } };
+  ts.onclick = async () => { const r = await kDo(ts, '저장 중…', { action: 'kKbText', key: 'truth', text: ta.value, gen: K.gen }, tm); if (r.ok) { f.truth = null; tm.textContent = '저장됨'; kLoad(); } };
   tp.onclick = async () => { if (f.truth != null && f.truth !== kb.truth) { tm.textContent = '고친 내용을 먼저 저장해 주세요'; tm.className = 'note kerr'; return; } const r = await kDo(tp, 'AI가 다듬는 중…', { action: 'kTruthPolish' }, tm); if (r.ok) { f.truth = null; kLoad(); } };
   tr.append(ts, tp, tm); box.append(ta, tr);
 
@@ -1852,12 +2034,12 @@ function kvKb(box){
   box.append(kH('키퍼 메모', '자유롭게 적는 칸 (AI에 보내지 않아요)'));
   const ma = kArea(f.memo != null ? f.memo : kb.memo, 3, '', v => { f.memo = v; });
   const mr = el('div', 'row'); mr.style.marginTop = '8px'; const ms = el('button', '', '메모 저장'); const mm = el('span', 'note');
-  ms.onclick = async () => { const r = await kDo(ms, '저장 중…', { action: 'kKbText', key: 'memo', text: ma.value }, mm); if (r.ok) { f.memo = null; mm.textContent = '저장됨'; } };
+  ms.onclick = async () => { const r = await kDo(ms, '저장 중…', { action: 'kKbText', key: 'memo', text: ma.value, gen: K.gen }, mm); if (r.ok) { f.memo = null; mm.textContent = '저장됨'; } };
   mr.append(ms, mm); box.append(ma, mr);
 
   box.append(kH('지우기'));
   const clr = el('button', 'danger', '시나리오 자료 전체 지우기 (원문 + 정리본)'); clr.dataset.label = '시나리오 자료 전체 지우기 (원문 + 정리본)';
-  twoStep(clr, async () => { K.stop = true; const r = await kpost({ action: 'kKbClear' }); toast(r.ok ? r.message : r.error); K.kbF = null; kLoad(); });
+  twoStep(clr, async () => { K.stop = true; const r = await kpost({ action: 'kKbClear' }); toast(r.ok ? r.message : r.error); K.kbF = null; K.npcR = null; K.rollR = null; K.upNote = ''; kLoad(); });
   box.append(clr, el('div', 'note', '다른 시나리오를 시작할 때 누르세요. 회의록·요약은 설정의 "전체 초기화"에서 따로 지워요.'));
 }
 
@@ -1871,13 +2053,12 @@ function recapCopyText(c){
 }
 function kvRecap(box){
   const d = K.d, pub = d.recap, sess = K.sess;
-  const head = el('div', 'row'); const mk = el('button', 'pri', '카드 만들기 (AI)'); const msg = el('span', 'note');
+  const head = el('div', 'row'); const mk = el('button', 'pri', '카드 만들기 (AI 호출 1번)'); const msg = el('span', 'note');
   head.append(kSessSel(), mk, msg); box.append(head);
-  box.append(el('div', 'note', '이 카드는 공개 기록(요약)만으로 만들어요. 시나리오 자료는 쓰지 않으니 진상이 섞이지 않아요. 고친 뒤 "공개"를 누르면 모두의 요약 탭 맨 위에 보여요.'));
-  if (!K.recapF[sess]) {
-    const draft = (d.recaps || []).find(l => l.session === sess && l.result);
-    K.recapF[sess] = cardToForm(pub && pub.session === sess ? pub : draft ? draft.result : {});
-  }
+  box.append(el('div', 'note', '이 카드는 공개 기록(세션 요약, 플레이어 쪽 단서)만으로 만들어요. 시나리오 자료는 AI에 보내지 않으니 진상이 섞이지 않아요. 고친 뒤 "공개"를 누르면 모두의 요약 탭 맨 위에 보여요.'));
+  // 초안: 서버에 남아 있는, 지금 회의록에서 만든 것. 공개할 때 서버가 이 초안이 지금 회의록의 것인지 확인한다.
+  const draft = (d.recaps || []).find(l => l.session === sess && l.result);
+  if (!K.recapF[sess]) K.recapF[sess] = cardToForm(pub && pub.session === sess ? pub : draft ? draft.result : {});
   const f = K.recapF[sess];
   mk.onclick = async () => { const r = await kDo(mk, 'AI가 정리하는 중… (10~30초)', { action: 'kRecap', session: sess }, msg); if (r.ok) { K.recapF[sess] = cardToForm(r.card); await kLoad(); } };
   const g = el('div', 'kgrid'); g.style.marginTop = '12px';
@@ -1886,13 +2067,16 @@ function kvRecap(box){
     kWrap('우리가 하기로 한 일 (실제로 합의한 것만 · 없으면 비워 두기)', kArea(f.plans, 5, '', v => { f.plans = v; })),
     kWrap('아직 갈린 의견·남은 의문', kArea(f.open, 3, '', v => { f.open = v; }), 'wide'));
   box.append(g, el('div', 'note', '줄 끝의 (#번호)는 근거 발언 표시예요. 그대로 두면 플레이어가 📎를 눌러 원문을 볼 수 있어요.'));
-  const row = el('div', 'row'); row.style.marginTop = '12px'; const pb = el('button', 'pri', '플레이어에게 공개'); const cp = el('button', '', '디스코드용으로 복사'); const m2 = el('span', 'note');
-  pb.onclick = async () => { const r = await kDo(pb, '공개 중…', { action: 'kRecapPublish', card: formToCard(f), session: sess }, m2); if (r.ok) { toast('공개했어요. 요약 탭 맨 위에 보여요'); await kLoad(); refreshData(); } };
+  const row = el('div', 'row'); row.style.marginTop = '12px'; const pb = el('button', 'pri', '플레이어에게 공개'); pb.id = 'kRecapPub'; const cp = el('button', '', '디스코드용으로 복사'); const m2 = el('span', 'note');
+  pb.disabled = !draft;
+  // rv·draftId는 이 초안을 받아 온 때의 값이다 (누르는 순간에 새로 받아 붙이지 않는다) → 그 뒤 회의록이 지워졌으면 서버가 거절한다
+  pb.onclick = async () => { const r = await kDo(pb, '공개 중…', { action: 'kRecapPublish', card: formToCard(f), rv: d.resetVer, draftId: draft.id }, m2); if (r.ok) { toast('공개했어요. 요약 탭 맨 위에 보여요'); await kLoad(); refreshData(); } };
   cp.onclick = () => copyText(cp, recapCopyText(Object.assign({ session: sess }, formToCard(f))));
   row.append(pb, cp);
   if (pub) { const off = el('button', '', '공개 취소'); off.onclick = async () => { const r = await kDo(off, '…', { action: 'kRecapOff' }, m2); if (r.ok) { await kLoad(); refreshData(); } }; row.append(off); }
   row.append(m2, el('span', 'note', pub ? '지금 공개 중: 세션 ' + pub.session + ' 카드 (' + String(pub.at).slice(5, 16) + ')' : '지금 공개된 카드 없음'));
   box.append(row);
+  if (!draft) box.append(el('div', 'note', '공개하려면 먼저 "카드 만들기"로 이 세션의 초안을 만들어 주세요. 공개할 때 서버가 그 초안이 지금 회의록에서 만든 것인지 확인해요.'));
 }
 
 /* ── 통계 그림 (시상식·피드백 공용) ── */
@@ -1907,7 +2091,7 @@ function shareBars(box, st){
 }
 async function kStatsLoad(btn, msg){
   const r = await kDo(btn, '계산 중…', { action: 'kStats', session: K.sess }, msg);
-  if (r.ok) { K.stats[K.sess] = r.stats; K.aw[K.sess] = null; kRender(); }
+  if (r.ok) { K.stats[K.sess] = r.stats; K.statsRv[K.sess] = r.rv; K.aw[K.sess] = null; kRender(); }
 }
 
 /* ── 코코포리아 로그에서 판정만 고르기 (이 기기 안에서 처리) ── */
@@ -2014,20 +2198,39 @@ function kvAwards(box){
     shareBars(box, st);
   }
 
-  // 후보 목록 (통계 + AI)
-  const aiLog = (d.awardsLogs || []).find(l => l.session === sess && l.result);
+  /* 후보 목록 (통계 + AI)
+   *  - AI 후보는 공개 기록만으로 만든다 (서버가 시나리오 자료를 읽지 못하게 막은 채로 AI를 부른다). 후보마다 바뀌지 않는 id가 있다.
+   *  - "진상과 견줘 보기"는 따로 누를 때만, 별도의 AI 호출로 후보별 🔒 키퍼 메모만 받아 온다. 후보의 상 이름·설명은 그 호출로 바뀌지 않는다.
+   *  - 예전 버전이 만든 후보(진상을 함께 보냈을 수 있음)는 공개용으로 쓰지 않고 따로 보여 주기만 한다. */
+  const logs = (d.awardsLogs || []).filter(l => l.session === sess);
+  const aiLog = logs.find(l => !l.legacy), oldLog = aiLog ? null : logs.find(l => l.legacy);
+  const notes = (aiLog && aiLog.notes) || null;
   if (!K.aw[sess]) {
     const list = statAwards(st).map(x => Object.assign({ on: false, src: '통계' }, x));
-    ((aiLog && aiLog.result.highlights) || []).forEach(h => list.push({ on: false, src: 'AI · ' + (h.category || '활약'), title: h.title || h.category, winner: h.player ? (h.character && h.character !== h.player ? h.player + ' (' + h.character + ')' : h.player) : h.character, text: h.text, kNote: h.kNote }));
+    ((aiLog && aiLog.highlights) || []).forEach(h => list.push({ on: false, id: h.id, src: 'AI 후보 · ' + (h.category || '활약'), title: h.title || h.category, winner: h.player ? (h.character && h.character !== h.player ? h.player + ' (' + h.character + ')' : h.player) : h.character, text: h.text }));
     K.aw[sess] = list;
+    K.awMeta[sess] = { rv: K.statsRv[sess] || d.resetVer, draftId: aiLog ? aiLog.id : '' };       // 이 목록을 만든 때의 초기화번호·후보 묶음
   }
   const list = K.aw[sess];
   const h2 = kH('시상 후보', '공개할 것만 체크하고, 이름과 설명은 마음대로 고치세요'); box.append(h2);
-  const arow = el('div', 'row'); const ab = el('button', '', 'AI 활약 장면 후보 받기 (20~40초)'); const am = el('span', 'note');
-  K.awTruth = K.awTruth == null ? true : K.awTruth;
-  arow.append(ab, kCheck(K.awTruth, '진상과 견줘 보기 (결과는 키퍼 메모에만 적혀요)', v => { K.awTruth = v; }), am);
-  ab.onclick = async () => { const r = await kDo(ab, 'AI가 요약을 읽는 중…', { action: 'kAwards', session: sess, useTruth: K.awTruth }, am); if (r.ok) { K.aw[sess] = null; await kLoad(); } };
-  box.append(arow);
+  const arow = el('div', 'row'); const ab = el('button', '', aiLog ? 'AI 활약 장면 후보 다시 받기 (AI 호출 1번)' : 'AI 활약 장면 후보 받기 (AI 호출 1번)'); ab.id = 'kAwGet'; const am = el('span', 'note');
+  arow.append(ab, am);
+  ab.onclick = async () => { const r = await kDo(ab, 'AI가 요약을 읽는 중…', { action: 'kAwards', session: sess }, am); if (r.ok) { K.aw[sess] = null; await kLoad(); } };
+  box.append(arow, el('div', 'ksent', 'AI에 보내는 자료: 이 세션의 요약과 캐릭터 이름뿐이에요. 시나리오 자료(진상·NPC 비밀·원문)와 판정 기록은 보내지 않아요. 그래서 후보 글에는 진상이 들어갈 수 없어요.'));
+  if (aiLog) {
+    const crow = el('div', 'row'); crow.style.marginTop = '8px';
+    const cb2 = el('button', '', notes ? '진상과 다시 견줘 보기 (AI 호출 1번 추가)' : '진상과 견줘 보기 (AI 호출 1번 추가)'); cb2.id = 'kAwCmp'; const cm = el('span', 'note'); cm.id = 'kAwCmpMsg';
+    const hasKb = !!(d.kb.truth || d.kb.clues.length); cb2.disabled = !hasKb;
+    cb2.onclick = async () => { const r = await kDo(cb2, 'AI가 견주는 중…', { action: 'kAwardsCompare', draftId: aiLog.id }, cm); if (r.ok) await kLoad(); else if (!r.stale) { cm.textContent = (r.error || '실패') + ' · 위 후보는 그대로 남아 있어요. 이 버튼만 다시 누르면 돼요'; cm.className = 'note kerr'; } };
+    crow.append(cb2, cm); box.append(crow);
+    box.append(el('div', 'ksent', hasKb ? '기본은 견주지 않아요. 누르면 AI를 한 번 더 불러서 위 후보와 시나리오 자료(진상·핵심 단서)를 함께 보내고, 후보마다 🔒 키퍼 메모만 받아 와요. 후보의 상 이름·받는 사람·설명은 바뀌지 않고, 메모는 공개되지 않아요.' + (notes ? ' (마지막으로 견준 때: ' + String(aiLog.notesAt).slice(5, 16) + ')' : '') : '견줄 시나리오 자료가 아직 없어요.'));
+  }
+  if (oldLog) {
+    const w = el('div', 'kwarn2'); w.id = 'kAwOld';
+    w.append(el('b', '', '예전 버전에서 만든 후보가 남아 있어요' + (oldLog.legacyTruth ? ' (진상을 함께 보낸 AI 호출로 만든 것)' : '') + '. '), '이 후보는 공개용으로 쓰지 않아요. 위의 "AI 활약 장면 후보 받기"로 공개 기록만으로 다시 받아 주세요. 참고용으로만 아래에 보여 드려요.');
+    (oldLog.highlights || []).forEach(h => { const x = el('div', 'note'); x.style.marginTop = '4px'; x.textContent = '· ' + [h.title, h.player, h.text].filter(Boolean).join(' · ') + (h.kNote ? '  🔒 ' + h.kNote : ''); w.append(x); });
+    box.append(w);
+  }
   if (!list.length) box.append(kEmpty('아직 후보가 없어요. 대화가 더 쌓이거나 AI 후보를 받아 보세요.'));
   const cnt = el('span', 'note');
   const upd = () => { cnt.textContent = '선택 ' + list.filter(x => x.on).length + '개'; };
@@ -2040,28 +2243,32 @@ function kvAwards(box){
     const ids = (String(a.text).match(/#(\d+)/g) || []).map(x => x.slice(1));
     if (ids.length) { const ev = el('span', 'ev', '📎 근거 보기'); ev.onclick = () => showEvidence({ ids: ids.join(',') }, a.title + ' · ' + a.winner); meta.append(ev); }
     f.append(meta);
-    if (a.kNote) f.append(el('div', 'note', '🔒 키퍼 메모: ' + a.kNote));
+    if (a.id && notes && notes[a.id]) { const kn = el('div', 'note knote', '🔒 키퍼 메모 (공개되지 않음): ' + notes[a.id]); f.append(kn); }
     r.append(cb, f); box.append(r);
   });
-  const prow = el('div', 'row'); prow.style.marginTop = '14px'; const pb = el('button', 'pri', '선택한 항목 공개'); const pm = el('span', 'note');
+  const prow = el('div', 'row'); prow.style.marginTop = '14px'; const pb = el('button', 'pri', '선택한 항목 공개'); pb.id = 'kAwPub'; const pm = el('span', 'note');
   pb.onclick = async () => {
-    const items = list.filter(x => x.on).map(x => ({ title: x.title, winner: x.winner, text: x.text }));
-    const r = await kDo(pb, '공개 중…', { action: 'kAwardsPublish', session: sess, items }, pm);
+    const meta = K.awMeta[sess] || {};
+    // 보내는 것은 항목마다 id(어느 AI 후보인지)·상 이름·받는 사람·설명뿐이다. 키퍼 메모는 보내지 않는다.
+    const items = list.filter(x => x.on).map(x => ({ id: x.id || '', title: x.title, winner: x.winner, text: x.text }));
+    const r = await kDo(pb, '공개 중…', { action: 'kAwardsPublish', session: sess, items, rv: meta.rv, draftId: meta.draftId }, pm);
     if (r.ok) { toast('시상식 ' + r.count + '개를 공개했어요. 요약 탭 맨 위에 보여요'); await kLoad(); refreshData(); }
   };
   prow.append(pb, cnt); upd();
   if (d.awards) { const off = el('button', '', '공개 취소'); off.onclick = async () => { const r = await kDo(off, '…', { action: 'kAwardsOff' }, pm); if (r.ok) { await kLoad(); refreshData(); } }; prow.append(off); }
   prow.append(pm, el('span', 'note', d.awards ? '지금 공개 중: 세션 ' + d.awards.session + ' 시상식 ' + d.awards.items.length + '개' : '지금 공개된 시상식 없음'));
-  box.append(prow, el('div', 'note', '공개 전에 설명에 아직 밝혀지지 않은 진상이 들어 있지 않은지 한 번 읽어 보세요. 키퍼 메모는 공개되지 않아요.'));
+  box.append(prow, el('div', 'note', '공개되는 것은 체크한 항목의 상 이름·받는 사람·설명 세 칸뿐이에요. 🔒 키퍼 메모는 서버로 보내지도 저장되지도 않아요. 설명을 직접 고쳤다면 아직 밝혀지지 않은 진상이 비치지 않는지 한 번 읽어 보세요.'));
 }
 
 /* ── 마스터링 피드백 ── */
 function kvFeedback(box){
   const d = K.d, sess = K.sess, st = K.stats[sess], log = (d.feedbacks || []).find(l => l.session === sess && l.result), fb = log && log.result;
-  const head = el('div', 'row'); const calc = el('button', '', st ? '숫자 다시 계산' : '숫자만 보기 (AI 없음)'); const ai = el('button', 'pri', 'AI 피드백 받기 (30~50초)'); const msg = el('span', 'note');
-  head.append(kSessSel(), calc, ai, msg); box.append(head);
+  const head = el('div', 'row'); const calc = el('button', '', st ? '숫자 다시 계산' : '숫자만 보기 (AI 호출 0번)'); const ai = el('button', 'pri', 'AI 피드백 받기 (AI 호출 1번)'); const msg = el('span', 'note');
+  head.append(kSessSel(), calc, ai, kCheck(K.fbFull, '진상 전체도 AI에 보내기', v => { K.fbFull = v; }), msg); box.append(head);
   calc.onclick = () => kStatsLoad(calc, msg);
-  ai.onclick = async () => { const r = await kDo(ai, 'AI가 세션을 돌아보는 중…', { action: 'kFeedback', session: sess }, msg); if (r.ok) { K.stats[sess] = r.stats; await kLoad(); } };
+  ai.onclick = async () => { const r = await kDo(ai, 'AI가 세션을 돌아보는 중…', { action: 'kFeedback', session: sess, full: K.fbFull }, msg); if (r.ok) { K.stats[sess] = r.stats; K.statsRv[sess] = r.rv; await kLoad(); } };
+  box.append(el('div', 'ksent', 'AI에 보내는 자료: 숫자 통계 · 이 세션의 요약 · 정리본의 핵심 단서 ' + d.kb.clues.filter(c => c.core).length + '개 · 장면 제목 ' + d.kb.scenes.length + '개. "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요.' +
+    (fb ? ' · 지금 보이는 피드백을 만들 때: ' + (fb.sent ? '진상 전체 ' + (fb.sent.truth ? '포함' : '미포함') : '예전 버전에서 만든 것이라 진상 전체가 포함됐어요') : '')));
   box.append(el('div', 'note', '키퍼만 보는 화면이에요. 받아쓰기 글자만 보고 하는 분석이라 목소리·분위기는 반영되지 않아요. 숫자는 정확하고, AI 의견은 📎 근거를 눌러 확인하면서 참고하세요.'));
   if (st && !st.empty) {
     box.append(kH('숫자로 본 세션 ' + sess, st.lines + '줄 · ' + Math.floor(st.minutes / 60) + '시간 ' + (st.minutes % 60) + '분 (조용한 구간 뺀 ' + st.activeMinutes + '분)'));
