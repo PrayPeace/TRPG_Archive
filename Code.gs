@@ -4,12 +4,15 @@
  * ※ 이 스프레드시트는 키퍼 구글 계정에만 두세요. 플레이어에게 시트를 공유하면
  *    키퍼 전용 시트(키퍼자료·키퍼원문·키퍼기록·판정기록)가 그대로 보입니다.
  * ※ 방 비밀번호와 키퍼 비밀번호는 반드시 서로 다르게 정하세요. (같으면 키퍼 기능이 잠깁니다)
+ * ※ 키퍼 비밀번호는 10자 이상을 권합니다. 짧아도 동작하지만 화면과 실행 로그에 경고가 나옵니다.
  *
  * 1) 아래 네 줄에 키와 비밀번호를 넣는다. (따옴표 '' 안에)
  * 2) 위쪽 함수 선택에서 setup 을 고르고 ▶실행 (권한 허용).
  *    코드를 새로 붙여 넣었을 때도 setup 을 한 번 실행한다. (기존 기록은 그대로 두고 빠진 칸만 채움)
  * 3) 배포 → 새 배포 → 웹 앱 / 실행: 나 / 액세스: 모든 사용자 → 배포.
  *    코드를 고친 뒤에는 배포 → 배포 관리 → 연필 → 버전: 새 버전 → 배포.
+ * 4) (권장) 함수 선택에서 selfTest 를 고르고 ▶실행 → 실행 로그가 "결과: 모두 PASS"인지 확인한다.
+ *    실제 구글 시트에서 "=1+1" 같은 글이 수식으로 바뀌지 않는지 등을 점검한다. 기존 기록은 건드리지 않는다. (맨 아래 설명 참고)
  ****************************************************************/
 const CLAUDE_KEY   = '여기에_클로드_API_키';
 const DEEPGRAM_KEY = '여기에_딥그램_API_키';
@@ -17,6 +20,7 @@ const ROOM_PW      = '방비밀번호';      // 플레이어 모두가 아는 �
 const KEEPER_PW    = '키퍼비밀번호';    // 키퍼만 아는 비밀번호
 
 const MODEL = 'claude-sonnet-5-5';
+const CODE_VER = '2026-11-19';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 키퍼 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -27,7 +31,7 @@ const SH = {
 const SECTIONS = ['places', 'npcs', 'clues', 'handouts'];
 
 const JOB_TTL = 7 * 60 * 1000;   // AI 작업 표시가 남아 있어도 이 시간이 지나면 끝난 것으로 본다 (스크립트 최대 실행 6분)
-const WINDOW_LINES = 300;        // 요약 한 번에 보내는 최대 줄 수 (넘으면 이어서 다음 구간). AI 답이 약 60초 안에 와야 해서 작게 잡는다
+const WINDOW_LINES = 300;        // 요약 한 번에 보내는 최대 줄 수 (넘으면 이어서 다음 구간). AI 답이 길어지면 늦거나 잘리므로 작게 잡는다
 const STORY_MAX = 3000;          // 누적 줄거리가 이보다 길어지면 AI가 한 번 줄여 쓴다
 const KTOKEN_TTL = 12 * 3600 * 1000;   // 키퍼 로그인 유지 시간
 const K_FAIL_MAX = 20;                 // 10분 안에 비밀번호를 이만큼 틀리면
@@ -38,26 +42,42 @@ const NOTE_CHUNK = 45000;        // 정리 JSON을 셀 하나(5만 자 제한)�
 const HEADERS = {
   '캐릭터기록': ['시각', '세션', '탭', '플레이어', '이름', '체력', '이성', '마력', '행운'],
   '키퍼자료': ['키퍼 정리본 JSON (칸 A) · 키퍼 전용', '키퍼 정리본 JSON (칸 B) · 키퍼 전용'],
-  '키퍼원문': ['조각ID', '출처', '순번', '글자수', '본문', '추가 시각'],
-  '키퍼기록': ['ID', '시각', '초기화번호', '세션', '종류', '제목', '입력', '결과'],
+  '키퍼원문': ['조각ID', '출처', '순번', '글자수', '본문', '추가 시각', '나눈 원래 조각'],
+  '키퍼기록': ['ID', '시각', '초기화번호', '세션', '종류', '제목', '입력', '결과', '자료번호'],
   '판정기록': ['순번', '세션', '이름', '기술', '목표', '값', '결과', '원문']
 };
-// 없으면 만들어서 돌려준다 (코드만 바꾸고 setup을 아직 안 돌린 경우에도 동작하게)
+// 없으면 만들어서 돌려준다 (코드만 바꾸고 setup을 아직 안 돌린 경우에도 동작하게).
+// 예전 버전이 만든 시트라 새로 생긴 칸의 머리글이 비어 있으면 채운다 (기존 내용은 건드리지 않는다).
+const _ensured = {};
 function ensureSheet(name) {
   const ss = SpreadsheetApp.getActive();
   let s = ss.getSheetByName(name);
+  const h = HEADERS[name];
   if (!s) {
     s = ss.insertSheet(name);
-    s.appendRow(HEADERS[name]);
-    s.getRange(1, 1, s.getMaxRows(), HEADERS[name].length).setNumberFormat('@');
+    s.getRange(1, 1, s.getMaxRows(), h.length).setNumberFormat('@');
+    s.getRange(1, 1, 1, h.length).setValues([h]);
+    _ensured[name] = true;
+  } else if (!_ensured[name]) {
+    _ensured[name] = true;
+    const cur = s.getRange(1, 1, 1, h.length).getValues()[0];
+    h.forEach((t, i) => { if (!String(cur[i] || '')) { s.getRange(1, i + 1, s.getMaxRows(), 1).setNumberFormat('@'); s.getRange(1, i + 1).setValue(t); } });
   }
   return s;
 }
-/* 시트에 글자를 쓸 때 수식으로 바뀌지 않게 한다 (이름·대사·로그·AI 답처럼 바깥에서 온 글자에 모두 적용).
- * =, +, @ 로 시작하거나 -바로 뒤에 글자가 붙어 있으면 앞에 작은따옴표를 붙인다. 시트에서 작은따옴표는 "이 칸은 글자"라는 표시다.
- * ("- 요약 줄"처럼 - 뒤에 빈칸이 오는 경우는 그대로 둔다)
- * 이게 없으면 방 비밀번호를 아는 사람이 이름 칸에 =IMPORTDATA(...) 같은 수식을 넣어 키퍼 전용 시트를 밖으로 빼낼 수 있다. */
-function safeCell(v) { return (typeof v === 'string' && /^(?:[=+@]|-\S)/.test(v)) ? "'" + v : v; }
+/* 시트에 글자를 쓸 때 수식으로 바뀌지 않게 한다 (이름·대사·탭 이름·로그·AI 답처럼 바깥에서 온 글자에 모두 적용).
+ * =, +, -, @, ' 로 시작하는 글은 앞에 § 를 붙여 쓰고(enc), 읽을 때 그 § 를 뗀다(dec).
+ *  - ' (작은따옴표)는 시트가 "글자로 넣으라"는 표시로 보고 떼어 버릴 수 있어서 함께 막는다.
+ *  - 앞 글자를 지우지 않으니 "=철수"와 "철수"가 같은 이름이 되지 않고, 읽은 값은 언제나 쓴 값 그대로다.
+ *  - "- 요약 줄"처럼 줄표로 시작하는 글도 붙인다. 시트에서 "- IMPORTDATA(...)"는 수식으로 읽힐 수 있어서 예외를 두지 않는다.
+ *    (그래서 구글 시트를 직접 열면 그런 칸 앞에 § 가 보인다. 앱 화면에는 보이지 않는다)
+ *  - 숫자·날짜처럼 보이는 글("0012", "1/2")이 바뀌지 않게 하는 것은 칸 형식(글자 '@')이 맡는다. 그래서 쓰기 전에 형식도 함께 지정한다.
+ * 이게 없으면 방 비밀번호를 아는 사람이 이름 칸에 =IMPORTDATA(...) 같은 수식을 넣어 키퍼 전용 시트를 밖으로 빼낼 수 있다.
+ * 실제 구글 시트에서 이 규칙이 통하는지는 맨 아래 selfTest()를 한 번 실행해서 확인한다. */
+const SAFE_MARK = '§';
+function enc(v) { return (typeof v === 'string' && /^[=+\-@§'\t\r\n]/.test(v)) ? SAFE_MARK + v : v; }
+function dec(v) { return (typeof v === 'string' && v.charAt(0) === SAFE_MARK) ? v.slice(1) : v; }
+function decS(v) { return dec(v == null ? '' : String(v)); }
 
 /* ───────────── 설치 ───────────── */
 function setup() {
@@ -99,8 +119,8 @@ function setup() {
   if (last >= 2) {
     const rv = getConf('resetVer') || '0';
     const v = L.getRange(2, 1, last - 1, 6).getValues();
-    const f = v.map(r => [r[5] ? String(r[5]) : 'old' + rv + '-' + r[0]]);
-    L.getRange(2, 6, last - 1, 1).setValues(f);
+    const f = v.map(r => [r[5] ? enc(decS(r[5])) : 'old' + rv + '-' + r[0]]);
+    L.getRange(2, 6, last - 1, 1).setNumberFormat('@').setValues(f);
   }
 
   // 5분 자동 정리 트리거만 다시 건다 (다른 트리거는 건드리지 않음)
@@ -111,8 +131,20 @@ function setup() {
   UrlFetchApp.fetch('https://api.anthropic.com', { muteHttpExceptions: true });
   CacheService.getScriptCache().put('setup', '1', 60);
   SpreadsheetApp.flush();
-  if (ROOM_PW === KEEPER_PW) Logger.log('⚠ 방 비밀번호와 키퍼 비밀번호가 같아요. 서로 다르게 바꾸지 않으면 키퍼 기능을 쓸 수 없어요.');
+  pwWarnings().forEach(w => Logger.log('⚠ ' + w));
+  // 예전 버전에서 이 문서의 내부 탭을 캐릭터로 연결해 둔 것이 있으면 바로 끊는다
+  try { const fixed = charLinkFix(); if (fixed.length) Logger.log('⚠ 앱 내부 탭이 캐릭터로 연결돼 있어서 끊고, 그 탭으로 만든 캐릭터 카드를 지웠어요: ' + fixed.join(', ')); }
+  catch (e) { Logger.log('캐릭터 연결 점검을 건너뛰었어요: ' + String(e && e.message || e)); }
   Logger.log('설치 완료. 이제 웹 앱으로 배포(또는 새 버전으로 다시 배포)하세요.');
+}
+
+// 비밀번호 설정 점검 (값 자체는 어디에도 찍지 않는다)
+function pwWarnings() {
+  const w = [];
+  if (ROOM_PW === KEEPER_PW) w.push('방 비밀번호와 키퍼 비밀번호가 같아요. 서로 다르게 바꾸지 않으면 키퍼 기능을 쓸 수 없어요.');
+  if (KEEPER_PW === '키퍼비밀번호' || ROOM_PW === '방비밀번호') w.push('비밀번호가 처음 예시 그대로예요. Code.gs 맨 위에서 바꿔 주세요.');
+  if (KEEPER_PW.length < 10) w.push('키퍼 비밀번호가 10자보다 짧아요. 짧아도 동작은 하지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워지니 10자 이상을 권해요.');
+  return w;
 }
 
 /* ───────────── 설정 저장소 (한 번 읽어서 실행 내내 씀) ───────────── */
@@ -124,19 +156,20 @@ function confLoad(force) {
   _conf = {};
   for (let i = 1; i < v.length; i++) {
     const k = String(v[i][0]); if (!k || _conf[k]) continue;
-    _conf[k] = { row: i + 1, val: v[i][1] == null ? '' : String(v[i][1]) };
+    _conf[k] = { row: i + 1, val: decS(v[i][1]) };
   }
   return _conf;
 }
 function getConf(key) { const c = confLoad()[key]; return c ? c.val : null; }
 function setConf(key, val) {
-  val = safeCell(val == null ? '' : String(val));
+  val = val == null ? '' : String(val);
   let c = confLoad()[key];
   if (!c) { confLoad(true); c = _conf[key]; }
   const s = confSheet();
-  if (c) { s.getRange(c.row, 2).setValue(val); c.val = val; return; }
-  s.appendRow([key, val]);
-  _conf[key] = { row: s.getLastRow(), val };
+  if (c) { s.getRange(c.row, 2).setValue(enc(val)); c.val = val; return; }
+  const row = s.getLastRow() + 1;
+  s.getRange(row, 1, 1, 2).setNumberFormat('@').setValues([[key, enc(val)]]);
+  _conf[key] = { row, val };
 }
 function bump(key) { setConf(key, String(Number(getConf(key) || 0) + 1)); }
 function confJson(key, fallback) { try { const v = getConf(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
@@ -145,11 +178,14 @@ function now() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:s
 function sheet(name) { return SpreadsheetApp.getActive().getSheetByName(name); }
 
 // 짧게 잠그고 바로 푼다. 잠금 안에서 쓴 내용은 풀기 전에 시트에 확정한다.
+let _lockDepth = 0;
 function withLock(ms, fn) {
+  if (_lockDepth > 0) return fn();                       // 이미 이 실행이 잠금을 잡고 있다: 그대로 이어서 실행
   const l = LockService.getScriptLock();
   if (!l.tryLock(ms)) throw new Error('다른 저장 작업이 몰려 있어요. 잠시 뒤 다시 시도해 주세요');
+  _lockDepth = 1;
   try { confLoad(true); const r = fn(); SpreadsheetApp.flush(); return r; }
-  finally { l.releaseLock(); }
+  finally { _lockDepth = 0; l.releaseLock(); }
 }
 
 /* ───────────── AI 작업 표시 (잠금 없이 오래 걸리는 Claude 호출을 하기 위한 자리표) ───────────── */
@@ -364,20 +400,19 @@ function out(obj) {
 }
 function csv(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
 
-/* 누가 보낸 요청인지: 'keeper'(키퍼 로그인 토큰 또는 키퍼 비밀번호) / 'room'(방 비밀번호) / null
- * 방 비밀번호와 키퍼 비밀번호가 같으면 누구도 키퍼가 될 수 없다. */
+/* 누가 보낸 요청인지: 'keeper'(키퍼 로그인 토큰이 유효함) / 'room'(방 비밀번호가 맞음) / null
+ * 키퍼 비밀번호는 여기서 보지 않는다. 키퍼 비밀번호를 받는 곳은 로그인(keeperLogin) 하나뿐이다. */
 function roleOf(pw, kt) {
   if (kt && tokenOk(kt)) return 'keeper';
   if (pw === ROOM_PW) return 'room';
-  if (pw === KEEPER_PW && !keeperLocked()) return 'keeper';
   return null;
 }
 
 function doGet(e) {
   const p = e.parameter || {};
   try {
-    const who = roleOf(p.pw, p.kt);
-    if (!who) { badPw(p.pw); return out({ ok: false, error: '방 비밀번호가 틀렸어요' }); }
+    // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 키퍼 토큰은 주소·기록에 남지 않게 POST로만 받는다.
+    if (!roleOf(p.pw, null)) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
     switch (p.action) {
       case 'poll':
         try { touchPresence(p.me, p.mic); } catch (err) {}
@@ -388,10 +423,7 @@ function doGet(e) {
       case 'sessionLines':return out(sessionLines(String(p.session || '')));
       case 'sessions':    return out(sessionList());
       case 'evidence':    return out(evidence(csv(p.uids), csv(p.ids).map(Number), String(p.rv || ''), Number(p.ctx || 2)));
-      case 'tabs':
-        if (who !== 'keeper') return out({ ok: false, error: '키퍼 비밀번호가 필요해요' });
-        return out(listTabs(p.url));
-      case 'ping':  return out({ ok: true, keeper: who === 'keeper' });
+      case 'ping':  return out({ ok: true });
     }
     return out({ ok: false, error: '알 수 없는 요청' });
   } catch (err) { return out({ ok: false, error: String(err && err.message || err) }); }
@@ -402,7 +434,7 @@ function doPost(e) {
   try { b = JSON.parse(e.postData.contents); } catch (err) { return out({ ok: false, error: '잘못된 요청' }); }
   try {
     const who = roleOf(b.pw, b.kt);
-    if (!who) { badPw(b.pw); return out({ ok: false, error: '방 비밀번호가 틀렸어요' }); }
+    if (!who) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
     // ── 플레이어 누구나
     switch (b.action) {
       case 'lines':      return out(addLines(b));
@@ -413,7 +445,7 @@ function doPost(e) {
       case 'noteUnlock': return out(noteUnlock(b.sec, b.id));
       case 'noteImage':  return out(noteImage(b.sec, b.id, b.data));
       case 'sumSave':    return out(sumSave(b.id, b.text, b.rv));
-      case 'storySave':  withLock(20000, () => { setConf('story', String(b.text || '').slice(0, 20000)); bump('sumVer'); }); return out({ ok: true });
+      case 'storySave':  withLock(20000, () => { storyWrite(String(b.text || '').slice(0, 20000), storyDoc().k); bump('sumVer'); }); return out({ ok: true });
       case 'correct':    return out(correct(b.text, b.name));
       case 'portrait':   return out(savePortraitUpload(b.tab, b.data));
       case 'klogin':     return out(keeperLogin(b.kpw));          // 키퍼 비밀번호 → 12시간짜리 로그인 토큰
@@ -421,7 +453,7 @@ function doPost(e) {
     }
     // ── 키퍼만
     if (who !== 'keeper') {
-      return out(b.kt ? { ok: false, kexp: true, error: '키퍼 로그인이 만료됐어요. 다시 로그인해 주세요' } : { ok: false, error: '키퍼 비밀번호가 필요해요' });
+      return out(b.kt ? { ok: false, kexp: true, error: '키퍼 로그인이 만료됐어요. 다시 로그인해 주세요' } : { ok: false, error: '키퍼 로그인이 필요해요' });
     }
     switch (b.action) {
       case 'kping':      return out({ ok: true, keeper: true });
@@ -457,7 +489,7 @@ function addLines(b) {
     const rv = getConf('resetVer') || '0', cur = getConf('session') || '1', switchedAt = Number(getConf('sessionAt') || 0);
     const s = sheet(SH.LINES), last = s.getLastRow();
     const seen = new Set();
-    if (last >= 2) s.getRange(2, 6, last - 1, 1).getValues().forEach(r => { if (r[0]) seen.add(String(r[0])); });
+    if (last >= 2) s.getRange(2, 6, last - 1, 1).getValues().forEach(r => { if (r[0]) seen.add(decS(r[0])); });
     const rows = [], saved = [], dup = [], dropped = [];
     let id = Math.max(0, last - 1);
     items.forEach(it => {
@@ -465,7 +497,7 @@ function addLines(b) {
       const uid = /^[A-Za-z0-9_.:\-]{1,64}$/.test(String(it.uid || '')) ? String(it.uid) : '';
       if (uid && seen.has(uid)) { dup.push(uid); return; }
       const text = String(it.text || '').trim();
-      const name = String(it.name || b.name || '').trim().replace(/^[=+@']+/, '').slice(0, 40);
+      const name = String(it.name || b.name || '').trim().slice(0, 40);
       // 초기화 전에 말한 줄은 초기화 뒤에 되살리지 않는다
       if (!text || !name || (it.rv != null && it.rv !== '' && String(it.rv) !== rv)) { if (uid) dropped.push(uid); return; }
       let sess = /^\d{1,5}$/.test(String(it.session || '')) ? String(it.session) : cur;
@@ -473,7 +505,7 @@ function addLines(b) {
       if (Number(sess) < Number(cur) && switchedAt && it.t && Date.parse(it.t) >= switchedAt) sess = cur;
       const u = uid || ('srv' + Utilities.getUuid().replace(/-/g, '').slice(0, 16));
       id++;
-      rows.push([id, fmtTime(it.t), sess, name, safeCell(text.slice(0, 2000)), u]);
+      rows.push([id, fmtTime(it.t), sess, enc(name), enc(text.slice(0, 2000)), enc(u)]);
       seen.add(u);
       if (uid) saved.push(uid);
     });
@@ -485,7 +517,7 @@ function addLines(b) {
   });
 }
 
-function rowToLine(r) { return { id: Number(r[0]), time: String(r[1]), session: String(r[2]), name: String(r[3]), text: String(r[4]), uid: String(r[5] || '') }; }
+function rowToLine(r) { return { id: Number(r[0]), time: String(r[1]), session: String(r[2]), name: decS(r[3]), text: decS(r[4]), uid: decS(r[5]) }; }
 function readLines(sinceId, maxRows) {
   const s = sheet(SH.LINES);
   const last = s.getLastRow();
@@ -570,14 +602,14 @@ function evidence(uids, ids, rv, ctx) {
 function allData() {
   const ss = SpreadsheetApp.getActive();
   const sums = ss.getSheetByName(SH.SUM).getDataRange().getValues().slice(1)
-    .map((r, i) => ({ id: i + 2, session: String(r[0]), from: String(r[1]), to: String(r[2]), text: String(r[3]), seg: String(r[5] || '') }));
+    .map((r, i) => ({ id: i + 2, session: String(r[0]), from: String(r[1]), to: String(r[2]), text: decS(r[3]), seg: String(r[5] || '') }));
   const chars = ss.getSheetByName(SH.CHAR).getDataRange().getValues().slice(1)
-    .map(r => { let c = {}; try { c = JSON.parse(r[2] || '{}'); } catch (e) {} return Object.assign({ tab: r[0], player: r[1], portrait: r[5] || '' }, c); });
+    .map(r => { let c = {}; try { c = JSON.parse(decS(r[2]) || '{}'); } catch (e) {} return Object.assign({}, c, { tab: decS(r[0]), player: decS(r[1]), portrait: decS(r[5]) }); });
   const imgs = ss.getSheetByName(SH.IMG).getDataRange().getValues().slice(1)
-    .map(r => { let a = {}; try { a = JSON.parse(r[4] || '{}'); } catch (e) {} return { time: String(r[0]), session: String(r[1]), url: r[3], title: a.title || '', text: a.text || '', description: a.description || '' }; });
+    .map(r => { let a = {}; try { a = JSON.parse(decS(r[4]) || '{}'); } catch (e) {} return { time: String(r[0]), session: String(r[1]), url: decS(r[3]), title: a.title || '', text: a.text || '', description: a.description || '' }; });
   return {
     ok: true, v: versions(), summaries: sums, notes: readNotes() || emptyNotes(), characters: chars, images: imgs,
-    story: getConf('story'), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
+    story: storyText(), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
     charUrl: getConf('charUrl'), charMap: confJson('charMap', []), colors: confJson('colors', {}),
     corrections: confJson('corrections', []),
     recap: confJson('recap', null), awards: confJson('awards', null)      // 키퍼가 '공개'를 누른 것만 들어 있다
@@ -599,7 +631,7 @@ function sumSave(id, text, rv) {
     const s = sheet(SH.SUM);
     id = Number(id);
     if (!id || id < 2 || id > s.getLastRow()) return { ok: false, error: '요약을 찾지 못했어요' };
-    s.getRange(id, 4).setValue(safeCell(String(text || '').slice(0, 20000)));
+    s.getRange(id, 4).setValue(enc(String(text || '').slice(0, 20000)));
     bump('sumVer');
     return { ok: true };
   });
@@ -620,13 +652,18 @@ function deepgramToken() {
   (n.npcs || []).forEach(x => x.name && terms.add(x.name));
   (n.places || []).forEach(x => x.name && terms.add(x.name));
   sheet(SH.CHAR).getDataRange().getValues().slice(1).forEach(r => {
-    try { const c = JSON.parse(r[2] || '{}'); if (c.name) terms.add(c.name); } catch (e) {}
+    try { const c = JSON.parse(decS(r[2]) || '{}'); if (c.name) terms.add(c.name); } catch (e) {}
   });
   return { ok: true, token: j.access_token, keyterms: Array.from(terms).slice(0, 80) };
 }
 
 /* ───────────── Claude 호출 ───────────── */
-/* Apps Script의 외부 요청은 약 60초가 지나면 끊긴다고 알려져 있다. 그래서 AI 답이 길어지지 않게 호출마다 max_tokens를 작게 잡는다. */
+/* AI 호출. 실패하면 종류(kind)를 붙여서 던진다 → 다시 시도할지, 양을 줄일지, 키를 확인할지 판단할 수 있게.
+ *  fetch: 연결 실패·응답 지연 (Apps Script가 바깥 요청을 기다리는 시간에는 한도가 있다. 정확한 값은 공식 문서에 없다)
+ *  truncated: 답이 max_tokens를 넘어 잘림 / parse: 답이 JSON이 아님 / rate: 호출 제한(429) / server: Claude 쪽 일시 오류(5xx)
+ *  auth: 키·권한 문제(401·403) / bad: 요청이 거부됨(400·413 등)
+ * 답이 길어질수록 지연·잘림이 늘어나므로 호출마다 max_tokens를 작게 잡는다. */
+function aiErr(kind, msg) { const e = new Error(msg); e.kind = kind; return e; }
 function claude(system, content, maxTokens) {
   let r;
   try {
@@ -637,11 +674,18 @@ function claude(system, content, maxTokens) {
       muteHttpExceptions: true
     });
   } catch (e) {
-    throw new Error('AI 응답을 받지 못했어요 (약 60초 제한에 걸렸을 수 있어요): ' + String(e && e.message || e).slice(0, 150));
+    throw aiErr('fetch', 'AI 서버 응답을 받지 못했어요 (연결이 끊겼거나 응답이 너무 늦었어요). 잠시 뒤 다시 시도하고, 되풀이되면 한 번에 보내는 양을 줄여 주세요 · ' + String(e && e.message || e).slice(0, 120));
   }
-  if (r.getResponseCode() !== 200) throw new Error('Claude 오류 ' + r.getResponseCode() + ': ' + r.getContentText().slice(0, 300));
+  const code = r.getResponseCode();
+  if (code !== 200) {
+    const body = r.getContentText().slice(0, 200);
+    if (code === 401 || code === 403) throw aiErr('auth', 'Claude API 키가 맞지 않거나 권한이 없어요 (' + code + '). Code.gs 맨 위의 키를 확인해 주세요');
+    if (code === 429) throw aiErr('rate', 'Claude 호출 제한에 걸렸어요 (429). 1~2분 뒤 다시 시도해 주세요');
+    if (code >= 500) throw aiErr('server', 'Claude 서버가 일시적으로 응답하지 못했어요 (' + code + '). 잠시 뒤 다시 시도해 주세요');
+    throw aiErr('bad', 'Claude가 요청을 받지 않았어요 (' + code + '). 보낸 내용이 너무 길거나 형식이 맞지 않을 수 있어요 · ' + body);
+  }
   const j = JSON.parse(r.getContentText());
-  if (j.stop_reason === 'max_tokens') throw new Error('AI 답이 너무 길어 잘렸어요 (구간을 줄여 다시 시도)');
+  if (j.stop_reason === 'max_tokens') throw aiErr('truncated', 'AI 답이 정해 둔 길이를 넘어 중간에 끊겼어요. 한 번에 보내는 양(구간·조각)을 줄이면 해결돼요');
   return j.content.filter(c => c.type === 'text').map(c => c.text).join('');
 }
 /* 공개 기록용 AI 작업(요약·정정·이미지 분석·캐릭터 읽기)은 이 안에서만 돌린다.
@@ -651,8 +695,8 @@ function publicAi(fn) { _publicAi++; try { return fn(); } finally { _publicAi--;
 function keeperOnly(what) { if (_publicAi) throw new Error('공개 기록용 AI 작업에서는 키퍼 자료(' + what + ')를 읽을 수 없어요'); }
 function parseJson(text) {
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
-  if (a < 0 || b < a) throw new Error('AI 답에서 JSON을 찾지 못함');
-  return JSON.parse(text.slice(a, b + 1));
+  if (a < 0 || b < a) throw aiErr('parse', 'AI 답이 약속한 형식(JSON)이 아니에요. 다시 시도해 주세요');
+  try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { throw aiErr('parse', 'AI 답의 형식이 깨져 있어요. 다시 시도해 주세요'); }
 }
 
 /* ───────────── 5분마다 ───────────── */
@@ -690,7 +734,7 @@ function correctionsText() {
 }
 function charsText() {
   return sheet(SH.CHAR).getDataRange().getValues().slice(1)
-    .map(r => { try { const c = JSON.parse(r[2] || '{}'); return (r[1] || '?') + ' = ' + (c.name || r[0]); } catch (e) { return ''; } })
+    .map(r => { try { const c = JSON.parse(decS(r[2]) || '{}'); return (decS(r[1]) || '?') + ' = ' + (c.name || decS(r[0])); } catch (e) { return ''; } })
     .filter(Boolean).join('\n');
 }
 function summaryKeys() {
@@ -852,13 +896,12 @@ function processWindow(job, t0, budget) {
         if (!cur.sum) {
           if (!summaryKeys().has(segKey)) {
             const ms = sheet(SH.SUM);
-            ms.getRange(ms.getLastRow() + 1, 1, 1, 6).setNumberFormat('@').setValues([[String(r.session), r.from, r.to, safeCell(String(r.summary)), now(), segKey]]);
+            ms.getRange(ms.getLastRow() + 1, 1, 1, 6).setNumberFormat('@').setValues([[String(r.session), r.from, r.to, enc(String(r.summary)), now(), segKey]]);
           }
           stageMark(cur.row, 2);
         }
         if (!cur.story) {
-          if (r.story) setConf('story', String(r.story).slice(0, 20000));    // 예전 버전이 보관해 둔 결과 (줄거리 전체)
-          else appendStory(r.storyAdd, r.session);
+          storyApply(segKey, r);          // 줄거리 내용과 "이 구간은 반영함" 표시를 한 칸에 한 번에 쓴다
           stageMark(cur.row, 3);
         }
         if (!cur.notes) {
@@ -917,7 +960,7 @@ function summarizeGroup(g, sess) {
       '## 용어집\n' + getConf('glossary') + '\n\n' +
       '## 플레이어 = 캐릭터\n' + (charsText() || '(아직 없음)') + '\n\n' +
       '## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n' +
-      '## 지금까지의 누적 줄거리 (참고용, 다시 쓰지 않는다)\n' + (getConf('story') || '(처음)') + '\n\n' +
+      '## 지금까지의 누적 줄거리 (참고용, 다시 쓰지 않는다)\n' + (storyText() || '(처음)') + '\n\n' +
       (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
       '## 현재 정리(notes)\n' + notesForAi(readNotes() || emptyNotes()) + '\n\n' +
       '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcript + '\n\n' +
@@ -930,32 +973,55 @@ function summarizeGroup(g, sess) {
     return parseJson(claude(system, user, 5000));
   });
 }
-// 누적 줄거리 뒤에 덧붙인다. 같은 내용이 이미 있으면(재시도) 다시 붙이지 않는다. 세션이 바뀌면 【세션 N】 줄을 넣는다.
-function appendStory(add, sess) {
-  add = String(add || '').trim();
-  if (!add) return;
-  let story = getConf('story') || '';
-  if (story.indexOf(add) >= 0) return;
-  let lastTag = null, m; const re = /【세션 (\d+)】/g;
-  while ((m = re.exec(story))) lastTag = m[1];
-  if (lastTag !== String(sess)) story += (story ? '\n\n' : '') + '【세션 ' + sess + '】';
-  story += '\n' + add;
-  setConf('story', story.slice(-20000));
+/* 누적 줄거리 저장소 (설정 시트의 story 칸 하나)
+ * 줄거리 글과 "이미 반영한 요약 구간 목록"을 한 칸에 함께 담는다: {"_story":1,"t":"글","k":["구간키",...]}
+ * → 글을 붙이는 것과 "반영함" 표시가 한 번의 쓰기로 끝나서, 그 직후에 실패해도 다시 붙지 않는다.
+ * → 같은 구간인지는 구간키로만 판단한다. 글이 같아도 구간이 다르면 각각 남는다.
+ * 예전 버전이 남긴 글(그냥 문장)은 그대로 읽고, 다음에 쓸 때 새 형식이 된다. 사람이 고치거나 AI가 줄여 써도 구간 목록은 유지한다. */
+function storyDoc() {
+  const v = getConf('story') || '';
+  if (v.charAt(0) === '{') {
+    try { const o = JSON.parse(v); if (o && o._story === 1 && typeof o.t === 'string') return { t: o.t, k: Array.isArray(o.k) ? o.k.map(String) : [] }; } catch (e) {}
+  }
+  return { t: v, k: [], legacy: true };       // 예전 버전이 남긴 글 (구간 목록 없음)
+}
+function storyText() { return storyDoc().t; }
+function storyWrite(text, keys) { setConf('story', JSON.stringify({ _story: 1, t: String(text || ''), k: (keys || []).slice(-600) })); }
+// 요약 한 구간의 줄거리 반영 (잠금 안에서 부른다). 이미 반영한 구간이면 아무것도 하지 않는다.
+function storyApply(segKey, r) {
+  const d = storyDoc();
+  if (d.k.indexOf(segKey) >= 0) return false;
+  let t = d.t;
+  if (r.story) t = String(r.story).slice(0, 20000);              // 예전 버전이 보관해 둔 결과 (줄거리 전체를 다시 쓴 것)
+  else {
+    const add = String(r.storyAdd || '').trim();
+    // 예전 버전에서 넘어온 직후 한 번만: 예전 버전이 이 구간 글을 붙인 직후에 멈췄다면 줄거리 맨 끝이 바로 그 글이다 → 다시 붙이지 않고 표시만 남긴다
+    const already = d.legacy && add && t.replace(/\s+$/, '').slice(-add.length) === add;
+    if (add && !already) {
+      let lastTag = null, m; const re = /【세션 (\d+)】/g;
+      while ((m = re.exec(t))) lastTag = m[1];
+      if (lastTag !== String(r.session)) t += (t ? '\n\n' : '') + '【세션 ' + r.session + '】';
+      t = (t + '\n' + add).slice(-20000);
+    }
+  }
+  storyWrite(t, d.k.concat([segKey]));
+  return true;
 }
 // 누적 줄거리가 길어지면 한 번 줄여 쓴다. 실패해도 기록에는 영향이 없다 (다음 정리 때 다시 시도).
 function compactStory(job) {
-  const story = getConf('story') || '';
+  const story = storyText();
   if (story.length <= STORY_MAX) return false;
   const res = publicAi(() => parseJson(claude(
     '너는 TRPG 세션 기록 담당이다. 길어진 누적 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
     '## 누적 줄거리\n' + story + '\n\n## 할 일\n1500자 이내로 다시 써라. 【세션 N】 구분 줄은 그대로 두어라. 오래된 일은 짧게, 최근 일은 자세히. ' +
     '인물·장소 이름과 중요한 사건·결정·알아낸 사실은 빠뜨리지 마라. 확인된 사실, NPC의 주장, 탐사자의 추측을 섞지 마라.\n' +
     '## 출력 형식\n{"story":"줄여 쓴 누적 줄거리"}', 2600)));
-  const out = String(res.story || '').trim();
-  if (out.length < 100 || out.length >= story.length) return false;
+  const outStory = String(res.story || '').trim();
+  if (outStory.length < 100 || outStory.length >= story.length) return false;
   return withLock(20000, () => {
-    if (!jobAlive(job) || (getConf('story') || '') !== story) return false;   // 그 사이 초기화됐거나 누가 고쳤으면 그대로 둔다
-    setConf('story', out); bump('sumVer');
+    const d = storyDoc();
+    if (!jobAlive(job) || d.t !== story) return false;     // 그 사이 초기화됐거나 누가 고쳤으면 그대로 둔다
+    storyWrite(outStory, d.k); bump('sumVer');              // 글만 바꾸고 "반영한 구간" 목록은 그대로
     return true;
   });
 }
@@ -991,7 +1057,7 @@ function correct(text, who) {
   if (!job) return { ok: false, busy: true, error: '지금 요약을 만드는 중이에요. 1~2분 뒤 다시 눌러 주세요 (적은 내용은 그대로 남아 있어요)' };
   try {
     const sh = sheet(SH.SUM);
-    const rows = sh.getDataRange().getValues().slice(1).map((r, i) => ({ id: i + 2, session: String(r[0]), text: String(r[3]) }));
+    const rows = sh.getDataRange().getValues().slice(1).map((r, i) => ({ id: i + 2, session: String(r[0]), text: decS(r[3]) }));
     const recent = rows.slice(-8);
     const res = publicAi(() => {
       const system = '너는 TRPG 세션 기록 담당이다. 사람이 기록의 잘못된 부분을 정정해 달라고 했다. ' +
@@ -1001,7 +1067,7 @@ function correct(text, who) {
         '## 정정 요청 (' + (who || '플레이어') + ')\n' + text + '\n\n' +
         '## 기존 정정 메모\n' + correctionsText() + '\n\n' +
         '## 플레이어 = 캐릭터\n' + (charsText() || '(없음)') + '\n\n' +
-        '## 누적 줄거리\n' + (getConf('story') || '(없음)') + '\n\n' +
+        '## 누적 줄거리\n' + (storyText() || '(없음)') + '\n\n' +
         '## 최근 요약들\n' + recent.map(r => '[id ' + r.id + ', 세션 ' + r.session + ']\n' + r.text).join('\n\n') + '\n\n' +
         '## 현재 정리(notes)\n' + notesForAi(readNotes() || emptyNotes()) + '\n\n' +
         '## 출력 형식\n{"reply":"무엇을 고쳤는지 한두 문장","memo":"앞으로 기억해야 할 정정 사실 한 줄 (없으면 빈칸)",' +
@@ -1013,9 +1079,9 @@ function correct(text, who) {
     const okIds = new Set(recent.map(r => r.id));
     const applied = withLock(30000, () => {
       if (!jobAlive(job)) return false;                      // 그 사이 초기화됨 → 아무것도 쓰지 않음
-      if (res.story) setConf('story', String(res.story).slice(0, 20000));
+      if (res.story) storyWrite(String(res.story).slice(0, 20000), storyDoc().k);
       const last = sh.getLastRow();
-      (res.summaries || []).forEach(x => { const id = Number(x.id); if (okIds.has(id) && id <= last && x.text) sh.getRange(id, 4).setValue(safeCell(String(x.text).slice(0, 20000))); });
+      (res.summaries || []).forEach(x => { const id = Number(x.id); if (okIds.has(id) && id <= last && x.text) sh.getRange(id, 4).setValue(enc(String(x.text).slice(0, 20000))); });
       if (res.notes) { SECTIONS.forEach(s => (res.notes[s] || []).forEach(x => { if (x) delete x.src; })); mergeWriteNotes(res.notes, true); }
       if (res.memo) {
         const c = confJson('corrections', []);
@@ -1033,15 +1099,55 @@ function correct(text, who) {
 }
 
 /* ───────────── 캐릭터시트 ───────────── */
-function listTabs(url) {
-  const ss = SpreadsheetApp.openByUrl(url);
-  return { ok: true, tabs: ss.getSheets().map(s => s.getName()) };
+/* 캐릭터시트 문서 열기.
+ * 키퍼가 실수로 이 앱의 저장용 문서를 캐릭터시트로 연결하면, 키퍼 전용 탭의 내용이 "캐릭터 카드"가 되어 모두에게 나갈 수 있다.
+ * 그래서 문서 ID로 같은 문서인지 확인하고, 같은 문서라면 앱이 쓰는 탭(설정·대화·요약·정리·키퍼자료 등)은 연결하지 못하게 한다.
+ * 다른 문서라면 탭 이름이 우연히 같아도 막지 않는다. */
+const INTERNAL_TABS = Object.keys(SH).map(k => SH[k]);
+function charSource(url) {
+  let src;
+  try { src = SpreadsheetApp.openByUrl(String(url || '').trim()); }
+  catch (e) { throw new Error('캐릭터시트를 열지 못했어요. 주소가 맞는지, 키퍼 구글 계정이 열 수 있는 시트인지 확인해 주세요'); }
+  return { src, same: src.getId() === SpreadsheetApp.getActive().getId() };
 }
-
-function saveCharConfig(url, map) {
+function tabAllowed(same, name) { return !(same && INTERNAL_TABS.indexOf(String(name)) >= 0); }
+function listTabs(url) {
+  const c = charSource(url);
+  const all = c.src.getSheets().map(x => x.getName());
+  const tabs = all.filter(n => tabAllowed(c.same, n));
+  return { ok: true, tabs, same: c.same, hidden: all.length - tabs.length };
+}
+// 예전 버전에서 저장용 문서의 내부 탭을 캐릭터로 연결해 둔 것이 있으면 끊고, 그 탭으로 만들어진 캐릭터 카드도 지운다.
+// (그 카드에는 키퍼 전용 탭의 내용이 들어가 있었을 수 있다) 끊은 탭 이름을 돌려준다.
+function charLinkFix(c) {
+  const url = getConf('charUrl'), map = confJson('charMap', []);
+  if (!url || !map.length) return [];
+  c = c || charSource(url);
+  const bad = map.filter(m => !tabAllowed(c.same, m.tab)).map(m => String(m.tab));
+  if (!bad.length) return [];
   withLock(20000, () => {
-    setConf('charUrl', String(url || ''));
-    setConf('charMap', JSON.stringify(Array.isArray(map) ? map : []));
+    setConf('charMap', JSON.stringify(confJson('charMap', []).filter(m => bad.indexOf(String(m.tab)) < 0)));
+    const cs = sheet(SH.CHAR), v = cs.getDataRange().getValues();
+    for (let i = v.length - 1; i >= 1; i--) if (bad.indexOf(decS(v[i][0])) >= 0) cs.deleteRows(i + 1, 1);
+    bump('charVer');
+  });
+  return bad;
+}
+// 연결 저장: 먼저 검사하고, 통과했을 때만 설정을 바꾼다 (잘못된 새 연결 때문에 기존 연결이 지워지지 않게)
+function saveCharConfig(url, map) {
+  url = String(url || '').trim();
+  const list = (Array.isArray(map) ? map : []).filter(m => m && m.tab).slice(0, 30)
+    .map(m => ({ tab: String(m.tab).slice(0, 100), player: String(m.player || '').trim().slice(0, 40) }));
+  if (url && list.length) {
+    const c = charSource(url);
+    const blocked = list.filter(m => !tabAllowed(c.same, m.tab)).map(m => m.tab);
+    if (blocked.length) return { ok: false, error: '이 문서는 이 앱의 저장용 시트라서, 앱이 쓰는 탭은 캐릭터로 연결할 수 없어요: ' + blocked.join(', ') + ' · 기존 연결은 그대로 뒀어요' };
+    const missing = list.filter(m => !c.src.getSheetByName(m.tab)).map(m => m.tab);
+    if (missing.length) return { ok: false, error: '시트에서 이 탭을 찾지 못했어요: ' + missing.join(', ') + ' · 기존 연결은 그대로 뒀어요' };
+  }
+  withLock(20000, () => {
+    setConf('charUrl', url && list.length ? url : '');
+    setConf('charMap', JSON.stringify(url && list.length ? list : []));
   });
   return refreshCharacters(true);
 }
@@ -1090,12 +1196,12 @@ function fetchPortrait(src, tab) {
 }
 function savePortraitUpload(tab, data) {
   if (!tab || !data) return { ok: false, error: '사진이 없어요' };
-  const url = storePortrait(Utilities.newBlob(Utilities.base64Decode(data), 'image/jpeg', 'p.jpg'), 'portrait_' + tab + '_' + Date.now());
+  const url = storePortrait(Utilities.newBlob(Utilities.base64Decode(data), 'image/jpeg', 'p.jpg'), 'portrait_' + Date.now());
   return withLock(20000, () => {
     const cs = sheet(SH.CHAR);
     const v = cs.getDataRange().getValues();
-    for (let i = 1; i < v.length; i++) if (v[i][0] === tab) {
-      cs.getRange(i + 1, 6, 1, 2).setValues([[url, 'manual']]);
+    for (let i = 1; i < v.length; i++) if (decS(v[i][0]) === String(tab)) {
+      cs.getRange(i + 1, 6, 1, 2).setNumberFormat('@').setValues([[enc(url), 'manual']]);
       bump('charVer');
       return { ok: true, url };
     }
@@ -1105,28 +1211,31 @@ function savePortraitUpload(tab, data) {
 
 function refreshCharacters(force) {
   withLock(20000, () => setConf('lastCharCheck', String(Date.now())));
-  const url = getConf('charUrl'); const map = confJson('charMap', []);
+  const url = getConf('charUrl');
   const cs = sheet(SH.CHAR);
-  if (!url || !map.length) {
-    withLock(20000, () => { if (cs.getLastRow() > 1) cs.deleteRows(2, cs.getLastRow() - 1); bump('charVer'); });
-    return { ok: true, message: '캐릭터 연결을 해제했어요' };
-  }
-  const src = SpreadsheetApp.openByUrl(url);
+  const off = () => { withLock(20000, () => { if (cs.getLastRow() > 1) cs.deleteRows(2, cs.getLastRow() - 1); bump('charVer'); }); return { ok: true, message: '캐릭터 연결을 해제했어요' }; };
+  if (!url || !confJson('charMap', []).length) return off();
+  const c = charSource(url), src = c.src;
+  // 읽기 직전에 한 번 더 확인한다 (예전에 잘못 저장된 연결에도 적용): 저장용 문서의 앱 내부 탭은 연결을 끊고 읽지 않는다
+  const fixed = charLinkFix(c);
+  const map = confJson('charMap', []);
+  if (!map.length) return Object.assign(off(), { blocked: fixed, message: '앱 내부 탭이 캐릭터로 연결돼 있어서 끊었어요: ' + fixed.join(', ') + ' · 캐릭터시트를 다시 연결해 주세요' });
   const old = {};
-  cs.getDataRange().getValues().slice(1).forEach(r => { old[r[0]] = r; });
+  cs.getDataRange().getValues().slice(1).forEach(r => { const d = r.map(x => (typeof x === 'string' ? dec(x) : x)); old[String(d[0])] = d; });
 
-  const rows = [];
-  let changed = false;
+  const rows = [], blocked = fixed.slice();
+  let changed = fixed.length > 0;
   map.forEach(m => {
+    if (!tabAllowed(c.same, m.tab)) { blocked.push(m.tab); changed = true; return; }      // (위에서 끊었으니 여기 올 일은 없다. 그래도 읽지 않는다)
     const sh = src.getSheetByName(m.tab); if (!sh) return;
     const nr = Math.max(1, Math.min(sh.getLastRow(), 120)), nc = Math.max(1, Math.min(sh.getLastColumn(), 30));
     const vals = sh.getRange(1, 1, nr, nc).getDisplayValues();
-    const text = vals.map(r => r.filter(c => String(c).trim() !== '').join(' | ')).filter(Boolean).join('\n').slice(0, 9000);
+    const text = vals.map(r => r.filter(x => String(x).trim() !== '').join(' | ')).filter(Boolean).join('\n').slice(0, 9000);
     const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text + '|' + m.player));
     const prev = old[m.tab] || [];
 
     // 초상화: 사람이 직접 올린 사진이 우선, 아니면 시트 속 사진
-    let pUrl = prev[5] || '', pSrc = prev[6] || '';
+    let pUrl = String(prev[5] || ''), pSrc = String(prev[6] || '');
     if (pSrc !== 'manual') {
       const found = findPortraitSrc(sh, nr, nc);
       if (found && (found !== pSrc || !pUrl)) {
@@ -1135,7 +1244,7 @@ function refreshCharacters(force) {
       if (!found && pSrc) { pUrl = ''; pSrc = ''; changed = true; }
     }
 
-    if (!force && prev[3] === hash) { rows.push([m.tab, m.player, prev[2], prev[3], prev[4], pUrl, pSrc]); return; }
+    if (!force && prev[3] === hash) { rows.push([m.tab, m.player, String(prev[2] || ''), hash, String(prev[4] || ''), pUrl, pSrc]); return; }
     const card = publicAi(() => parseJson(claude(
       'TRPG 캐릭터시트를 읽고 핵심만 JSON으로 뽑아라. 시트에 없는 값은 비워라. JSON 하나만 출력.',
       '시트 내용:\n' + text + '\n\n출력 형식: {"name":"","occupation":"","age":"","gender":"","hp":"현재/최대","san":"현재/최대","mp":"현재/최대","luck":"",' +
@@ -1146,11 +1255,12 @@ function refreshCharacters(force) {
   });
   withLock(20000, () => {
     if (cs.getLastRow() > 1) cs.getRange(2, 1, cs.getLastRow() - 1, 7).clearContent();
-    if (rows.length) cs.getRange(2, 1, rows.length, 7).setValues(rows);
+    // 탭 이름·플레이어 이름·주소는 바깥에서 온 글자라 수식으로 바뀌지 않게 enc를 거쳐 쓴다
+    if (rows.length) cs.getRange(2, 1, rows.length, 7).setNumberFormat('@').setValues(rows.map(r => r.map(x => enc(String(x == null ? '' : x)))));
     if (changed || force) bump('charVer');
     try { snapChars(); } catch (e) {}
   });
-  return { ok: true, message: rows.length + '명의 캐릭터를 읽었어요' };
+  return { ok: true, blocked, message: rows.length + '명의 캐릭터를 읽었어요' + (blocked.length ? ' · 앱 내부 탭이라 연결을 끊은 것: ' + blocked.join(', ') : '') };
 }
 /* 캐릭터 수치(체력·이성·마력·행운)가 바뀌었거나 세션이 바뀌었으면 '캐릭터기록' 시트에 한 줄 남긴다.
  * 세션별로 처음과 마지막 기록을 비교해서 "이성을 가장 많이 잃은 탐사자" 같은 값을 낸다. (잠금 안에서 부를 것) */
@@ -1159,13 +1269,13 @@ function snapChars() {
   if (n < 2) return;
   const sess = getConf('session') || '1', last = confJson('charLast', {}), add = [];
   cs.getRange(2, 1, n - 1, 3).getValues().forEach(r => {
-    if (!r[0]) return;
-    let c = {}; try { c = JSON.parse(r[2] || '{}'); } catch (e) {}
+    const tab = decS(r[0]); if (!tab) return;
+    let c = {}; try { c = JSON.parse(decS(r[2]) || '{}'); } catch (e) {}
     const vals = [c.hp, c.san, c.mp, c.luck].map(x => String(x == null ? '' : x).slice(0, 20));
     const sig = sess + '|' + vals.join('|');
-    if (last[r[0]] === sig) return;
-    last[r[0]] = sig;
-    add.push([now(), sess, safeCell(String(r[0])), safeCell(String(r[1] || '')), safeCell(String(c.name || r[0]))].concat(vals.map(safeCell)));
+    if (last[tab] === sig) return;
+    last[tab] = sig;
+    add.push([now(), sess, tab, decS(r[1]), String(c.name || tab)].concat(vals).map(x => enc(String(x))));
   });
   if (!add.length) return;
   const s = ensureSheet(SH.CSNAP);
@@ -1199,10 +1309,11 @@ function addImage(data, mime, caption) {
   const res = publicAi(() => parseJson(claude('너는 TRPG 세션 기록 담당이다. JSON 하나만 출력하라.', content, 4000)));
   return withLock(30000, () => {
     if ((getConf('resetVer') || '0') !== rv) return { ok: false, error: '분석하는 사이 기록이 초기화돼서 저장하지 않았어요' };
-    sheet(SH.IMG).appendRow([
-      now(), getConf('session'), file.getId(), url,
-      JSON.stringify({ title: res.title || '', text: res.text || '', description: res.description || '' })
-    ]);
+    const is = sheet(SH.IMG);
+    is.getRange(is.getLastRow() + 1, 1, 1, 5).setNumberFormat('@').setValues([[
+      now(), String(getConf('session') || ''), enc(String(file.getId())), enc(url),
+      enc(JSON.stringify({ title: String(res.title || ''), text: String(res.text || ''), description: String(res.description || '') }))
+    ]]);
     if (res.notes) { SECTIONS.forEach(s => (res.notes[s] || []).forEach(x => { if (x) x.src = []; })); mergeWriteNotes(res.notes); }
     bump('imgVer');
     return { ok: true, title: res.title || '' };
@@ -1220,7 +1331,7 @@ function clearLog(all) {
     // 지운 회의록을 바탕으로 만든 것들도 함께 지운다: 키퍼 기록(현황판·NPC 제안·시상식·피드백), 판정 로그, 캐릭터 수치 기록, 공개한 카드
     [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
     setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}');
-    setConf('processedId', '0'); setConf('story', '');
+    setConf('processedId', '0'); storyWrite('', []);
     setJson('job', null); setJson('pending', null); setJson('procStatus', null);
     if (all) {
       wipe(SH.IMG);
@@ -1244,49 +1355,44 @@ function clearLog(all) {
  *     그 안에서 키퍼 자료를 읽으면 keeperOnly()가 오류를 낸다. → 진상이 요약에 섞일 수 없다.
  *  4) 플레이어에게 공개되는 것은 키퍼가 '공개'를 누른 시작 카드와 시상식뿐이고, 서버가 정해진 칸만 골라 저장한다.
  *     (키퍼 메모 kNote 같은 칸은 공개 자료에 들어가지 않는다)
- *  5) 키퍼 비밀번호는 로그인할 때 한 번만 보내고, 그 뒤에는 12시간짜리 토큰을 쓴다. 시트에는 토큰의 해시만 남긴다.
+ *  5) 키퍼 비밀번호는 로그인(keeperLogin)할 때 한 번만 받는다. 그 뒤의 키퍼 작업은 12시간짜리 토큰으로만 확인하고, 시트에는 토큰의 해시만 남긴다.
+ *  6) AI가 답을 만드는 동안 회의록이나 시나리오 자료가 지워졌으면, 그 답은 저장하지 않고 버린다 (klogAdd가 잠금 안에서 확인).
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ───────────── 키퍼 로그인 ───────────── */
 function sha(s) {
   return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s), Utilities.Charset.UTF_8));
 }
-function keeperLocked() {
-  try { const u = Number(CacheService.getScriptCache().get('k_lock') || 0); return Date.now() < u ? u : 0; } catch (e) { return 0; }
-}
-// 틀린 비밀번호가 올 때마다 센다. 10분 안에 K_FAIL_MAX번 틀리면 비밀번호 로그인을 잠시 잠근다 (비밀번호 찍어 맞히기 방지).
-function badPw(pw) {
-  if (!pw) return;
-  try {
-    const c = CacheService.getScriptCache();
-    const n = Number(c.get('k_fail') || 0) + 1;
-    if (n >= K_FAIL_MAX) { c.put('k_lock', String(Date.now() + K_LOCK_MS), 1200); c.put('k_fail', '0', 600); }
-    else c.put('k_fail', String(n), 600);
-  } catch (e) {}
-}
 function tokenOk(kt) {
   if (!kt || ROOM_PW === KEEPER_PW) return false;
   const h = sha(kt), t = Date.now();
   return confJson('ktokens', []).some(x => x && x.h === h && Number(x.exp) > t);
 }
+/* 키퍼 비밀번호를 받는 유일한 곳.
+ *  - 틀린 횟수는 여기서만 센다 (방 비밀번호를 잘못 친 것은 세지 않는다).
+ *  - 세는 일을 잠금 안에서 하므로 여러 요청이 동시에 틀려도 횟수가 빠지지 않는다.
+ *  - 10분 안에 K_FAIL_MAX번 틀리면 비밀번호 로그인만 10분 잠근다. 이미 로그인한 키퍼(토큰)는 영향을 받지 않는다. */
 function keeperLogin(kpw) {
   if (ROOM_PW === KEEPER_PW) return { ok: false, error: '방 비밀번호와 키퍼 비밀번호가 같아서 키퍼 기능이 잠겨 있어요. Code.gs 맨 위에서 서로 다르게 바꾸고 다시 배포해 주세요' };
-  const until = keeperLocked();
-  if (until) return { ok: false, locked: true, error: '키퍼 비밀번호를 여러 번 틀려서 잠겼어요. ' + Math.max(1, Math.ceil((until - Date.now()) / 60000)) + '분 뒤에 다시 시도해 주세요' };
-  if (String(kpw == null ? '' : kpw) !== KEEPER_PW) {
-    badPw('x');
-    Utilities.sleep(600);
-    return { ok: false, error: '키퍼 비밀번호가 틀렸어요' };
-  }
   const kt = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
-  const exp = Date.now() + KTOKEN_TTL;
-  withLock(20000, () => {
-    const t = Date.now();
+  return withLock(20000, () => {
+    const c = CacheService.getScriptCache(), t = Date.now();
+    const until = Number(c.get('k_lock') || 0);
+    const lockedOut = u => ({ ok: false, locked: true, error: '키퍼 비밀번호를 여러 번 틀려서 잠겼어요. ' + Math.max(1, Math.ceil((u - Date.now()) / 60000)) + '분 뒤에 다시 시도해 주세요 (이미 로그인한 기기는 계속 쓸 수 있어요)' });
+    if (t < until) return lockedOut(until);
+    if (String(kpw == null ? '' : kpw) !== KEEPER_PW) {
+      const n = Number(c.get('k_fail') || 0) + 1;
+      if (n >= K_FAIL_MAX) { const u = t + K_LOCK_MS; c.put('k_lock', String(u), 1200); c.remove('k_fail'); return lockedOut(u); }
+      c.put('k_fail', String(n), 600);
+      return { ok: false, error: '키퍼 비밀번호가 틀렸어요', left: K_FAIL_MAX - n };
+    }
+    c.remove('k_fail');
+    const exp = t + KTOKEN_TTL;
     const list = confJson('ktokens', []).filter(x => x && Number(x.exp) > t).slice(-4);   // 동시에 5대까지
     list.push({ h: sha(kt), exp });
     setJson('ktokens', list);
+    return { ok: true, kt, exp, weak: KEEPER_PW.length < 10 };     // weak: 비밀번호가 10자보다 짧다 (막지는 않고 화면에 알린다)
   });
-  return { ok: true, kt, exp };
 }
 function keeperLogout(kt, all) {
   if (!kt || !tokenOk(kt)) return { ok: true };
@@ -1302,33 +1408,45 @@ function keeperTool(b) {
   switch (b.action) {
     case 'kData':          return kData();
     // 시나리오 자료
-    case 'kSrcAdd':        return kSrcAdd(b);
+    case 'kSrcAdd':        return kbGuard(b.gen, () => kSrcAdd(b));
     case 'kSrcDel':        return kSrcDel(b.source);
     case 'kOcr':           return kOcr(b);
     case 'kDigest':        return kDigestStep();
-    case 'kKbSave':        return kKbSave(b.sec, b.item);
-    case 'kKbDelete':      return kKbDelete(b.sec, b.id);
-    case 'kKbUnlock':      return kKbUnlock(b.sec, b.id);
-    case 'kKbText':        return kKbText(b.key, b.text);
+    case 'kKbSave':        return kbGuard(b.gen, () => kKbSave(b.sec, b.item));
+    case 'kKbDelete':      return kbGuard(b.gen, () => kKbDelete(b.sec, b.id));
+    case 'kKbUnlock':      return kbGuard(b.gen, () => kKbUnlock(b.sec, b.id));
+    case 'kKbText':        return kbGuard(b.gen, () => kKbText(b.key, b.text));
     case 'kTruthPolish':   return kTruthPolish();
     case 'kKbClear':       return kKbClear();
     // 세션 중
     case 'kNpc':           return kNpc(b);
     case 'kRoll':          return kRoll(b);
-    case 'kBoard':         return kBoard();
-    case 'kClueMark':      return kClueMark(b.id, b.mark);
+    case 'kBoard':         return kBoard(!!b.full);
+    case 'kClueMark':      return kbGuard(b.gen, () => kClueMark(b.id, b.mark));
     // 세션 사이
     case 'kRecap':         return kRecap(b.session);
-    case 'kRecapPublish':  return kRecapPublish(b.card, b.session);
+    case 'kRecapPublish':  return kRecapPublish(b.card, b.rv, b.draftId);
     case 'kRecapOff':      return withLock(20000, () => { setConf('recap', ''); bump('sumVer'); return { ok: true }; });
-    case 'kStats':         return { ok: true, stats: sessionStats(String(b.session || getConf('session'))) };
+    case 'kStats':         return { ok: true, stats: sessionStats(sessOf(b.session)), rv: getConf('resetVer') || '0' };
     case 'kRollsSave':     return kRollsSave(b);
-    case 'kAwards':        return kAwards(b.session, b.useTruth);
-    case 'kAwardsPublish': return kAwardsPublish(b.session, b.items);
+    case 'kAwards':        return kAwards(b.session);                       // 공개 기록만으로 후보 만들기
+    case 'kAwardsCompare': return kAwardsCompare(b.draftId);                // (키퍼가 고를 때만) 만든 후보를 진상과 견줘 키퍼 메모만 붙이기
+    case 'kAwardsPublish': return kAwardsPublish(b.session, b.items, b.rv, b.draftId);
     case 'kAwardsOff':     return withLock(20000, () => { setConf('awards', ''); bump('sumVer'); return { ok: true }; });
-    case 'kFeedback':      return kFeedback(b.session);
+    case 'kFeedback':      return kFeedback(b.session, !!b.full);
   }
   return null;
+}
+/* 시나리오 자료를 고치거나 더하는 요청에 쓰는 확인. gen = 화면이 그 자료를 받아 왔을 때의 자료 번호.
+ * 그 뒤 다른 탭에서 "시나리오 자료 전체 지우기"를 했다면 번호가 달라져 있다 → 지운 자료를 보고 만든 수정·추가가 새 자료에 섞이지 않게 받지 않는다.
+ * (gen을 보내지 않는 예전 화면의 요청은 그대로 받는다) */
+function kbGuard(gen, fn) {
+  return withLock(30000, () => (gen != null && gen !== '' && String(gen) !== (getConf('kbGen') || '0'))
+    ? { ok: false, stale: true, error: '그 사이 시나리오 자료를 모두 지웠어요. 지우기 전 화면에서 보낸 내용이라 반영하지 않았어요. "새로 고침"을 눌러 주세요' } : fn());
+}
+// AI가 답을 만드는 사이 기록·자료가 지워져서 결과를 버렸다는 응답 (화면은 stale을 보면 결과를 쓰지 않는다)
+function staleOut(what) {
+  return { ok: false, stale: true, error: 'AI가 답을 만드는 사이에 ' + (what || '회의록이나 시나리오 자료') + '가 지워졌어요. 지워진 자료로 만든 결과라서 저장하지 않고 버렸어요. 필요하면 다시 눌러 주세요' };
 }
 
 /* ───────────── 키퍼 정리본 (시나리오 자료를 AI가 읽어 만든 키퍼용 노트) ───────────── */
@@ -1431,64 +1549,111 @@ const KB_RULE =
   '이미 정리본에 있는 대상은 같은 id로, 이번 조각에서 새로 알게 된 내용만 해당 칸에 짧게 써라. 기존 내용을 다시 쓰지 마라(네가 쓴 내용은 기존 칸 뒤에 덧붙여진다). ' +
   '이미 적혀 있는 내용이면 출력하지 마라. 새 대상은 id를 비워라. "locked":true 인 항목은 키퍼가 직접 고친 것이니 출력하지 마라.';
 
-/* ───────────── 시나리오 원문 조각 ───────────── */
-function ksrcRows() {
+/* ───────────── 시나리오 원문 조각 ─────────────
+ * 한 행 = 조각 하나: [조각ID, 출처, 순번, 글자수, 본문, 추가 시각, 나눈 원래 조각]
+ *
+ * 조각 나누기 (AI 답이 잘려서 조각을 반으로 줄일 때)
+ *  - 원래 조각의 행은 고치지 않는다. 앞 절반·뒤 절반을 새 조각 두 개로, 한 번의 쓰기로 맨 아래에 덧붙인다 (순번은 "3.1", "3.2").
+ *  - 쓸 조각은 "두 자식이 모두 있는 원래 조각"을 뺀 나머지다(ksrcEffective).
+ *      쓰기 전에 멈춤 → 원래 조각이 그대로 쓰인다.   쓰기가 끝남 → 자식 두 개가 쓰이고 원래 조각은 숨는다.
+ *      혹시 자식이 하나만 남았다면 → 원래 조각이 그대로 쓰이고, 다음에 나눌 때 그 하나를 치운 뒤 다시 둘을 쓴다.
+ *    어느 순간에 멈춰도 "원래 조각 전체" 아니면 "완전한 두 조각" 가운데 하나이고, 다시 실행해도 뒤 절반이 두 번 생기지 않는다.
+ *  - 순번은 "3.1.2"처럼 점으로 이어 쓰고 숫자 묶음으로 견준다 → 나뉜 조각이 원래 자리에서 순서대로 읽힌다.
+ *    (예전 버전이 쓴 "1-2" 꼴도 같은 방식으로 읽는다)
+ *  - 쪽 표시: PDF에서 온 글에는 화면이 쪽마다 ⟦12쪽⟧ 표시를 넣어 보낸다. 나눌 때 뒤 절반 앞에 ⟦12쪽 이어짐⟧을 붙여 쪽 번호를 잇는다. */
+function ordPath(ord) { return String(ord == null ? '' : ord).split(/[.\-]/).map(x => Number(x) || 0); }
+function ordCmp(a, b) {
+  const x = ordPath(a), y = ordPath(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] == null ? -1 : x[i]) - (y[i] == null ? -1 : y[i]); if (d) return d; }
+  return 0;
+}
+function ordLabel(ord) { return String(ord == null ? '' : ord).replace(/\./g, '-'); }
+// 시트에 있는 모든 행 (숨은 원래 조각 포함). withText가 아니면 본문은 읽지 않는다 (원문이 많아도 빠르게)
+function ksrcAll(withText) {
   keeperOnly('시나리오 원문');
   const s = ensureSheet(SH.KSRC), last = s.getLastRow();
   if (last < 2) return [];
-  return s.getRange(2, 1, last - 1, 5).getValues()
-    .map((r, i) => ({ row: i + 2, id: String(r[0]), source: String(r[1]).trim(), n: Number(r[2]) || 0, text: String(r[4]) }))
-    .filter(r => r.id);
+  const n = last - 1;
+  const v = withText ? s.getRange(2, 1, n, 7).getValues()
+    : (() => { const a = s.getRange(2, 1, n, 4).getValues(), p = s.getRange(2, 7, n, 1).getValues(); return a.map((r, i) => [r[0], r[1], r[2], r[3], '', '', p[i][0]]); })();
+  return v.map((r, i) => {
+    const text = withText ? decS(r[4]) : '';
+    return { row: i + 2, id: String(r[0]), source: decS(r[1]).trim(), ord: String(r[2]), len: withText ? text.length : (Number(r[3]) || 0), text, parent: String(r[6] || '') };
+  }).filter(r => r.id);
 }
-// 목록만 필요할 때는 본문을 읽지 않는다 (원문이 많아도 키퍼 탭이 빨리 열리게)
-function ksrcMeta() {
-  keeperOnly('시나리오 원문');
-  const s = ensureSheet(SH.KSRC), last = s.getLastRow();
-  if (last < 2) return [];
-  return s.getRange(2, 1, last - 1, 4).getValues()
-    .map(r => ({ id: String(r[0]), source: String(r[1]).trim(), text: { length: Number(r[3]) || 0 } })).filter(r => r.id);
+// 실제로 쓰는 조각만 읽는 순서대로 (나뉜 원래 조각과, 짝이 없는 자식은 뺀다)
+function ksrcEffective(all) {
+  const byId = {}, kids = {}, first = {};
+  all.forEach(r => { byId[r.id] = r; if (first[r.source] == null) first[r.source] = r.row; });
+  all.forEach(r => { if (r.parent && byId[r.parent]) (kids[r.parent] = kids[r.parent] || []).push(r); });
+  const pair = id => { const k = kids[id] || [], a = k.find(x => /\.1$/.test(x.ord)), b = k.find(x => /\.2$/.test(x.ord)); return a && b ? [a, b] : null; };
+  const outE = [];
+  const walk = (r, depth) => { const p = depth < 12 ? pair(r.id) : null; if (p) { walk(p[0], depth + 1); walk(p[1], depth + 1); } else outE.push(r); };
+  all.forEach(r => { if (!r.parent || !byId[r.parent]) walk(r, 0); });
+  return outE.sort((x, y) => (first[x.source] - first[y.source]) || ordCmp(x.ord, y.ord) || (x.row - y.row));
 }
-function ksrcList(kb, rows) {
+function ksrcList(kb, eff) {
   const done = new Set(kb.done || []), by = {}, order = [];
-  rows.forEach(r => {
+  eff.forEach(r => {
     if (!by[r.source]) { by[r.source] = { source: r.source, chunks: 0, chars: 0, pending: 0 }; order.push(r.source); }
-    const g = by[r.source]; g.chunks++; g.chars += r.text.length; if (!done.has(r.id)) g.pending++;
+    const g = by[r.source]; g.chunks++; g.chars += r.len; if (!done.has(r.id)) g.pending++;
   });
   return order.map(k => by[k]);
 }
+function chunkId() { return 'c' + Utilities.getUuid().replace(/-/g, '').slice(0, 12); }
 function kSrcAdd(b) {
-  const source = String(b.source || '').trim().replace(/^[=+@']+/, '').slice(0, 80) || '자료';
+  const source = String(b.source || '').trim().slice(0, 80) || '자료';       // 이름 앞 글자를 지우지 않는다 (수식 방지는 enc가 맡는다)
   const parts = (Array.isArray(b.parts) ? b.parts : []).map(x => String(x || '').trim()).filter(Boolean).map(x => x.slice(0, 12000));
   if (!parts.length) return { ok: false, error: '올릴 내용이 없어요' };
   return withLock(30000, () => {
-    const s = ensureSheet(SH.KSRC), rows = ksrcRows();
-    if (rows.length + parts.length > 600) return { ok: false, error: '원문이 너무 많아요 (조각 600개 한도). 필요 없는 자료를 지우고 다시 올려 주세요' };
-    let n = rows.filter(r => r.source === source).length;
-    const add = parts.map(t => ['c' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), source, String(++n), String(t.length), safeCell(t), now()]);
-    s.getRange(s.getLastRow() + 1, 1, add.length, 6).setNumberFormat('@').setValues(add);
-    return { ok: true, added: add.length, total: rows.length + add.length };
+    const s = ensureSheet(SH.KSRC), all = ksrcAll(false);
+    if (all.length + parts.length > 600) return { ok: false, error: '원문이 너무 많아요 (조각 600개 한도). 필요 없는 자료를 지우고 다시 올려 주세요' };
+    let n = all.filter(r => r.source === source).reduce((m, r) => Math.max(m, ordPath(r.ord)[0] || 0), 0);
+    const add = parts.map(t => [chunkId(), enc(source), String(++n), String(t.length), enc(t), now(), '']);
+    s.getRange(s.getLastRow() + 1, 1, add.length, 7).setNumberFormat('@').setValues(add);
+    return { ok: true, added: add.length, total: ksrcEffective(all).length + add.length };
   });
 }
+// 자료 하나 지우기: 그 출처의 행(나뉜 원래 조각·자식 포함)을 모두 지운다.
+// 그 조각을 읽고 있던 AI 정리가 뒤늦게 끝나도, 반영 직전에 "조각이 아직 있는지" 확인하므로 정리본에 들어가지 않는다.
 function kSrcDel(source) {
   source = String(source || '').trim();
   return withLock(30000, () => {
-    const s = ensureSheet(SH.KSRC), rows = ksrcRows().filter(r => r.source === source);
+    const s = ensureSheet(SH.KSRC), all = ksrcAll(false), rows = all.filter(r => r.source === source);
+    const shown = ksrcEffective(all).filter(r => r.source === source).length;
     for (let i = rows.length - 1; i >= 0; i--) s.deleteRows(rows[i].row, 1);
-    return { ok: true, removed: rows.length, message: '원문 ' + rows.length + '조각을 지웠어요. 이미 정리본에 들어간 내용은 남아 있어요' };
+    bump('kVer');
+    return { ok: true, removed: shown, message: '원문 ' + shown + '조각을 지웠어요. 이미 정리본에 들어간 내용은 남아 있어요 (정리 중이던 조각의 결과는 버려요)' };
   });
 }
-// 조각이 너무 커서 AI 답이 잘리거나 시간 초과가 났을 때: 반으로 나눈다 (앞 절반은 제자리, 뒤 절반은 맨 아래에 새 조각으로)
-function ksrcSplit(id) {
+// 쪽 표시: 지금 화면이 넣는 ⟦12쪽⟧ / ⟦12쪽 이어짐⟧, 그리고 예전 버전이 넣던 "[12쪽]"(그것만 있는 줄)
+const PAGE_MARK = /⟦(\d+)쪽(?: 이어짐)?⟧|(?:^|\n)\[(\d+)쪽\](?=\n|$)/g;
+function pageAt(text, i) {                   // 글의 i번째 글자가 PDF의 몇 번째 쪽인지 (그 앞에 쪽 표시가 없으면 null: 짐작하지 않는다)
+  let pg = null, m; const re = new RegExp(PAGE_MARK.source, 'g');
+  while ((m = re.exec(text)) && m.index <= i) pg = Number(m[1] || m[2]);
+  return pg;
+}
+/* 조각을 반으로 나눈다. 돌려주는 값: 'split'(나눴음) / 'already'(다른 요청이 이미 나눴음) / false(나눌 수 없음)
+ * len·gen: 호출한 쪽이 읽었던 조각 길이와 자료 번호. 그 사이 조각이 바뀌었거나 자료를 모두 지웠으면 나누지 않는다. */
+function ksrcSplit(id, len, gen) {
   return withLock(20000, () => {
-    const s = ensureSheet(SH.KSRC), r = ksrcRows().find(x => x.id === id);
-    if (!r || r.text.length <= 1500) return false;
+    if (gen != null && (getConf('kbGen') || '0') !== String(gen)) return false;
+    const s = ensureSheet(SH.KSRC), all = ksrcAll(true), r = ksrcEffective(all).find(x => x.id === id);
+    if (!r) return all.some(x => x.id === id) ? 'already' : false;
+    if (len != null && r.len !== len) return false;
+    if (kbRead().done.indexOf(id) >= 0) return false;                       // 그 사이 정리가 끝난 조각
+    if (r.text.length <= 1500) return false;
     let cut = r.text.lastIndexOf('\n', Math.floor(r.text.length / 2));
     if (cut < r.text.length * 0.25) cut = Math.floor(r.text.length / 2);
-    const a = r.text.slice(0, cut).trim(), b2 = r.text.slice(cut).trim();
+    const a = r.text.slice(0, cut).trim();
+    let b2 = r.text.slice(cut).trim();
     if (!a || !b2) return false;
-    s.getRange(r.row, 4, 1, 2).setNumberFormat('@').setValues([[String(a.length), safeCell(a)]]);
-    s.getRange(s.getLastRow() + 1, 1, 1, 6).setNumberFormat('@').setValues([['c' + Utilities.getUuid().replace(/-/g, '').slice(0, 12), r.source, String(r.n) + '-2', String(b2.length), safeCell(b2), now()]]);
-    return true;
+    if (!/^⟦\d+쪽/.test(b2)) { const pg = pageAt(a, a.length); if (pg != null) b2 = '⟦' + pg + '쪽 이어짐⟧\n' + b2; }
+    // 예전에 나누다 멈춰서 자식이 하나만 남아 있으면 먼저 치운다 (아래쪽 행부터)
+    all.filter(x => x.parent === id).sort((x, y) => y.row - x.row).forEach(o => s.deleteRows(o.row, 1));
+    const mk = (tail, t) => [chunkId(), enc(r.source), r.ord + tail, String(t.length), enc(t), now(), id];
+    s.getRange(s.getLastRow() + 1, 1, 2, 7).setNumberFormat('@').setValues([mk('.1', a), mk('.2', b2)]);   // 두 조각을 한 번에 쓴다
+    return 'split';
   });
 }
 // 글자가 없는(스캔) PDF의 한 쪽을 그림으로 받아 글자로 옮긴다
@@ -1500,36 +1665,56 @@ function kOcr(b) {
   return { ok: true, text: String(text || '').trim() };
 }
 // 정리 한 걸음: 아직 정리 안 된 조각 하나를 AI가 읽고 정리본에 합친다. 화면이 끝날 때까지 이걸 되풀이해서 부른다.
+// AI 호출은 잠금 밖에서 하고, 결과를 합치기 직전에만 짧게 잠가서 "그 조각이 아직 그대로 있는지"를 다시 확인한다.
 function kDigestStep() {
   const gen = getConf('kbGen') || '0';
-  const kb = kbRead(), rows = ksrcRows(), done = new Set(kb.done);
-  const pend = rows.filter(r => !done.has(r.id));
-  if (!pend.length) return { ok: true, left: 0, total: rows.length };
-  const c = pend[0];
+  const kb = kbRead(), eff = ksrcEffective(ksrcAll(true)), done = new Set(kb.done);
+  const pend = eff.filter(r => !done.has(r.id));
+  if (!pend.length) return { ok: true, left: 0, total: eff.length };
+  const c = pend[0], label = ordLabel(c.ord);
   let res;
   try {
     res = parseJson(claude(
       '너는 TRPG 키퍼(게임 마스터)의 비공개 준비 노트를 만드는 조수다. 아래는 키퍼만 보는 시나리오 자료의 일부다. ' +
-      '자료에 있는 내용만 정리하고 지어내지 마라. 문장을 길게 베끼지 말고, 키퍼가 진행 중에 한눈에 볼 수 있게 짧게 정리하라. JSON 하나만 출력하라.',
+      '자료에 있는 내용만 정리하고 지어내지 마라. 문장을 길게 베끼지 말고, 키퍼가 진행 중에 한눈에 볼 수 있게 짧게 정리하라. ' +
+      '자료 속 ⟦12쪽⟧ 같은 표시는 원본의 쪽 번호일 뿐이니 정리에 옮기지 마라. JSON 하나만 출력하라.',
       '## 지금까지 만든 정리본\n' + kbForAi(kb, c.text) + '\n\n' +
-      '## 시나리오 자료 (' + c.source + ', 조각 ' + c.n + ')\n' + c.text + '\n\n' +
+      '## 시나리오 자료 (' + c.source + ', 조각 ' + label + ')\n' + c.text + '\n\n' +
       '## 출력 형식\n{"truthAdd":"이 조각에서 새로 알게 된 사건의 진상·배경·흑막 (400자 이내, 없으면 빈칸)",' +
       '"npcs":[],"places":[],"clues":[],"rolls":[],"scenes":[]}\n' + KB_RULE, 3500));
   } catch (e) {
-    // 답이 잘렸거나 제한 시간에 걸렸으면 조각이 큰 것 → 반으로 나눈다. AI 서버가 바쁜 것(429·5xx)이면 그대로 다시 시도.
-    const msg = String(e && e.message || e);
-    let split = false;
-    if (/잘렸|받지 못했|JSON/.test(msg)) { try { split = ksrcSplit(c.id); } catch (e2) {} }
-    return { ok: false, retry: !!split || /Claude 오류 (429|5\d\d)/.test(msg), error: '정리 실패: ' + msg + (split ? ' · 조각을 반으로 나눠서 다시 시도해요' : '') };
+    /* 실패한 까닭에 따라 다르게 대응한다.
+     *  truncated·parse: 답이 길어서 끊겼거나 형식이 깨짐 → 조각을 반으로 나눠 다시
+     *  fetch: 응답을 못 받음(연결·지연) → 한 번은 그대로 다시, 같은 조각에서 또 그러면 반으로 나눈다
+     *  rate·server: Claude 쪽이 바쁨 → 조각은 그대로 두고 잠시 뒤 다시 / auth·bad: 다시 해도 같으니 멈춘다 */
+    const kind = (e && e.kind) || '', msg = String(e && e.message || e);
+    let split = null, again = false, wait = 0;
+    if (kind === 'truncated' || kind === 'parse') { try { split = ksrcSplit(c.id, c.len, gen); } catch (e2) {} }
+    else if (kind === 'fetch') {
+      let n = 1;
+      try { const ch = CacheService.getScriptCache(); n = Number(ch.get('kd_' + c.id) || 0) + 1; ch.put('kd_' + c.id, String(n), 900); } catch (e2) {}
+      if (n >= 2) { try { split = ksrcSplit(c.id, c.len, gen); } catch (e2) {} }
+      again = true; wait = 3000;
+    }
+    else if (kind === 'rate') { again = true; wait = 30000; }
+    else if (kind === 'server') { again = true; wait = 8000; }
+    const didSplit = split === 'split' || split === 'already';
+    return { ok: false, kind, retry: again || didSplit, wait, split: didSplit, source: c.source, part: label,
+      error: '정리 실패 (' + c.source + ' 조각 ' + label + '): ' + msg + (didSplit ? ' · 조각을 반으로 나눠서 다시 시도해요 (AI 호출이 그만큼 늘어요)' : '') };
   }
   return withLock(30000, () => {
-    if ((getConf('kbGen') || '0') !== gen) return { ok: false, error: '정리하는 사이 시나리오 자료가 지워졌어요' };
-    const cur = kbRead();
-    if (cur.done.indexOf(c.id) >= 0) return { ok: true, left: pend.length - 1, total: rows.length };   // 다른 요청이 먼저 처리함
+    if ((getConf('kbGen') || '0') !== gen) return staleOut('시나리오 자료');
+    const effNow = ksrcEffective(ksrcAll(false)), cur = kbRead(), doneNow = new Set(cur.done);
+    const left = () => effNow.filter(r => !doneNow.has(r.id)).length;
+    const still = effNow.find(r => r.id === c.id);
+    // 그 사이 이 자료를 지웠거나(자료 하나 지우기) 다른 요청이 조각을 나눴다 → 이 결과는 정리본에 넣지 않는다
+    if (!still || still.len !== c.len) return { ok: true, ai: true, skipped: true, left: left(), total: effNow.length, source: c.source, note: '정리하는 사이 이 조각이 지워지거나 나뉘어서, 그 결과는 정리본에 넣지 않았어요' };
+    if (doneNow.has(c.id)) return { ok: true, ai: true, left: left(), total: effNow.length, source: c.source };   // 다른 요청이 먼저 처리함
     const merged = kbMerge(cur, res);
     merged.done = cur.done.concat([c.id]).slice(-2000);     // 정리본과 "어디까지 읽었는지"를 한 번에 저장 → 같은 조각을 두 번 합치지 않는다
     kbWrite(merged);
-    return { ok: true, left: pend.length - 1, total: rows.length, source: c.source };
+    doneNow.add(c.id);
+    return { ok: true, ai: true, left: left(), total: effNow.length, source: c.source, part: label };     // ai: 이번 걸음에 AI를 한 번 불렀다
   });
 }
 function kKbSave(sec, item) {
@@ -1578,7 +1763,7 @@ function kTruthPolish() {
   const outT = String(res.truth || '').trim();
   if (outT.length < 50) return { ok: false, error: 'AI가 빈 답을 줬어요. 다시 눌러 주세요' };
   return withLock(20000, () => {
-    if ((getConf('kbGen') || '0') !== gen) return { ok: false, error: '그 사이 시나리오 자료가 지워졌어요' };
+    if ((getConf('kbGen') || '0') !== gen) return staleOut('시나리오 자료');
     const cur = kbRead();
     if (cur.truth !== before) return { ok: false, error: '그 사이 진상 내용이 바뀌었어요. 다시 눌러 주세요' };
     cur.truth = outT.slice(0, 8000); kbWrite(cur);
@@ -1595,40 +1780,67 @@ function kKbClear() {
   });
 }
 
-/* ───────────── 키퍼 기록 (현황판·제안·초안 보관) ───────────── */
-function klogAdd(kind, session, title, input, result, rv) {
+/* ───────────── 키퍼 기록 (현황판·제안·초안 보관) ─────────────
+ * 한 행: [ID, 시각, 초기화번호, 세션, 종류, 제목, 입력, 결과, 자료번호]
+ * deps = 이 결과가 무엇을 읽고 만들어졌는지. { rv: 회의록(초기화번호), gen: 시나리오 자료(자료번호) }
+ *   AI를 부르기 전에 읽어 둔 번호를 넘기면, 저장할 때 잠금 안에서 지금 번호와 견준다.
+ *   그 사이 '회의록 지우기'(rv가 바뀜)나 '시나리오 자료 지우기'(gen이 바뀜)를 했으면 저장하지 않고 null을 돌려준다.
+ *   번호 확인 · 쓸 행 고르기 · 쓰기가 한 잠금 안에서 이어지므로, 확인과 쓰기 사이에 지우기가 끼어들 수 없다.
+ * 회의록만 읽은 결과(시작 카드·시상식 후보)는 rv만, 시나리오 자료만 읽은 결과는 gen만, 둘 다 읽은 결과는 둘 다 넘긴다. */
+function klogAdd(kind, session, title, input, result, deps) {
   keeperOnly('키퍼 기록');
-  confLoad(true);                                            // AI를 기다리는 동안 초기화됐을 수 있으니 설정을 다시 읽는다
-  const cur = getConf('resetVer') || '0';
-  if (rv != null && String(rv) !== cur) return null;        // 그 사이 기록이 초기화됐으면 남기지 않는다
-  const id = 'g' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
-  const s = ensureSheet(SH.KLOG);
-  s.getRange(s.getLastRow() + 1, 1, 1, 8).setNumberFormat('@').setValues([[id, now(), cur, String(session || ''), kind, safeCell(String(title || '').slice(0, 100)),
-    JSON.stringify(input == null ? null : input).slice(0, 20000), JSON.stringify(result == null ? null : result).slice(0, 45000)]]);
-  return id;
+  return withLock(20000, () => {                              // 잠글 때 설정을 새로 읽는다
+    const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
+    if (deps && deps.rv != null && String(deps.rv) !== rv) return null;
+    if (deps && deps.gen != null && String(deps.gen) !== gen) return null;
+    const id = 'g' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+    const s = ensureSheet(SH.KLOG);
+    s.getRange(s.getLastRow() + 1, 1, 1, 9).setNumberFormat('@').setValues([[id, now(), rv, enc(String(session || '')), String(kind), enc(String(title || '').slice(0, 100)),
+      enc(JSON.stringify(input == null ? null : input).slice(0, 20000)), enc(JSON.stringify(result == null ? null : result).slice(0, 45000)),
+      deps && deps.gen != null ? gen : '']]);
+    return id;
+  });
 }
+// 지금 회의록·지금 시나리오 자료에 딸린 기록만 돌려준다 (지운 뒤에 예전 결과가 다시 보이지 않게)
 function klogRows() {
   keeperOnly('키퍼 기록');
   const s = ensureSheet(SH.KLOG), last = s.getLastRow();
   if (last < 2) return [];
-  const rv = getConf('resetVer') || '0', from = Math.max(2, last - 399);
-  return s.getRange(from, 1, last - from + 1, 8).getValues().filter(r => r[0] && String(r[2]) === rv).map(r => {
-    const j = x => { try { return JSON.parse(String(x)); } catch (e) { return null; } };
-    return { id: String(r[0]), at: String(r[1]), session: String(r[3]), kind: String(r[4]), title: String(r[5]), input: j(r[6]), result: j(r[7]) };
-  });
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0', from = Math.max(2, last - 399);
+  return s.getRange(from, 1, last - from + 1, 9).getValues()
+    .filter(r => r[0] && String(r[2]) === rv && (String(r[8] || '') === '' || String(r[8]) === gen)).map(r => {
+      const j = x => { try { return JSON.parse(decS(x)); } catch (e) { return null; } };
+      return { id: String(r[0]), at: String(r[1]), session: decS(r[3]), kind: String(r[4]), title: decS(r[5]), input: j(r[6]), result: j(r[7]) };
+    });
+}
+// 시상식 후보 기록을 화면용으로 정리한다. 공개 기록만으로 만든 후보(mode:'public')만 '공개용 후보'로 다룬다.
+// 예전 버전이 만든 후보(진상을 함께 보냈을 수 있음)는 legacy로 표시만 하고, 공개·견주기에는 쓰지 못하게 한다.
+const AWARD_PUBLIC = ['id', 'category', 'player', 'character', 'title', 'text'];
+function awardsView(l, notesBy) {
+  const pub = !!(l.input && l.input.mode === 'public');
+  const hs = (l.result && Array.isArray(l.result.highlights)) ? l.result.highlights : [];
+  const note = pub ? (notesBy[l.id] || null) : null;
+  return {
+    id: l.id, at: l.at, session: l.session, legacy: !pub, legacyTruth: !pub && !!(l.input && l.input.useTruth),
+    highlights: hs.map(h => { const o = pickF(h || {}, AWARD_PUBLIC); if (!pub && h && h.kNote) o.kNote = String(h.kNote); return o; }),
+    notes: note ? note.notes : null, notesAt: note ? note.at : ''
+  };
 }
 function kData() {
-  const kb = kbRead(), rows = ksrcMeta(), logs = klogRows();
+  const kb = kbRead(), eff = ksrcEffective(ksrcAll(false)), logs = klogRows();
   const lastN = (kind, n) => logs.filter(l => l.kind === kind).slice(-n).reverse();
   const done = new Set(kb.done);
   const rollS = ensureSheet(SH.ROLLS);
+  const notesBy = {};
+  logs.forEach(l => { if (l.kind === 'awardsNote' && l.input && l.input.draftId && l.result) notesBy[String(l.input.draftId)] = { at: l.at, notes: l.result.notes || {} }; });
   return {
-    ok: true, kb, sources: ksrcList(kb, rows), pending: rows.filter(r => !done.has(r.id)).length, chunks: rows.length,
-    board: lastN('board', 1)[0] || null, recaps: lastN('recap', 6), awardsLogs: lastN('awards', 6), feedbacks: lastN('feedback', 6),
+    ok: true, kb, sources: ksrcList(kb, eff), pending: eff.filter(r => !done.has(r.id)).length, chunks: eff.length,
+    board: lastN('board', 1)[0] || null, recaps: lastN('recap', 6), awardsLogs: lastN('awards', 6).map(l => awardsView(l, notesBy)), feedbacks: lastN('feedback', 6),
     npcLog: lastN('npc', 12), rollLog: lastN('roll', 12),
     recap: confJson('recap', null), awards: confJson('awards', null),
     rollsTotal: Math.max(0, rollS.getLastRow() - 1), sessions: sessionList().sessions, session: getConf('session'),
-    keeperName: getConf('keeperName') || '', resetVer: getConf('resetVer') || '0'
+    keeperName: getConf('keeperName') || '', resetVer: getConf('resetVer') || '0', kbGen: getConf('kbGen') || '0',
+    weak: KEEPER_PW.length < 10, code: CODE_VER
   };
 }
 
@@ -1643,7 +1855,7 @@ function recentTalk(n) {
 function sessionSummaries(session, cap) {
   const rows = sheet(SH.SUM).getDataRange().getValues().slice(1)
     .filter(r => String(r[0]) === String(session))
-    .map(r => ({ from: String(r[1]), to: String(r[2]), text: String(r[3]) }))
+    .map(r => ({ from: String(r[1]), to: String(r[2]), text: decS(r[3]) }))
     .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
   let outS = rows.map(r => '[' + r.from.slice(11, 16) + '~' + r.to.slice(11, 16) + ']\n' + r.text).join('\n\n');
   cap = cap || 40000;
@@ -1666,12 +1878,13 @@ function kbRelated(kb, hay, names, skipId, cap) {
   return outR;
 }
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
+function sessOf(v) { return /^\d{1,5}$/.test(String(v == null ? '' : v)) ? String(v) : String(getConf('session') || '1'); }     // 세션 번호는 숫자만 (아니면 지금 세션)
 function txt(v, n) { return String(v == null ? '' : v).trim().slice(0, n || 600); }
 function arr(v, n, len) { return (Array.isArray(v) ? v : (v ? [v] : [])).map(x => txt(x, len || 300)).filter(Boolean).slice(0, n || 8); }
 
 /* ───────────── NPC 반응 제안 ───────────── */
 function kNpc(b) {
-  const rv = getConf('resetVer') || '0';
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
   const name = txt(b.npc, 60);
   const situation = txt(b.situation, 2000);
   if (!name) return { ok: false, error: 'NPC를 고르거나 이름을 적어 주세요' };
@@ -1703,30 +1916,39 @@ function kNpc(b) {
     '"reveal":"이번에 드러내도 되는 정보 (없으면 빈칸)","hide":"계속 숨겨야 하는 것 (없으면 빈칸)","consistency":"이전 주장과 맞는지 한 문장","warn":"주의할 점 (없으면 빈칸)"}';
   const res = parseJson(claude(system, user, 1500));
   const result = { lines: arr(res.lines, 4, 400), expression: txt(res.expression), inner: txt(res.inner), reveal: txt(res.reveal), hide: txt(res.hide), consistency: txt(res.consistency), warn: txt(res.warn) };
+  // used: 실제로 AI에 보낸 키퍼 자료의 범위 (화면에 그대로 보여 준다)
   const used = { inKb: !!kn, related: rel.length, full: !!b.full };
-  klogAdd('npc', getConf('session'), name, { npc: name, place, situation, skill, level, full: !!b.full }, result, rv);
+  if (!klogAdd('npc', getConf('session'), name, { npc: name, place, situation, skill, level, full: !!b.full }, result, { rv, gen })) return staleOut();
   return { ok: true, result, used };
 }
 
 /* ───────────── 판정 결과 보조 ───────────── */
-// 원문에서 기술 이름이 나오는 대목을 찾아 앞뒤를 잘라 보여 준다 (AI 없이)
+// 원문에서 기술 이름이 나오는 대목을 찾아 앞뒤를 잘라 보여 준다 (AI 없이, 원문 글자 그대로)
+// page: 그 대목이 있던 PDF의 쪽 번호. 올릴 때 쪽 표시가 남은 자료에서만 알 수 있고, 모르면 null (짐작해서 채우지 않는다)
 function ksrcFind(skill, place, max) {
-  skill = String(skill || '').trim();
+  skill = String(skill || '').trim(); place = String(place || '').trim();
   if (skill.length < 2) return [];
-  const found = [];
-  ksrcRows().forEach(r => {
+  const found = [], strip = t => t.replace(new RegExp(PAGE_MARK.source, 'g'), ' ').replace(/^[^⟦⟧]{0,10}⟧/, '').replace(/⟦[^⟦⟧]{0,10}$/, '').trim();
+  ksrcEffective(ksrcAll(true)).forEach(r => {
     let i = -1, n = 0;
     while ((i = r.text.indexOf(skill, i + 1)) >= 0 && n < 3) {
       const a = Math.max(0, i - 220), z = Math.min(r.text.length, i + skill.length + 380);
       const ex = r.text.slice(a, z);
-      found.push({ source: r.source, n: r.n, text: (a > 0 ? '…' : '') + ex + (z < r.text.length ? '…' : ''), score: place && place.length >= 2 && ex.indexOf(place) >= 0 ? 2 : (place && place.length >= 2 && r.text.indexOf(place) >= 0 ? 1 : 0) });
+      const near = place.length >= 2 && ex.indexOf(place) >= 0, inPart = place.length >= 2 && r.text.indexOf(place) >= 0;
+      found.push({ source: r.source, part: ordLabel(r.ord), page: pageAt(r.text, i), text: (a > 0 ? '…' : '') + strip(ex) + (z < r.text.length ? '…' : ''),
+        place: near ? 'near' : (inPart ? 'part' : ''), score: near ? 2 : (inPart ? 1 : 0) });
       i += 300; n++;
     }
   });
-  return found.sort((x, y) => y.score - x.score).slice(0, max || 3);
+  return found.sort((x, y) => y.score - x.score).slice(0, max || 3).map(f => ({ source: f.source, part: f.part, page: f.page, text: f.text, place: f.place }));
 }
+/* 판정 보조. 돌려주는 것은 세 종류이고 화면에서 서로 다르게 표시한다.
+ *  written  = AI가 시나리오를 읽고 만든 정리본의 판정 항목 (원문 그대로가 아니다. 키퍼가 고친 항목은 locked)
+ *  excerpts = 원문에서 글자 그대로 잘라 온 대목 (파일 이름·쪽 번호와 함께)
+ *  ai       = 지금 새로 만든 AI 제안 (b.ai가 참일 때만 AI를 한 번 부른다. 아니면 AI 호출 0번)
+ * 진상 전체는 b.ai와 b.full을 모두 켰을 때만 AI에 보낸다. */
 function kRoll(b) {
-  const rv = getConf('resetVer') || '0';
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
   const skill = txt(b.skill, 40), place = txt(b.place, 60), memo = txt(b.text, 1000), level = LEVELS.indexOf(b.level) >= 0 ? b.level : '';
   if (!skill) return { ok: false, error: '기술 이름을 적어 주세요' };
   const kb = kbRead();
@@ -1734,42 +1956,52 @@ function kRoll(b) {
   const sk = norm(skill), pl = norm(place);
   const bySkill = kb.rolls.filter(r => { const s = norm(r.skill); return s && (s.indexOf(sk) >= 0 || sk.indexOf(s) >= 0); });
   const here = pl ? bySkill.filter(r => { const w = norm(r.where); return w && (w.indexOf(pl) >= 0 || pl.indexOf(w) >= 0); }) : bySkill;
-  const written = (here.length ? here : bySkill).map(r => Object.assign({ otherPlace: !here.length && !!pl }, pickF(r, ['id'].concat(KB_FIELDS.rolls))));
+  const otherPlace = !here.length && !!pl && bySkill.length > 0;       // 이 장소의 판정은 없고, 다른 장소의 같은 기술만 있다
+  const written = (here.length ? here : bySkill).map(r => Object.assign({ otherPlace, locked: !!r.locked }, pickF(r, ['id'].concat(KB_FIELDS.rolls))));
   const excerpts = ksrcFind(skill, place, 3);
-  let ai = null;
-  if (b.ai) {
+  const wantAi = !!b.ai, full = wantAi && !!b.full;
+  let ai = null, related = 0;
+  if (wantAi) {
     const rel = kbRelated(kb, [place, memo, skill].join(' '), [place], null, 5000);
+    related = rel.length;
     const res = parseJson(claude(
       '너는 TRPG 키퍼(게임 마스터)의 진행을 돕는 비공개 조수다. 판정 결과에 따라 플레이어에게 무엇을 줄지 제안하라. ' +
       '규칙: ① 시나리오에 적힌 판정 결과가 있으면 그것을 그대로 따르고 basis를 "scenario"로 하라. 없을 때만 자료와 어긋나지 않는 선에서 제안하고 basis를 "ai"로 하라. ' +
+      '다른 장소의 판정이라고 표시된 것은 참고만 하고, 이 장소의 결과로 그대로 옮기지 마라(그때는 basis를 "ai"로 하라). ' +
       '② 자료에 없는 단서나 사실을 새로 만들지 마라. ③ 이야기 진행에 꼭 필요한 단서는 실패해도 다른 길(대가를 치르거나 시간이 더 걸리는 방식)이 있게 alt에 적어라. ' +
       '④ 플레이어에게 읽어 줄 묘사는 flavor에 한두 문장으로 써라. JSON 하나만 출력하라.',
       '## 판정\n기술: ' + skill + '\n결과: ' + (level || '(미지정)') + (place ? '\n장소: ' + place : '') + (memo ? '\n상황: ' + memo : '') + '\n\n' +
-      '## 시나리오에 적힌 판정 (키퍼 전용)\n' + (written.length ? JSON.stringify(written) : '(정리본에 없음)') + '\n\n' +
+      '## 시나리오에 적힌 판정 (키퍼 전용 정리본' + (otherPlace ? ', 주의: 아래는 모두 다른 장소의 판정이다' : '') + ')\n' + (written.length ? JSON.stringify(written.map(w => pickF(w, KB_FIELDS.rolls))) : '(정리본에 없음)') + '\n\n' +
       '## 원문에서 찾은 대목 (키퍼 전용)\n' + (excerpts.length ? excerpts.map(e => e.text).join('\n---\n') : '(없음)') + '\n\n' +
       '## 관계있는 비공개 자료 (키퍼 전용)\n' + (rel.length ? rel.join('\n') : '(없음)') + '\n\n' +
-      (b.full ? '## 사건의 진상 전체 (키퍼 전용)\n' + (kb.truth || '(없음)') + '\n\n' : '') +
+      (full ? '## 사건의 진상 전체 (키퍼 전용)\n' + (kb.truth || '(없음)') + '\n\n' : '') +
       '## 방금까지의 대화 (받아쓰기)\n' + (recentTalk(20) || '(없음)') + '\n\n' +
       '## 출력 형식\n{"basis":"scenario 또는 ai","give":"이 결과에서 줄 정보","hold":"아직 주지 말 것 (없으면 빈칸)","flavor":"읽어 줄 묘사 한두 문장","alt":"실패했을 때의 다른 길 (해당 없으면 빈칸)"}', 1200));
-    ai = { basis: res.basis === 'scenario' ? 'scenario' : 'ai', give: txt(res.give, 800), hold: txt(res.hold), flavor: txt(res.flavor), alt: txt(res.alt) };
+    ai = { basis: (res.basis === 'scenario' && !otherPlace) ? 'scenario' : 'ai', give: txt(res.give, 800), hold: txt(res.hold), flavor: txt(res.flavor), alt: txt(res.alt) };
   }
-  klogAdd('roll', getConf('session'), skill + (level ? ' · ' + level : ''), { skill, level, place, text: memo, ai: !!b.ai }, { written: written.length, excerpts: excerpts.length, ai }, rv);
-  return { ok: true, written, excerpts, ai, level };
+  // sent: 실제로 AI에 보낸 것 (AI를 부르지 않았으면 아무것도 보내지 않았다)
+  const sent = { ai: wantAi, full, written: wantAi ? written.length : 0, excerpts: wantAi ? excerpts.length : 0, related };
+  const id = klogAdd('roll', getConf('session'), skill + (level ? ' · ' + level : ''), { skill, level, place, text: memo, ai: wantAi, full }, { written: written.length, excerpts: excerpts.length, ai }, { rv, gen });
+  if (!id) return staleOut();
+  return { ok: true, written, excerpts, ai, level, otherPlace, sent };
 }
 
 /* ───────────── 진행 현황판 ───────────── */
-function kBoard() {
-  const rv = getConf('resetVer') || '0';
+/* full이 참일 때만 '사건의 진상 전체'를 AI에 보낸다.
+ * 꺼져 있어도 단서 목록과 NPC의 비밀·거짓말은 보낸다 (그것 없이는 현황판을 만들 수 없다). 무엇을 보냈는지는 sent로 돌려줘서 화면에 보여 준다. */
+function kBoard(full) {
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
   const kb = kbRead(), notes = readNotes() || emptyNotes();
   if (!kb.clues.length && !kb.truth) return { ok: false, error: '먼저 시나리오 자료를 올려서 정리본을 만들어 주세요' };
-  const sums = sheet(SH.SUM).getDataRange().getValues().slice(1).slice(-8).map(r => '[세션 ' + r[0] + ' ' + String(r[1]).slice(11, 16) + ']\n' + r[3]).join('\n\n');
+  const sums = sheet(SH.SUM).getDataRange().getValues().slice(1).slice(-8).map(r => '[세션 ' + r[0] + ' ' + String(r[1]).slice(11, 16) + ']\n' + decS(r[3])).join('\n\n');
+  const npcs = kb.npcs.map(n => pickF(n, ['name', 'secret', 'lies'])).filter(n => n.secret || n.lies);
   const res = parseJson(claude(
     '너는 TRPG 키퍼(게임 마스터)만 보는 진행 현황판을 만드는 조수다. 키퍼만 아는 시나리오 자료와, 플레이어들이 지금까지 알아낸 공개 기록을 비교하라. ' +
-    '공개 기록에 실제로 있는 내용만 "found"로 판단하고 짐작하지 마라. 짧게 써라. JSON 하나만 출력하라.',
-    '## 사건의 진상 (키퍼 전용)\n' + (kb.truth || '(없음)') + '\n\n' +
+    '공개 기록에 실제로 있는 내용만 "found"로 판단하고 짐작하지 마라. 주어진 자료만으로 판단할 수 없는 것은 적지 마라. 짧게 써라. JSON 하나만 출력하라.',
+    (full ? '## 사건의 진상 (키퍼 전용)\n' + (kb.truth || '(없음)') + '\n\n' : '') +
     '## 단서 목록 (키퍼 전용)\n' + JSON.stringify(kb.clues.map(c => pickF(c, ['id', 'text', 'where', 'how', 'core']))) + '\n\n' +
-    '## NPC의 비밀과 거짓말 (키퍼 전용)\n' + JSON.stringify(kb.npcs.map(n => pickF(n, ['name', 'secret', 'lies']))) + '\n\n' +
-    '## 공개 기록: 누적 줄거리\n' + (getConf('story') || '(없음)') + '\n\n' +
+    '## NPC의 비밀과 거짓말 (키퍼 전용)\n' + JSON.stringify(npcs) + '\n\n' +
+    '## 공개 기록: 누적 줄거리\n' + (storyText() || '(없음)') + '\n\n' +
     '## 공개 기록: 플레이어 쪽에 정리된 단서\n' + JSON.stringify((notes.clues || []).map(c => pickF(c, ['text', 'kind', 'status']))) + '\n\n' +
     '## 공개 기록: 최근 요약\n' + (sums || '(없음)') + '\n\n' +
     '## 출력 형식\n{"clues":[{"id":"단서 id","status":"found|partial|unfound","note":"공개 기록의 어떤 내용과 맞는지, 또는 무엇이 빠졌는지 (40자 이내)"}],' +
@@ -1783,9 +2015,10 @@ function kBoard() {
     wrong: (Array.isArray(res.wrong) ? res.wrong : []).slice(0, 8).map(w => ({ text: txt(w && w.text, 300), why: txt(w && w.why, 300) })).filter(w => w.text),
     lies: (Array.isArray(res.lies) ? res.lies : []).slice(0, 15).map(l => ({ npc: txt(l && l.npc, 60), claim: txt(l && l.claim, 300), verdict: txt(l && l.verdict, 20), truth: txt(l && l.truth, 200) })).filter(l => l.claim),
     hints: arr(res.hints, 5, 300), next: txt(res.next, 500),
-    basis: { processedId: Number(getConf('processedId') || 0), total: totalLines() }
+    basis: { processedId: Number(getConf('processedId') || 0), total: totalLines() },
+    sent: { truth: !!full, clues: kb.clues.length, npcs: npcs.length }
   };
-  klogAdd('board', getConf('session'), '현황판', null, result, rv);
+  if (!klogAdd('board', getConf('session'), '현황판', { full: !!full }, result, { rv, gen })) return staleOut();
   return { ok: true, board: result };
 }
 // 키퍼가 직접 "찾음/아직"을 표시 (AI 판단보다 우선해서 보여 준다)
@@ -1806,7 +2039,7 @@ function cleanCard(c) {
 }
 function kRecap(session) {
   const rv = getConf('resetVer') || '0';
-  session = String(session || getConf('session'));
+  session = sessOf(session);
   const sums = sessionSummaries(session, 30000);
   if (!sums.count) return { ok: false, error: '세션 ' + session + '의 요약이 아직 없어요. 먼저 "지금 바로 정리"를 눌러 주세요' };
   // publicAi 안이라 키퍼 자료를 읽을 수 없다 → 이 카드에는 진상이 들어갈 수 없다
@@ -1823,17 +2056,30 @@ function kRecap(session) {
       '"plans":["하기로 한 일 (#번호)"] (없으면 빈 배열),"open":["아직 갈린 의견이나 남은 의문 (#번호)"] (최대 4개)}', 1500));
   });
   const card = cleanCard(res);
-  klogAdd('recap', session, '시작 카드', null, card, rv);
-  return { ok: true, card, session };
+  const draftId = klogAdd('recap', session, '시작 카드', { mode: 'public' }, card, { rv });      // 회의록만 읽었으니 초기화번호만 건다
+  if (!draftId) return staleOut('회의록');
+  return { ok: true, card, session, draftId, rv };
 }
-function kRecapPublish(card, session) {
+/* 공개: 서버가 정한 칸(cleanCard)만 저장한다. 화면이 보낸 객체나 AI 답을 통째로 저장하지 않는다.
+ * rv·draftId는 초안을 만들 때 받은 값이다. 서버가 "그 초안이 지금 회의록에서 만든 것인지"를 확인하고,
+ * 초안을 만든 뒤 회의록을 지웠으면(다른 탭에서 지운 것 포함) 공개하지 않는다. */
+function kRecapPublish(card, rv, draftId) {
   const c = cleanCard(card);
   if (!c.lastScene && !c.learned.length && !c.plans.length) return { ok: false, error: '카드 내용이 비어 있어요' };
   return withLock(20000, () => {
-    setJson('recap', Object.assign({ session: String(session || getConf('session')), at: now() }, c));
+    const d = draftCheck('recap', rv, draftId);
+    if (d.error) return d;
+    setJson('recap', Object.assign({ session: d.log.session, at: now() }, c));
     bump('sumVer');
-    return { ok: true };
+    return { ok: true, session: d.log.session };
   });
+}
+// 초안 확인 (잠금 안에서 부른다): 초기화번호가 지금과 같고, 그 초안이 지금 기록에 남아 있어야 한다
+function draftCheck(kind, rv, draftId) {
+  const stale = { ok: false, stale: true, error: '이 초안은 지금 회의록에서 만든 것이 아니에요 (초안을 만든 뒤 회의록을 지웠거나 오래된 초안이에요). 새로 만들어 주세요' };
+  if (String(rv == null ? '' : rv) !== (getConf('resetVer') || '0')) return stale;
+  const log = klogRows().find(l => l.id === String(draftId || '') && l.kind === kind);
+  return log ? { log } : stale;
 }
 
 /* ───────────── 세션 통계 (AI 없이 계산) ───────────── */
@@ -1842,7 +2088,8 @@ function charDeltas(session) {
   const s = ensureSheet(SH.CSNAP), last = s.getLastRow();
   if (last < 2) return [];
   const by = {}, order = [];
-  s.getRange(2, 1, last - 1, 9).getValues().forEach(r => {
+  s.getRange(2, 1, last - 1, 9).getValues().forEach(raw => {
+    const r = raw.map(x => (typeof x === 'string' ? dec(x) : x));
     if (String(r[1]) !== String(session) || !r[2]) return;
     const k = String(r[2]);
     if (!by[k]) { by[k] = { tab: k, player: String(r[3]), name: String(r[4]), first: r, last: r }; order.push(k); }
@@ -1855,7 +2102,7 @@ function rollRows() {
   keeperOnly('판정 기록');
   const s = ensureSheet(SH.ROLLS), last = s.getLastRow();
   if (last < 2) return [];
-  return s.getRange(2, 1, last - 1, 8).getValues().map(r => ({ session: String(r[1]), name: String(r[2]).trim(), skill: String(r[3]).trim(), target: numOf(r[4]), value: numOf(r[5]), level: String(r[6]), text: String(r[7]).trim() }));
+  return s.getRange(2, 1, last - 1, 8).getValues().map(r => ({ session: String(r[1]), name: decS(r[2]).trim(), skill: decS(r[3]).trim(), target: numOf(r[4]), value: numOf(r[5]), level: String(r[6]), text: decS(r[7]).trim() }));
 }
 function rollStats(session) {
   const by = {}, order = [];
@@ -1904,7 +2151,7 @@ function sessionStats(session) {
   people.forEach(p => { p.keeper = !!keeper && p.name === keeper; p.share = p.keeper ? null : (plTotal ? Math.round(p.chars / plTotal * 1000) / 10 : 0); });
   const span = tms(lines[lines.length - 1].time) - t0;
   const idle = sheet(SH.SUM).getDataRange().getValues().slice(1)
-    .filter(r => String(r[0]) === session && /잡담 위주/.test(String(r[3]))).map(r => ({ from: String(r[1]), to: String(r[2]) }));
+    .filter(r => String(r[0]) === session && /잡담 위주/.test(decS(r[3]))).map(r => ({ from: String(r[1]), to: String(r[2]) }));
   return Object.assign(base, {
     from: lines[0].time, to: lines[lines.length - 1].time, lines: lines.length,
     minutes: Math.round(span / 60000), activeMinutes: Math.round((span - quiet) / 60000),
@@ -1927,7 +2174,7 @@ function kRollsSave(b) {
   const session = /^\d{1,5}$/.test(String(b.session || '')) ? String(b.session) : (getConf('session') || '1');
   const mode = ['auto', 'append', 'replace'].indexOf(b.mode) >= 0 ? b.mode : 'auto';
   const rolls = (Array.isArray(b.rolls) ? b.rolls : []).slice(0, 5000).map(r => ({
-    name: txt(r && r.name, 60).replace(/^[=+@']+/, ''), skill: txt(r && r.skill, 60), target: numOf(r && r.target), value: numOf(r && r.value),
+    name: txt(r && r.name, 60), skill: txt(r && r.skill, 60), target: numOf(r && r.target), value: numOf(r && r.value),
     level: LEVELS.indexOf(r && r.level) >= 0 ? r.level : '', text: txt(r && r.text, 300)
   })).filter(r => r.name && r.level);
   if (!rolls.length) return { ok: false, error: '로그에서 1D100 판정을 찾지 못했어요' };
@@ -1942,55 +2189,103 @@ function kRollsSave(b) {
     }
     const start = mode === 'replace' ? 0 : old.length;
     if (add.length) {
-      const rows = add.map((r, i) => [String(start + i + 1), session, safeCell(r.name), safeCell(r.skill), r.target == null ? '' : String(r.target), r.value == null ? '' : String(r.value), r.level, safeCell(r.text)]);
+      const rows = add.map((r, i) => [String(start + i + 1), session, enc(r.name), enc(r.skill), r.target == null ? '' : enc(String(r.target)), r.value == null ? '' : enc(String(r.value)), r.level, enc(r.text)]);
       s.getRange(s.getLastRow() + 1, 1, rows.length, 8).setNumberFormat('@').setValues(rows);
     }
     return { ok: true, added: add.length, total: start + add.length, session };
   });
 }
 
-/* ───────────── 시상식 ───────────── */
-function kAwards(session, useTruth) {
+/* ───────────── 시상식 ─────────────
+ * 두 단계로 나뉜다. 두 단계의 AI 호출은 서로 다른 호출이고, 진상은 둘째 호출에만 들어간다.
+ *  ① kAwards        : 공개 기록(세션 요약·캐릭터 이름)만 읽어 후보를 만든다. publicAi 안에서 돌아서 키퍼 자료를 읽으면 오류가 난다.
+ *                      → 공개될 수 있는 글(상 이름·받는 사람·설명)은 진상을 모르는 AI가 쓴다. 후보마다 바뀌지 않는 id를 붙인다.
+ *  ② kAwardsCompare : 키퍼가 누를 때만. 이미 만든 후보와 진상을 보내서 후보별 '키퍼 메모'만 받는다.
+ *                      서버는 답에서 notes(후보 id → 메모)만 꺼내 따로 저장한다. 답에 다른 칸이 있어도 버리므로
+ *                      후보의 상 이름·받는 사람·설명은 바뀌지 않는다. 실패해도 ①의 후보는 그대로 남고 ②만 다시 할 수 있다. */
+function kAwards(session) {
   const rv = getConf('resetVer') || '0';
-  session = String(session || getConf('session'));
-  const sums = sessionSummaries(session, 40000);
-  if (!sums.count) return { ok: false, error: '세션 ' + session + '의 요약이 아직 없어요' };
-  const kb = useTruth ? kbRead() : null;
-  const res = parseJson(claude(
-    '너는 TRPG 세션이 끝난 뒤 여는 "시상식"의 후보를 뽑는 조수다. 세션 요약을 읽고 플레이어의 활약 장면을 찾아라. ' +
-    '규칙: ① 요약에 실제로 있는 일만 쓰고, text 끝에 근거 발언 번호 (#번호)를 반드시 붙여라. 근거가 없으면 후보에서 빼라. ' +
-    '② 말을 많이 한 사람이 유리하지 않게, 결정적인 한마디나 행동을 찾아라. 플레이어마다 한 장면 이상 찾으려고 노력하되 없으면 지어내지 마라. ' +
-    '③ title과 text는 플레이어에게 공개될 수 있다. 플레이어가 아직 모르는 진상·비밀은 title과 text에 절대 쓰지 마라. 진상과 견준 평가는 kNote에만 써라. ' +
-    '④ 놀리거나 깎아내리는 상은 만들지 마라. JSON 하나만 출력하라.',
-    '## 플레이어 = 캐릭터\n' + (charsText() || '(연결된 캐릭터 없음: 요약에 나온 이름을 그대로 써라)') + '\n\n' +
-    (kb ? '## 사건의 진상과 핵심 단서 (키퍼 전용, kNote에만 활용)\n' + (kb.truth || '(없음)') + '\n' + JSON.stringify(kb.clues.filter(c => c.core).map(c => pickF(c, ['text', 'where']))) + '\n\n' : '') +
-    '## 세션 ' + session + ' 요약\n' + sums.text + '\n\n' +
-    '## 출력 형식\n{"highlights":[{"category":"핵심 단서 발견|결정적 추리|위기를 넘긴 행동|정보를 끌어낸 대화|명장면","player":"플레이어 이름","character":"캐릭터 이름",' +
-    '"title":"상 이름 (재치 있게, 14자 이내)","text":"무슨 일이 있었는지 한두 문장 (#번호)","kNote":"키퍼만 보는 메모 (없으면 빈칸)"}]} (최대 8개)', 2500));
+  session = sessOf(session);
+  const res = publicAi(() => {
+    const sums = sessionSummaries(session, 40000);
+    if (!sums.count) return null;
+    return parseJson(claude(
+      '너는 TRPG 세션이 끝난 뒤 여는 "시상식"의 후보를 뽑는 조수다. 세션 요약을 읽고 플레이어의 활약 장면을 찾아라. ' +
+      '규칙: ① 요약에 실제로 있는 일만 쓰고, text 끝에 근거 발언 번호 (#번호)를 반드시 붙여라. 근거가 없으면 후보에서 빼라. ' +
+      '② 말을 많이 한 사람이 유리하지 않게, 결정적인 한마디나 행동을 찾아라. 플레이어마다 한 장면 이상 찾으려고 노력하되 없으면 지어내지 마라. ' +
+      '③ title과 text는 플레이어 모두에게 공개된다. 요약에 없는 일을 짐작해서 쓰지 마라. ' +
+      '④ 놀리거나 깎아내리는 상은 만들지 마라. JSON 하나만 출력하라.',
+      '## 플레이어 = 캐릭터\n' + (charsText() || '(연결된 캐릭터 없음: 요약에 나온 이름을 그대로 써라)') + '\n\n' +
+      '## 세션 ' + session + ' 요약\n' + sums.text + '\n\n' +
+      '## 출력 형식\n{"highlights":[{"category":"핵심 단서 발견|결정적 추리|위기를 넘긴 행동|정보를 끌어낸 대화|명장면","player":"플레이어 이름","character":"캐릭터 이름",' +
+      '"title":"상 이름 (재치 있게, 14자 이내)","text":"무슨 일이 있었는지 한두 문장 (#번호)"}]} (최대 8개)', 2500));
+  });
+  if (!res) return { ok: false, error: '세션 ' + session + '의 요약이 아직 없어요' };
   const highlights = (Array.isArray(res.highlights) ? res.highlights : []).slice(0, 8).map(h => ({
-    category: txt(h && h.category, 30), player: txt(h && h.player, 40), character: txt(h && h.character, 40), title: txt(h && h.title, 40), text: txt(h && h.text, 400), kNote: txt(h && h.kNote, 400)
-  })).filter(h => h.text && /#\d+/.test(h.text));          // 근거 번호가 없는 후보는 버린다
-  klogAdd('awards', session, '시상식 후보', { useTruth: !!useTruth }, { highlights }, rv);
-  return { ok: true, highlights, session };
+    id: 'a' + Utilities.getUuid().replace(/-/g, '').slice(0, 8),
+    category: txt(h && h.category, 30), player: txt(h && h.player, 40), character: txt(h && h.character, 40), title: txt(h && h.title, 40), text: txt(h && h.text, 400)
+  })).filter(h => h.text && /#\d+/.test(h.text));          // 근거 번호가 없는 후보는 버린다. 정해 둔 칸 말고는 저장하지 않는다
+  const draftId = klogAdd('awards', session, '시상식 후보', { mode: 'public' }, { highlights }, { rv });
+  if (!draftId) return staleOut('회의록');
+  return { ok: true, draftId, highlights, session, rv };
 }
-// 공개: 키퍼가 고른 항목의 제목·받는 사람·설명만 저장한다 (키퍼 메모는 받지 않는다)
-function kAwardsPublish(session, items) {
-  const list = (Array.isArray(items) ? items : []).slice(0, 12).map(x => ({ title: txt(x && x.title, 40), winner: txt(x && x.winner, 60), text: txt(x && x.text, 400) })).filter(x => x.title && x.winner);
+function kAwardsCompare(draftId) {
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
+  const d = klogRows().find(l => l.id === String(draftId || '') && l.kind === 'awards');
+  if (!d) return { ok: false, stale: true, error: '견줄 후보를 찾지 못했어요 (회의록을 지웠거나 오래된 후보예요). 후보를 다시 받아 주세요' };
+  if (!d.input || d.input.mode !== 'public') return { ok: false, error: '예전 방식으로 만든 후보라서 견줄 수 없어요. 후보를 다시 받아 주세요' };
+  const cands = ((d.result && d.result.highlights) || []).map(h => pickF(h, ['id', 'player', 'character', 'title', 'text']));
+  if (!cands.length) return { ok: false, error: '견줄 후보가 없어요' };
+  const kb = kbRead();
+  if (!kb.truth && !kb.clues.length) return { ok: false, error: '견줄 시나리오 자료가 없어요. 먼저 시나리오 자료를 올려 주세요' };
+  const res = parseJson(claude(
+    '너는 TRPG 키퍼(게임 마스터)만 보는 메모를 쓰는 조수다. 이미 정해진 시상식 후보 하나하나를 키퍼 전용 시나리오 자료와 견줘서, ' +
+    '그 장면이 실제 진상에 얼마나 다가갔는지(맞았는지, 일부만 맞았는지, 헛짚었는지)를 키퍼만 보는 메모로 써라. ' +
+    '후보의 상 이름·받는 사람·설명은 이미 확정됐고 바꿀 수 없다. 메모만 출력하라. JSON 하나만 출력하라.',
+    '## 시상식 후보 (확정, 바꿀 수 없음)\n' + JSON.stringify(cands) + '\n\n' +
+    '## 사건의 진상 (키퍼 전용)\n' + (kb.truth || '(없음)') + '\n\n' +
+    '## 핵심 단서 (키퍼 전용)\n' + JSON.stringify(kb.clues.filter(c => c.core).map(c => pickF(c, ['text', 'where']))) + '\n\n' +
+    '## 출력 형식\n{"notes":[{"id":"후보 id","kNote":"키퍼만 보는 메모 (120자 이내, 견줄 내용이 없으면 빈칸)"}]}', 1500));
+  const ids = new Set(cands.map(c => c.id)), notes = {};
+  (Array.isArray(res.notes) ? res.notes : []).forEach(n => { if (n && ids.has(String(n.id)) && txt(n.kNote, 400)) notes[String(n.id)] = txt(n.kNote, 400); });   // notes 말고는 아무것도 쓰지 않는다
+  if (!klogAdd('awardsNote', d.session, '시상식 키퍼 메모', { draftId: d.id }, { notes }, { rv, gen })) return staleOut();
+  return { ok: true, draftId: d.id, notes };
+}
+/* 공개: 항목마다 상 이름·받는 사람·설명 세 칸만 저장한다 (키퍼 메모는 받지도 저장하지도 않는다).
+ * AI 후보에서 고른 항목(id가 있는 항목)이 하나라도 있으면, 그 후보 묶음(draftId)이 지금 회의록에서 '공개 기록만으로' 만든 것인지 서버가 확인한다.
+ * rv는 화면이 후보·통계를 받았을 때의 초기화번호다. 그 뒤에 회의록을 지웠으면 공개하지 않는다. */
+function kAwardsPublish(session, items, rv, draftId) {
+  const src = (Array.isArray(items) ? items : []).slice(0, 12);
+  const list = src.map(x => ({ title: txt(x && x.title, 40), winner: txt(x && x.winner, 60), text: txt(x && x.text, 400) })).filter(x => x.title && x.winner);
   if (!list.length) return { ok: false, error: '공개할 항목을 하나 이상 골라 주세요' };
+  const aiIds = src.map(x => String((x && x.id) || '')).filter(Boolean);
   return withLock(20000, () => {
-    setJson('awards', { session: String(session || getConf('session')), at: now(), items: list });
+    const stale = { ok: false, stale: true, error: '이 후보·통계는 지금 회의록에서 만든 것이 아니에요 (그 뒤에 회의록을 지웠어요). 다시 불러온 뒤 공개해 주세요' };
+    if (String(rv == null ? '' : rv) !== (getConf('resetVer') || '0')) return stale;
+    let sess = /^\d{1,5}$/.test(String(session || '')) ? String(session) : (getConf('session') || '1');
+    if (aiIds.length) {
+      const d = draftCheck('awards', rv, draftId);
+      if (d.error) return d;
+      if (!d.log.input || d.log.input.mode !== 'public') return { ok: false, error: '예전 방식(진상을 함께 보낸 AI 호출)으로 만든 후보는 공개할 수 없어요. "AI 활약 장면 후보 받기"로 다시 받아 주세요' };
+      const have = new Set(((d.log.result && d.log.result.highlights) || []).map(h => h.id));
+      if (aiIds.some(id => !have.has(id))) return { ok: false, error: '고른 항목이 이 후보 묶음에 없어요. 화면을 새로 고친 뒤 다시 골라 주세요' };
+      sess = d.log.session;
+    }
+    setJson('awards', { session: sess, at: now(), items: list });
     bump('sumVer');
     return { ok: true, count: list.length };
   });
 }
 
-/* ───────────── 마스터링 피드백 (키퍼만 봄) ───────────── */
-function kFeedback(session) {
-  const rv = getConf('resetVer') || '0';
-  session = String(session || getConf('session'));
+/* ───────────── 마스터링 피드백 (키퍼만 봄) ─────────────
+ * full이 참일 때만 '사건의 진상 전체'를 AI에 보낸다. 꺼져 있으면 핵심 단서와 장면 제목만 보낸다. 보낸 범위는 sent로 돌려준다. */
+function kFeedback(session, full) {
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
+  session = sessOf(session);
   const sums = sessionSummaries(session, 40000);
   if (!sums.count) return { ok: false, error: '세션 ' + session + '의 요약이 아직 없어요' };
   const st = sessionStats(session), kb = kbRead();
+  const core = kb.clues.filter(c => c.core).map(c => pickF(c, ['text', 'where', 'how'])), scenes = kb.scenes.map(s => s.title);
   const res = parseJson(claude(
     '너는 TRPG 키퍼(게임 마스터)가 자기 진행을 돌아보는 것을 돕는 조수다. 이 피드백은 키퍼만 본다. ' +
     '규칙: ① 키퍼의 진행(정보 전달, 속도 조절, 플레이어에게 기회를 나눠 주는 방식)만 다루고 플레이어 개인을 평가하지 마라. ' +
@@ -1998,7 +2293,7 @@ function kFeedback(session) {
     '③ 받아쓰기 기록이라 목소리·분위기·연기는 알 수 없다. 그런 평가는 하지 마라. ' +
     '④ 아쉬운 점에는 다음에 해 볼 구체적인 방법(tip)을 붙여라. 듣기 좋은 말보다 쓸모 있는 말을 하라. JSON 하나만 출력하라.',
     '## 숫자 (받아쓰기에서 계산)\n' + statsText(st) + '\n\n' +
-    '## 시나리오 자료 (키퍼 전용)\n진상: ' + (kb.truth || '(없음)') + '\n핵심 단서: ' + JSON.stringify(kb.clues.filter(c => c.core).map(c => pickF(c, ['text', 'where', 'how']))) + '\n장면 흐름: ' + JSON.stringify(kb.scenes.map(s => s.title)) + '\n\n' +
+    '## 시나리오 자료 (키퍼 전용)\n' + (full ? '진상: ' + (kb.truth || '(없음)') + '\n' : '') + '핵심 단서: ' + JSON.stringify(core) + '\n장면 흐름: ' + JSON.stringify(scenes) + '\n\n' +
     '## 세션 ' + session + ' 요약 (시각 포함)\n' + sums.text + '\n\n' +
     '## 출력 형식\n{"good":[{"text":"잘된 진행 (#번호)"}] (최대 4개),"improve":[{"text":"아쉬운 진행 (#번호)","tip":"다음에 해 볼 방법"}] (최대 4개),' +
     '"scenes":[{"name":"장면·장소","from":"HH:MM","to":"HH:MM","note":"빨랐는지 막혔는지 한마디"}] (최대 10개),' +
@@ -2010,8 +2305,111 @@ function kFeedback(session) {
     improve: (Array.isArray(res.improve) ? res.improve : []).map(g => ({ text: txt(g && g.text, 500), tip: txt(g && g.tip, 400) })).filter(g => g.text && ev(g.text)).slice(0, 4),
     scenes: (Array.isArray(res.scenes) ? res.scenes : []).slice(0, 10).map(s => ({ name: txt(s && s.name, 60), from: txt(s && s.from, 5), to: txt(s && s.to, 5), note: txt(s && s.note, 200) })).filter(s => s.name),
     clues: (Array.isArray(res.clues) ? res.clues : []).slice(0, 20).map(c => ({ clue: txt(c && c.clue, 200), status: txt(c && c.status, 10), when: txt(c && c.when, 5) })).filter(c => c.clue),
-    spotlight: txt(res.spotlight, 500), next: arr(res.next, 3, 300)
+    spotlight: txt(res.spotlight, 500), next: arr(res.next, 3, 300),
+    sent: { truth: !!full, clues: core.length, scenes: scenes.length }
   };
-  klogAdd('feedback', session, '피드백', null, result, rv);
-  return { ok: true, feedback: result, stats: st, session };
+  if (!klogAdd('feedback', session, '피드백', { full: !!full }, result, { rv, gen })) return staleOut();
+  return { ok: true, feedback: result, stats: st, session, rv };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 자가 점검 (Apps Script 편집기에서 직접 실행: 함수 목록에서 selfTest 를 고르고 ▶ 실행)
+ *
+ * selfTest()   실제 구글 시트에서 아래를 확인하고 결과를 실행 로그에 PASS/FAIL로 적는다. AI는 부르지 않는다.
+ *               임시 시트('자가점검_…')를 하나 만들어 쓰고 끝나면 지운다. 기존 기록은 건드리지 않는다.
+ *                · "=1+1" 같은 글이 수식으로 바뀌지 않고 글자 그대로 저장되는지 (setValues·setValue·appendRow 세 길 모두)
+ *                · 날짜·숫자처럼 보이는 글("1/2", "0012")이 바뀌지 않는지
+ *                · 긴 글을 여러 칸에 나눠 쓰고 다시 읽었을 때 똑같은지
+ *                · 잠금, 캐시, 시트 구성, 5분 자동 정리 트리거, 비밀번호 설정
+ * selfTestAi() Claude와 Deepgram에 아주 짧게 한 번씩 연결해 본다 (Claude 호출 1번: 몇 원 수준).
+ * 비밀번호·API 키의 값은 로그에 적지 않는다.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+function selfTest() {
+  const ss = SpreadsheetApp.getActive(), log = [];
+  let fails = 0;
+  const check = (label, pass, extra) => { if (!pass) fails++; log.push((pass ? 'PASS' : 'FAIL') + ' · ' + label + (extra ? ' · ' + extra : '')); };
+  const s = ss.insertSheet('자가점검_' + Date.now());
+  try {
+    // 1) 수식처럼 보이는 글, 숫자·날짜처럼 보이는 글
+    const samples = ['=1+1', '+1+1', '-1+1', '@SUM(1,2)', '=IMPORTDATA("https://example.com/x")', '- 줄표로 시작하는 요약 (#1)', '- IMPORTDATA("https://example.com/x")', '-',
+      '1/2', '0012', '2026-01-02', '12:30', 'TRUE', '1e5', '50%', '§표시로 시작하는 글', "'작은따옴표로 시작", ' =앞에 빈칸', '철수', '=철수'];
+    const rng = s.getRange(1, 1, samples.length, 1);
+    rng.setNumberFormat('@').setValues(samples.map(x => [enc(x)]));
+    SpreadsheetApp.flush();
+    const back = rng.getValues(), fm = rng.getFormulas();
+    samples.forEach((x, i) => {
+      const v = back[i][0], good = fm[i][0] === '' && typeof v === 'string' && dec(v) === x;
+      check('글자 그대로 저장 (여러 칸 쓰기): ' + JSON.stringify(x), good, good ? '' : (fm[i][0] ? '수식으로 바뀜' : '읽은 값 ' + JSON.stringify(v)));
+    });
+    // 2) 한 칸 쓰기, 줄 덧붙이기
+    const one = s.getRange(1, 3);
+    one.setNumberFormat('@').setValue(enc('=2+2'));
+    s.appendRow([enc('=3+3'), enc('+4+4'), enc('-5+5'), enc('@x')]);
+    SpreadsheetApp.flush();
+    check('글자 그대로 저장 (한 칸 쓰기)', one.getFormula() === '' && dec(String(one.getValue())) === '=2+2');
+    const lr = s.getLastRow(), ar = s.getRange(lr, 1, 1, 4);
+    check('글자 그대로 저장 (줄 덧붙이기)', ar.getFormulas()[0].every(f => f === '') && ar.getValues()[0].map(v => dec(String(v))).join('|') === '=3+3|+4+4|-5+5|@x');
+    // 3) 글자 형식을 지정하지 않은 칸에서도 § 표시만으로 수식이 되지 않는지
+    const plain = s.getRange(2, 5, 3, 1);
+    plain.setValues([[enc('=6+6')], [enc('+7+7')], [enc('-8+8')]]);
+    SpreadsheetApp.flush();
+    check('형식을 지정하지 않은 칸에서도 수식이 되지 않음', plain.getFormulas().every(r => r[0] === '') && plain.getValues().map(r => dec(String(r[0]))).join('|') === '=6+6|+7+7|-8+8');
+    // 4) 긴 글 나눠 쓰기
+    const big = JSON.stringify({ a: '='.repeat(NOTE_CHUNK + 10), b: '가'.repeat(NOTE_CHUNK), c: ['=x', '+y', '-z'] });
+    const parts = toCells(big).map(x => [x]);
+    const br = s.getRange(1, 7, parts.length, 1);
+    br.setNumberFormat('@').setValues(parts);
+    SpreadsheetApp.flush();
+    check('긴 글을 ' + parts.length + '칸에 나눠 쓰고 다시 읽기', fromCells(br.getValues().map(r => r[0])) === big && br.getFormulas().every(r => r[0] === ''));
+    // 5) 잠금 (겹쳐 잡아도 멈추지 않는지), 캐시
+    let nested = false;
+    try { nested = withLock(5000, () => withLock(5000, () => true)); } catch (e) {}
+    check('잠금 겹쳐 잡기', nested === true);
+    let cacheOk = false;
+    try { const c = CacheService.getScriptCache(); c.put('selftest', '1', 30); cacheOk = c.get('selftest') === '1'; c.remove('selftest'); } catch (e) {}
+    check('캐시 쓰기·읽기', cacheOk);
+    // 6) 설정 칸: 수식처럼 보이는 값을 쓰고 다시 읽기 (끝나면 그 줄을 지운다)
+    let confOk = false;
+    try {
+      confOk = withLock(10000, () => {
+        setConf('selftest', '=1+1'); SpreadsheetApp.flush(); confLoad(true);
+        const c = _conf.selftest, good = getConf('selftest') === '=1+1' && confSheet().getRange(c.row, 2).getFormula() === '';
+        confSheet().deleteRow(c.row); confLoad(true);
+        return good;
+      });
+    } catch (e) {}
+    check('설정 칸에 수식처럼 보이는 값 쓰고 읽기', confOk);
+  } catch (e) {
+    check('점검 도중 오류', false, String(e && e.message || e));
+  } finally {
+    try { ss.deleteSheet(s); } catch (e) { log.push('참고 · 임시 시트를 지우지 못했어요. 직접 지워 주세요: ' + s.getName()); }
+  }
+  // 7) 시트 구성, 트리거, 비밀번호 (값은 적지 않는다)
+  const need = [SH.CONF, SH.LINES, SH.SUM, SH.NOTES, SH.CHAR, SH.IMG, SH.STAGE].concat(Object.keys(HEADERS));
+  const missing = need.filter(n => !ss.getSheetByName(n));
+  check('필요한 시트가 모두 있음', !missing.length, missing.length ? '없음: ' + missing.join(', ') + ' → setup을 실행해 주세요' : '');
+  Object.keys(HEADERS).forEach(n => {
+    const sh = ss.getSheetByName(n); if (!sh) return;
+    const h = sh.getRange(1, 1, 1, HEADERS[n].length).getValues()[0];
+    check("'" + n + "' 시트 머리글 " + HEADERS[n].length + '칸', HEADERS[n].every((t, i) => String(h[i]) === t), '다르면 setup을 다시 실행해 주세요');
+  });
+  let trig = 0;
+  try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'tick').length; } catch (e) {}
+  check('5분 자동 정리 트리거 1개', trig === 1, trig === 1 ? '' : '지금 ' + trig + '개 → setup을 실행해 주세요');
+  const pw = pwWarnings();
+  check('비밀번호 설정', !pw.filter(w => !/10자/.test(w)).length, pw.join(' / '));
+  if (pw.some(w => /10자/.test(w))) log.push('참고 · ' + pw.filter(w => /10자/.test(w))[0]);
+  log.push(fails ? '결과: FAIL ' + fails + '건. 위 FAIL 줄을 확인해 주세요.' : '결과: 모두 PASS');
+  Logger.log(log.join('\n'));
+  return { ok: !fails, fails, log };
+}
+function selfTestAi() {
+  const log = [];
+  const t0 = Date.now();
+  try { const a = claude('시키는 말만 그대로 출력하라.', '"확인"이라고만 답하라.', 20); log.push('PASS · Claude 연결 (' + MODEL + ') · ' + (Date.now() - t0) + 'ms · 답 길이 ' + String(a).length + '자'); }
+  catch (e) { log.push('FAIL · Claude 연결 · ' + String(e && e.message || e)); }
+  try { const d = deepgramToken(); log.push((d.ok ? 'PASS' : 'FAIL') + ' · Deepgram 임시 토큰 발급' + (d.ok ? '' : ' · ' + d.error)); }
+  catch (e) { log.push('FAIL · Deepgram 연결 · ' + String(e && e.message || e)); }
+  Logger.log(log.join('\n'));
+  return log;
 }
