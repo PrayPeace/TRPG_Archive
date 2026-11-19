@@ -81,6 +81,26 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .line .t{color:var(--faint);font-size:12px;padding-top:2px;font-variant-numeric:tabular-nums}
 .line .n{font-weight:700;margin-right:6px}
 #interim{min-height:22px;color:var(--dim);font-style:italic;font-size:13px;padding:6px 4px 0}
+.line .tx span[data-id]:hover{background:rgba(240,200,115,.08);border-radius:3px}
+.shdr{display:flex;align-items:center;gap:10px;color:var(--gold2);font-weight:800;font-size:12.5px;margin:14px 0 6px}
+.shdr::after{content:"";flex:1;height:1px;background:var(--line)}
+.more{display:block;width:100%;margin:0 0 10px;font-size:13px;color:var(--dim)}
+.logbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 0;padding-top:10px;border-top:1px solid var(--line)}
+.logbar select{width:auto;min-width:130px}
+.sendst{font-size:12.5px;color:var(--dim)}
+.sendst.warn{color:#ffb3ae}
+.net.send .dot{background:var(--gold)} .net.sendErr{border-color:#6b2c29;color:#ffb3ae} .net.sendErr .dot{background:var(--red)}
+.sumst{font-size:13px;padding:9px 12px;border-radius:9px;background:var(--bg2);border:1px solid var(--line);margin-bottom:12px;line-height:1.5}
+.sumst.err{background:#2c1716;border-color:#6b2c29;color:#ffcfcb}
+.sumst.run{border-color:#6b5420;color:var(--gold2)}
+.tabs button .tdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;vertical-align:middle}
+.ev{display:inline-block;font-size:11px;padding:0 6px;margin-left:4px;border-radius:5px;background:#202a3d;color:#9fc0ff;border:1px solid #2f3f5f;cursor:pointer;font-weight:700;white-space:nowrap}
+.ev:hover{border-color:#9fc0ff}
+.kd{font-size:11px;padding:2px 7px;border-radius:5px;margin-left:6px;font-weight:700}
+.kd.확인{background:#173726;color:#8fe0b3} .kd.주장{background:#3a2a14;color:#ffcf87} .kd.추측{background:#2a2340;color:#cdb9ff}
+.evl{display:grid;grid-template-columns:64px 1fr;gap:8px;padding:5px 6px;border-radius:7px;line-height:1.55;opacity:.6}
+.evl.f{opacity:1;background:#2d2614;border-left:3px solid var(--gold)}
+.evl .t{color:var(--faint);font-size:12px}
 
 /* 요약 */
 .story{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px}
@@ -227,7 +247,9 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
     <div class="top-in">
       <div class="brand"><i>✦</i><span class="bt">TRPG Archive</span></div>
       <span class="chip" id="sessPill">세션 -</span>
-      <span class="chip net" id="netPill"><span class="dot"></span><span>연결 중</span></span>
+      <span class="chip net" id="netPill" title="5초마다 새 대화를 받아 오는 연결"><span class="dot"></span><span>연결 중</span></span>
+      <span class="chip net hide" id="sendPill" title="내 말이 시트에 저장됐는지"><span class="dot"></span><span></span></span>
+      <span class="chip net sendErr hide" id="dataPill" title="요약·정리·캐릭터 자료 불러오기"><span class="dot"></span><span>자료 불러오기 실패</span></span>
       <span class="grow"></span>
       <span class="me"><span class="dot" id="meDot"></span><span id="meName"></span></span>
       <button class="mic" id="micBtn"><span class="dot"></span><span id="micTxt">받아쓰기 시작</span></button>
@@ -248,7 +270,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
     <main>
       <nav class="tabs" id="tabs">
         <button data-t="log" class="act">회의록</button>
-        <button data-t="sum">요약</button>
+        <button data-t="sum">요약<span class="tdot hide" id="sumDot"></span></button>
         <button data-t="notes">장소 · NPC · 단서</button>
         <button data-t="chars">캐릭터</button>
         <button data-t="imgs">이미지</button>
@@ -259,14 +281,20 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
         <div class="ph">
           <h2>회의록</h2><span class="grow"></span>
           <label style="margin:0;display:flex;gap:6px;align-items:center;font-weight:500"><input type="checkbox" id="onlyMine" style="width:auto"> 내 말만</label>
-          <button id="copyLog">복사</button>
         </div>
         <div id="log" class="scroll"></div>
         <div id="interim"></div>
+        <div class="logbar">
+          <select id="sessSel"><option value="">세션 고르기</option></select>
+          <button id="copySess">선택한 세션 전체 복사</button>
+          <span class="grow"></span>
+          <span id="sendSt" class="sendst"></span>
+        </div>
       </section>
 
       <section id="t-sum" class="panel hide">
         <div class="ph"><h2>요약</h2><span class="note">5분마다 자동 정리 · ✎로 직접 고칠 수 있어요</span><span class="grow"></span><button id="copySum">전체 복사 (한글에 붙여넣기)</button></div>
+        <div id="sumState" class="sumst">상태 확인 중…</div>
         <details class="story" open>
           <summary>누적 줄거리 <button class="icon" id="storyEdit" title="고치기">✎</button></summary>
           <div class="txt" id="story"></div>
@@ -314,6 +342,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
             <div class="note" style="margin-top:6px">확인하는 동안 말하면 막대가 움직여요. 이때 일부 헤드셋은 잠깐 잡음이 날 수 있어요.</div>
             <label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="micFx" style="width:auto"> 브라우저 마이크 보정 (에코·잡음 제거)</label>
             <div class="note">켜면 일부 헤드셋에서 귀에 지지직 소리가 날 수 있어요. 바꾼 뒤에는 받아쓰기를 껐다 켜 주세요.</div>
+            <div id="otherQ" class="note hide" style="margin-top:14px"></div>
             <div class="row" style="margin-top:18px"><button id="leave">방 나가기 (이 기기 설정 지우기)</button></div>
           </div>
           <div>
@@ -444,6 +473,7 @@ $('jGo').onclick = async () => {
     const r = await api('ping');
     if (!r.ok) { $('jMsg').textContent = r.error || '입장 실패'; return; }
     cfg.name = name; S.set('t_name', name); S.set('t_url', $('jUrl').value.trim()); S.set('t_pw', pw);
+    resetLog(); live = {}; ver = {}; data = null;
     start();
   } catch (e) { $('jMsg').textContent = '방 주소에 연결하지 못했어요. 주소를 확인해 주세요.'; }
 };
@@ -468,7 +498,7 @@ function openForm(title, fields, values, onSave, opts){
     m.append(el('label', '', f.label));
     let i;
     if (f.type === 'area') { i = el('textarea'); i.rows = f.rows || 4; }
-    else if (f.type === 'select') { i = el('select'); f.options.forEach(o => { const op = el('option', '', o); op.value = o; i.append(op); }); }
+    else if (f.type === 'select') { i = el('select'); f.options.forEach(o => { const op = el('option', '', o || '미분류'); op.value = o; i.append(op); }); }
     else i = el('input');
     i.value = values && values[f.key] != null ? values[f.key] : (f.def || '');
     inputs[f.key] = i; m.append(i);
@@ -490,32 +520,110 @@ function openForm(title, fields, values, onSave, opts){
   const first = m.querySelector('input,textarea'); if (first) first.focus();
 }
 
-/* ── 회의록 ── */
-let lastId = 0, allLines = [], lastActivity = Date.now();
-function addLogLines(lines, redraw){
-  if (!lines.length) return;
-  if (!redraw) lastActivity = Date.now();
-  const box = $('log'), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  const mineOnly = $('onlyMine').checked;
-  lines.forEach(l => {
-    allLines.push(l);
-    const d = el('div', 'line'); d.dataset.name = l.name;
-    if (mineOnly && l.name !== cfg.name) d.classList.add('hide');
-    d.append(el('span', 't', String(l.time).slice(11, 19)));
-    const body = el('div');
-    const n = el('span', 'n', l.name); n.dataset.who = l.name; n.style.color = colorOf(l.name);
-    const tx = el('span'); tx.append(linkify(l.text)); body.append(n, tx);
-    d.append(body); box.append(d);
-  });
-  if (atBottom) box.scrollTop = box.scrollHeight;
+/* ── 회의록 ──
+ * 줄은 시각 순으로 정렬해서 보여 준다 (사람마다 4초씩 묶어 보내므로 도착 순서와 말한 순서가 다를 수 있음).
+ * 같은 사람이 20초 안에 이어서 말한 줄은 한 문단으로 묶고, 다른 사람이 끼어들면 나눈다.
+ * 묶어도 줄마다 번호·시각은 그대로 남아 있다 (마우스를 올리면 보임). */
+let lastId = 0, allLines = [], lineIds = new Set(), lastActivity = Date.now(), minLoaded = 0, hasOlder = false;
+const GAP_MS = 20000;
+const tms = t => { const d = Date.parse(String(t).replace(' ', 'T') + '+09:00'); return isNaN(d) ? 0 : d; };
+const cmpLine = (a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : a.id - b.id);
+function addLogLines(lines, opts){
+  opts = opts || {};
+  let added = 0;
+  lines.forEach(l => { if (lineIds.has(l.id)) return; lineIds.add(l.id); allLines.push(l); added++; if (!minLoaded || l.id < minLoaded) minLoaded = l.id; });
+  if (!added) return;
+  if (!opts.quiet) lastActivity = Date.now();
+  allLines.sort(cmpLine);
+  renderLog(opts.keepTop);
 }
-$('onlyMine').onchange = () => { const m = $('onlyMine').checked; [...$('log').children].forEach(d => d.classList.toggle('hide', m && d.dataset.name !== cfg.name)); };
+function groupLines(list){
+  const out = []; let g = null, sess = null;
+  list.forEach(l => {
+    if (l.session !== sess) { sess = l.session; out.push({ hdr: l.session }); g = null; }
+    if (g && g.name === l.name && tms(l.time) - tms(g.lines[g.lines.length - 1].time) <= GAP_MS) g.lines.push(l);
+    else { g = { name: l.name, session: l.session, lines: [l] }; out.push(g); }
+  });
+  return out;
+}
+function renderLog(keepTop){
+  const box = $('log');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const oldH = box.scrollHeight, oldTop = box.scrollTop;
+  const mineOnly = $('onlyMine').checked;
+  box.innerHTML = '';
+  if (hasOlder) { const mb = el('button', 'more', '▲ 이전 대화 더 보기'); mb.id = 'moreBtn'; mb.onclick = loadOlder; box.append(mb); }
+  const frag = document.createDocumentFragment();
+  groupLines(allLines).forEach(g => {
+    if (g.hdr != null) { frag.append(el('div', 'shdr', '세션 ' + g.hdr)); return; }
+    const d = el('div', 'line'); d.dataset.name = g.name;
+    if (mineOnly && g.name !== cfg.name) d.classList.add('hide');
+    const f = g.lines[0];
+    d.append(el('span', 't', String(f.time).slice(11, 19)));
+    const body = el('div', 'tx');
+    const n = el('span', 'n', g.name); n.dataset.who = g.name; n.style.color = colorOf(g.name); body.append(n);
+    g.lines.forEach((l, i) => {
+      const sp = el('span'); sp.dataset.id = l.id; sp.title = '#' + l.id + ' · ' + String(l.time).slice(11, 19);
+      sp.append(linkify(l.text)); if (i) body.append(' '); body.append(sp);
+    });
+    d.append(body); frag.append(d);
+  });
+  box.append(frag);
+  if (keepTop) box.scrollTop = box.scrollHeight - oldH + oldTop;
+  else if (atBottom) box.scrollTop = box.scrollHeight;
+  else box.scrollTop = oldTop;
+}
+async function loadOlder(){
+  const b = $('moreBtn'); if (b) { b.disabled = true; b.textContent = '불러오는 중…'; }
+  try {
+    const r = await api('history', { before: minLoaded, limit: 300 });
+    if (!r.ok) throw new Error(r.error);
+    hasOlder = r.hasMore;
+    if (r.lines.length) addLogLines(r.lines, { quiet: true, keepTop: true }); else renderLog(true);
+  } catch (e) { toast('이전 대화를 못 불러왔어요: ' + e.message); if (b) { b.disabled = false; b.textContent = '▲ 이전 대화 더 보기'; } }
+}
+function resetLog(){ allLines = []; lineIds = new Set(); lastId = 0; minLoaded = 0; hasOlder = false; $('log').innerHTML = ''; }
+$('onlyMine').onchange = () => { const m = $('onlyMine').checked; [...$('log').querySelectorAll('.line')].forEach(d => d.classList.toggle('hide', m && d.dataset.name !== cfg.name)); };
 async function copyText(btn, text){
   const label = btn.textContent;
-  try { await navigator.clipboard.writeText(text); btn.textContent = '복사됨'; } catch(_) { btn.textContent = '복사 실패'; }
-  setTimeout(() => btn.textContent = label, 1500);
+  try { await navigator.clipboard.writeText(text); btn.textContent = '복사됨'; setTimeout(() => btn.textContent = label, 1500); return true; }
+  catch(_) { showCopyBox(text); return false; }
 }
-$('copyLog').onclick = () => copyText($('copyLog'), allLines.map(l => `[${String(l.time).slice(11,19)}] ${l.name}: ${l.text}`).join('\n'));
+// 브라우저가 자동 복사를 막으면 글 상자를 띄워서 직접 복사하게 한다
+function showCopyBox(text){
+  const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
+  m.append(el('h3', '', '복사하기'), el('div', 'note', '아래 글을 전체 선택(Ctrl+A) 후 복사(Ctrl+C) 하세요.'));
+  const ta = el('textarea'); ta.rows = 14; ta.value = text; ta.readOnly = true; ta.style.marginTop = '10px'; m.append(ta);
+  const row = el('div', 'row'); row.style.marginTop = '10px';
+  const cb = el('button', 'pri', '복사'); cb.onclick = () => { ta.select(); try { document.execCommand('copy'); cb.textContent = '복사됨'; } catch(_) {} };
+  const x = el('button', '', '닫기'); x.onclick = closeModal; row.append(cb, x); m.append(row);
+  $('modal').classList.remove('hide'); ta.focus(); ta.select();
+}
+function linesToText(lines){
+  return groupLines(lines.slice().sort(cmpLine)).map(g => g.hdr != null ? '\n■ 세션 ' + g.hdr : '[' + String(g.lines[0].time).slice(11, 19) + '] ' + g.name + ': ' + g.lines.map(l => l.text).join(' ')).join('\n').trim();
+}
+async function loadSessions(){
+  try {
+    const r = await api('sessions'); if (!r.ok) return;
+    const sel = $('sessSel'), keep = sel.value; sel.innerHTML = '';
+    if (!r.sessions.length) { const o = el('option', '', '아직 대화 없음'); o.value = ''; sel.append(o); return; }
+    r.sessions.slice().reverse().forEach(x => { const o = el('option', '', '세션 ' + x.session + ' (' + x.count + '줄)'); o.value = x.session; sel.append(o); });
+    if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+  } catch(_) {}
+}
+$('sessSel').onfocus = loadSessions;
+$('copySess').onclick = async () => {
+  const b = $('copySess'), sess = $('sessSel').value;
+  if (!sess) { await loadSessions(); if (!$('sessSel').value) { toast('복사할 세션이 없어요'); return; } }
+  const label = '선택한 세션 전체 복사'; b.disabled = true; b.textContent = '서버에서 받는 중…';
+  try {
+    const r = await api('sessionLines', { session: $('sessSel').value });
+    if (!r.ok) throw new Error(r.error);
+    b.textContent = label;
+    await copyText(b, '■ 세션 ' + r.session + ' 전체 회의록 (' + r.lines.length + '줄)\n' + linesToText(r.lines).replace(/^■ 세션 \d+\n/, ''));
+  } catch (e) { toast('세션을 못 받아 왔어요: ' + e.message); b.textContent = label; }
+  b.disabled = false;
+};
 
 /* ── 이름 자동 링크 ── */
 let linkRe = null, linkMap = {};
@@ -542,11 +650,7 @@ function linkify(text){
   if (last < text.length) frag.append(text.slice(last));
   return frag;
 }
-function redrawLog(){
-  const box = $('log'), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  const keep = allLines; allLines = []; box.innerHTML = ''; addLogLines(keep, true);
-  if (atBottom) box.scrollTop = box.scrollHeight;
-}
+function redrawLog(){ renderLog(); }
 
 /* ── 참여자 ── */
 let keeperName = '';
@@ -575,7 +679,8 @@ const SEC = {
   places:  { title: '장소', icon: '📍', kind: 'PLACE', key: 'name', photo: true,
              fields: [{ key: 'name', label: '장소 이름' }, { key: 'desc', label: '설명', type: 'area' }, { key: 'found', label: '발견한 것·일어난 일', type: 'area' }] },
   clues:   { title: '단서 · 정보', icon: '🔎', kind: 'CLUE', key: 'text',
-             fields: [{ key: 'text', label: '내용', type: 'area' }, { key: 'status', label: '상태', type: 'select', options: ['미해결', '해결'] }] },
+             fields: [{ key: 'text', label: '내용', type: 'area' }, { key: 'status', label: '상태', type: 'select', options: ['미해결', '해결'] },
+                      { key: 'kind', label: '종류 (확인=묘사·판정으로 확인된 사실 · 주장=NPC가 한 말 · 추측=탐사자의 추리)', type: 'select', options: ['', '확인', '주장', '추측'] }] },
   handouts:{ title: '핸드아웃', icon: '📜', kind: 'HANDOUT', key: 'title',
              fields: [{ key: 'title', label: '제목' }, { key: 'text', label: '내용', type: 'area', rows: 6 }] }
 };
@@ -664,10 +769,15 @@ function openDetail(sec, id){
     if (who.length) { bd.append(el('div', 'kind', '관련 NPC')); const tg = el('div', 'tags'); tg.style.marginTop = '8px'; who.forEach(n => { const t = el('span', 'tg lk', n.name); t.onclick = () => openDetail('npcs', n.id); tg.append(t); }); bd.append(tg); }
   } else if (sec === 'clues') {
     bd.append(el('span', 'tag' + (it.status === '해결' ? ' ok' : ''), it.status || '미해결'));
+    if (it.kind) bd.append(el('span', 'kd ' + it.kind, it.kind));
     const t = el('div', 'tl-t'); t.style.marginTop = '12px'; t.append(linkify(it.text)); bd.append(t);
   } else {
     const t = el('div', 'quote'); t.append(linkify(it.text)); bd.append(t);
   }
+  // 근거 발언: 새로 정리된 항목은 발언ID가 붙어 있고, 예전 항목은 없을 수 있다
+  const src = Array.isArray(it.src) ? it.src : [];
+  if (src.length) { const eb2 = el('button', '', '📎 근거 발언 ' + src.length + '개 보기'); eb2.style.marginTop = '12px'; eb2.onclick = () => showEvidence({ uids: src.join(',') }, it[def.key]); bd.append(eb2); }
+  else if (sec !== 'handouts') bd.append(el('div', 'note', '근거 발언 기록 없음 (사람이 추가했거나 이전 버전에서 정리된 항목)'));
   if (it.editedAt) bd.append(el('div', 'note', '마지막 수정 ' + String(it.editedAt).slice(5, 16)));
   const row = el('div', 'row'); row.style.marginTop = '18px';
   const eb = el('button', 'pri', '✎ 고치기'); eb.onclick = () => { m.className = 'm'; editNote(sec, it); };
@@ -738,7 +848,9 @@ function renderNotes(n){
         c.onclick = () => openDetail(sec, it.id);
         if (sec === 'clues') {
           const t = el('div', 'ttl'); t.style.fontWeight = '500'; t.style.fontSize = '14.5px'; t.append(linkify(it.text || ''));
-          t.append(el('span', 'tag' + (it.status === '해결' ? ' ok' : ''), it.status || '미해결')); c.append(t);
+          t.append(el('span', 'tag' + (it.status === '해결' ? ' ok' : ''), it.status || '미해결'));
+          if (it.kind) t.append(el('span', 'kd ' + it.kind, it.kind));
+          c.append(t);
         } else {
           c.append(el('div', 'ttl', it.title || ''));
           const v = el('div', ''); v.style.cssText = 'white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden'; v.textContent = it.text || ''; c.append(v);
@@ -804,21 +916,76 @@ function renderChars(list){
     c.append(foot); box.append(c);
   });
 }
+// 근거 원문 창: 해당 줄은 밝게, 앞뒤 줄은 흐리게
+async function showEvidence(q, title){
+  const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
+  m.append(el('h3', '', '📎 근거 발언'), el('div', 'note', title ? String(title).slice(0, 80) : ''));
+  const box = el('div'); box.style.marginTop = '12px'; box.append(el('div', 'note', '불러오는 중…')); m.append(box);
+  const row = el('div', 'row'); row.style.marginTop = '14px'; const x = el('button', '', '닫기'); x.onclick = closeModal; row.append(x); m.append(row);
+  $('modal').classList.remove('hide');
+  try {
+    const r = await api('evidence', Object.assign({ ctx: 2, rv: (data && data.v && data.v.resetVer) || '' }, q));
+    if (!r.ok) throw new Error(r.error);
+    box.innerHTML = '';
+    if (!r.lines.length) box.append(el('div', 'empty', '원문을 찾지 못했어요. 회의록이 지워졌거나 이전 버전에서 만든 기록이에요.'));
+    let prevId = 0;
+    r.lines.forEach(l => {
+      if (prevId && l.id !== prevId + 1) box.append(el('div', 'note', '⋯'));
+      prevId = l.id;
+      const d = el('div', 'evl' + (l.focus ? ' f' : ''));
+      d.append(el('span', 't', String(l.time).slice(11, 19) + '\n#' + l.id));
+      const b = el('div'); const n = el('b', '', l.name + '  '); n.style.color = colorOf(l.name); b.append(n, l.text); d.append(b); box.append(d);
+    });
+    if ((r.missing || []).length && r.lines.length) box.append(el('div', 'note', '일부 근거는 찾지 못했어요 (' + r.missing.length + '개)'));
+  } catch (e) { box.innerHTML = ''; box.append(el('div', 'empty', '불러오기 실패: ' + e.message)); }
+}
+// 요약 줄 끝의 (#12, #15)를 눌러 볼 수 있는 근거 표시로 바꾼다
+function sumText(text){
+  const frag = document.createDocumentFragment(); text = String(text || '');
+  const re = /\s*\((#\d+(?:\s*[,，·]\s*#?\d+)*)\)/g; let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) frag.append(linkify(text.slice(last, m.index)));
+    const ids = (m[1].match(/\d+/g) || []);
+    const b = el('span', 'ev', '📎' + ids.length); b.title = '근거 발언 ' + ids.map(i => '#' + i).join(', ');
+    const at = m.index, label = text.slice(text.lastIndexOf('\n', at) + 1, at);
+    b.onclick = () => showEvidence({ ids: ids.join(',') }, label);
+    frag.append(b); last = m.index + m[0].length;
+  }
+  if (last < text.length) frag.append(linkify(text.slice(last)));
+  return frag;
+}
+const sortSums = list => list.slice().sort((a, b) => (Number(a.session) - Number(b.session)) || (a.from < b.from ? -1 : a.from > b.from ? 1 : a.id - b.id));
 function renderSums(d){
   $('story').innerHTML = ''; $('story').append(linkify(d.story || '(아직 없어요)'));
   const box = $('sums'); box.innerHTML = '';
   if (!d.summaries.length) { box.append(el('div', 'empty', '아직 정리된 요약이 없어요. 대화가 쌓이면 5분 안에 생겨요.')); }
   let cur = null, tl = null;
-  d.summaries.forEach(s => {
+  sortSums(d.summaries).forEach(s => {
     if (s.session !== cur) { cur = s.session; box.append(el('div', 'sess', '세션 ' + cur)); tl = el('div', 'tl'); box.append(tl); }
     const it = el('div', 'tl-item');
     const h = el('div', 'tl-h'); h.append(el('span', '', String(s.from).slice(11, 16) + ' ~ ' + String(s.to).slice(11, 16)));
     const eb = el('button', 'icon', '✎'); eb.title = '고치기';
-    eb.onclick = () => openForm('요약 고치기', [{ key: 'text', label: '요약', type: 'area', rows: 10 }], { text: s.text }, v => post({ action: 'sumSave', id: s.id, text: v.text }));
-    const tt = el('div', 'tl-t'); tt.append(linkify(s.text)); h.append(eb); it.append(h, tt); tl.append(it);
+    eb.onclick = () => openForm('요약 고치기', [{ key: 'text', label: '요약 (끝의 (#번호)는 근거 표시예요)', type: 'area', rows: 10 }], { text: s.text }, v => post({ action: 'sumSave', id: s.id, text: v.text, rv: d.v.resetVer }));
+    const tt = el('div', 'tl-t'); tt.append(sumText(s.text)); h.append(eb); it.append(h, tt); tl.append(it);
   });
   const m = $('memos'); m.innerHTML = '';
   if ((d.corrections || []).length) { m.append(el('div', '', '기억하고 있는 정정 메모')); d.corrections.slice(-8).forEach(c => m.append(el('div', '', '· ' + c.text))); }
+}
+// 요약 상태: 아직 없음 / 대기 중 / 정리 중 / 실패 를 구분해서 보여 준다
+function renderSumState(v){
+  if (!v) return;
+  const box = $('sumState'), dot = $('sumDot');
+  const left = Math.max(0, (v.total || 0) - (v.processedId || 0));
+  const hasSum = !!(data && data.summaries && data.summaries.length);
+  const t = s => String(s || '').slice(11, 16);
+  let cls = '', txt = '', col = '';
+  if (v.job) { cls = 'run'; col = 'var(--gold)'; txt = '🌀 ' + (v.job.kind === 'correct' ? 'AI 정정' : '요약') + ' 만드는 중… (' + Math.max(0, Math.round((Date.now() - v.job.at) / 1000)) + '초째)'; }
+  else if (v.proc && v.proc.ok === false) { cls = 'err'; col = 'var(--red)'; txt = '⚠ ' + t(v.proc.at) + ' 요약 실패: ' + v.proc.error + ' · 요약 대기 ' + left + '줄 (다음 자동 정리 때 같은 구간부터 다시 시도)'; }
+  else if (left > 0) { col = 'var(--gold)'; txt = '⏳ 요약 대기 ' + left + '줄 · 5분 안에 자동으로 정리돼요' + (v.proc && v.proc.at ? ' (마지막 정리 ' + t(v.proc.at) + ')' : ''); }
+  else if (!hasSum) txt = '아직 요약할 대화가 없어요';
+  else txt = '✔ 최신 상태' + (v.proc && v.proc.at ? ' (마지막 정리 ' + t(v.proc.at) + ')' : '');
+  box.className = 'sumst ' + cls; box.textContent = txt;
+  dot.classList.toggle('hide', !col); dot.style.background = col;
 }
 function renderImgs(list){
   const box = $('imgs'); box.innerHTML = '';
@@ -842,7 +1009,7 @@ function renderAll(d){
   $('sessPill').textContent = '세션 ' + d.v.session;
   const oldRe = linkRe ? linkRe.source : ''; buildLinks(d.notes);
   if ((linkRe ? linkRe.source : '') !== oldRe) redrawLog();
-  renderSums(d); renderNotes(d.notes); renderChars(d.characters || []); renderImgs(d.images || []);
+  renderSums(d); renderSumState(d.v); renderNotes(d.notes); renderChars(d.characters || []); renderImgs(d.images || []);
   if (document.activeElement !== $('gloss')) $('gloss').value = d.glossary || '';
   if (document.activeElement !== $('kName') && !$('kName').value) $('kName').value = d.keeperName || '';
   if (!$('kCharUrl').value) $('kCharUrl').value = d.charUrl || '';
@@ -851,7 +1018,13 @@ function renderAll(d){
   // 처음 들어왔는데 내 색이 저장 안 돼 있으면 기본색을 저장
   if (!colorMap[cfg.name] && !S.get('t_colorSent')) { S.set('t_colorSent', '1'); post({ action: 'color', name: cfg.name, color: hashColor(cfg.name) }); }
 }
-async function refreshData(){ try { const d = await api('data'); if (d.ok) { ver = d.v; renderAll(d); } } catch(_) {} }
+async function refreshData(){
+  try {
+    const d = await api('data');
+    if (!d.ok) throw new Error(d.error);
+    ver = d.v; renderAll(d); $('dataPill').classList.add('hide');
+  } catch (e) { const p = $('dataPill'); p.classList.remove('hide'); p.lastChild.textContent = '자료 불러오기 실패 · 재시도'; p.title = String(e.message || e); }
+}
 
 $('storyEdit').onclick = e => { e.preventDefault(); e.stopPropagation();
   openForm('누적 줄거리 고치기', [{ key: 'text', label: '누적 줄거리 (AI가 다음 요약 때 이걸 바탕으로 이어 써요)', type: 'area', rows: 14 }], { text: data ? data.story : '' }, v => post({ action: 'storySave', text: v.text })); };
@@ -870,7 +1043,7 @@ $('fixGo').onclick = async () => {
 };
 
 /* ── 주기적으로 읽어 오기 ── */
-let failCount = 0;
+let failCount = 0, live = {};   // live: 마지막으로 받은 세션 번호·초기화 번호 (말할 때 붙여 둔다)
 function net(cls, text){ $('netPill').className = 'chip net ' + cls; $('netPill').lastChild.textContent = text; }
 async function pollOnce(){
   try {
@@ -878,12 +1051,20 @@ async function pollOnce(){
     if (!r.ok) throw new Error(r.error);
     failCount = 0; net('on', '연결됨');
     const v = r.v;
-    if (ver.resetVer !== undefined && v.resetVer !== ver.resetVer) {
-      $('log').innerHTML = ''; allLines = []; lastId = 0; ver = {};
+    if (live.resetVer !== undefined && v.resetVer !== live.resetVer) {
+      resetLog(); ver = {}; live = {};
+      toast('키퍼가 기록을 초기화했어요');
       setTimeout(pollOnce, 300); return;
     }
-    addLogLines(r.lines); if (r.lines.length) lastId = r.lines[r.lines.length - 1].id;
+    live = { session: v.session, resetVer: v.resetVer };
+    $('sessPill').textContent = '세션 ' + v.session;
+    if (r.jumped) resetLog();                       // 너무 오래 끊겨 있었으면 최근 300줄부터 다시
+    if (!lastId) hasOlder = r.from > 0;
+    addLogLines(r.lines, { quiet: !lastId });
+    if (r.lines.length) lastId = Math.max(lastId, r.lines[r.lines.length - 1].id);
+    else if (!allLines.length) renderLog();
     renderWho(r.presence);
+    renderSumState(v);
     if (!data || ['sumVer','notesVer','charVer','imgVer','session','resetVer','colorVer'].some(k => v[k] !== ver[k])) await refreshData();
   } catch (e) {
     failCount++; net('err', '연결 끊김 · 재시도');
@@ -892,16 +1073,78 @@ async function pollOnce(){
   setTimeout(pollOnce, failCount ? 8000 : 5000);
 }
 
-/* ── 받아쓰기 → 시트 ── */
-let queue = [];
-try { queue = JSON.parse(S.get('t_queue') || '[]'); } catch(_) { queue = []; }
-function saveQueue(){ S.set('t_queue', JSON.stringify(queue.slice(-500))); }
+/* ── 받아쓰기 → 시트 ──
+ * 말이 끝나는 순간 발언ID·이름·세션·초기화 번호를 붙여 이 기기에 먼저 저장한다 (방마다 따로).
+ * 보내기는 한 번에 하나만. 서버가 "저장됨/이미 있음/버림"이라고 확인해 준 줄만 대기열에서 뺀다.
+ * 응답이 끊겨서 다시 보내도 서버가 발언ID로 걸러 내서 두 번 저장되지 않는다. */
+const QMAX = 5000;
+const qKey = url => 't_q:' + (url || cfg.url);
+let queue = [], sending = false, sendErr = '', sendErrAt = 0, sentOnce = false;
+function newUid(){
+  const r = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '').slice(0, 12) : Math.random().toString(36).slice(2, 14);
+  return Date.now().toString(36) + r;
+}
+function loadQueue(){
+  try { queue = JSON.parse(S.get(qKey()) || '[]'); } catch(_) { queue = []; }
+  // 예전 버전 대기열(t_queue)을 지금 방·이름으로 옮긴다
+  const old = S.get('t_queue');
+  if (old) {
+    try { JSON.parse(old).forEach(x => x && x.text && queue.push({ uid: newUid(), name: cfg.name, session: '', rv: '', t: x.t, text: x.text })); } catch(_) {}
+    S.del('t_queue');
+  }
+  saveQueue();
+}
+function saveQueue(){
+  if (queue.length > QMAX) { toast('못 보낸 말이 너무 많아 오래된 ' + (queue.length - QMAX) + '줄을 버렸어요'); queue = queue.slice(-QMAX); }
+  if (cfg.url) S.set(qKey(), JSON.stringify(queue));
+  sendState();
+}
+function sendState(){
+  const n = queue.length, pill = $('sendPill'), st = $('sendSt');
+  if (!pill) return;
+  let txt = '', cls = '';
+  if (sendErr && n) { txt = '⚠ 저장 실패 · 미전송 ' + n + '줄'; cls = 'sendErr'; }
+  else if (n) { txt = '보내는 중 ' + n + '줄'; cls = 'send'; }
+  pill.classList.toggle('hide', !txt); pill.className = 'chip net ' + cls + (txt ? '' : ' hide');
+  pill.lastChild.textContent = txt; pill.title = sendErr ? '마지막 오류: ' + sendErr + ' (자동으로 다시 보내요)' : '내 말이 시트에 저장됐는지';
+  st.className = 'sendst' + (sendErr && n ? ' warn' : '');
+  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (이 기기에 보관 중)' : '미전송 ' + n + '줄 보내는 중…') : (sentOnce ? '✔ 내 말 모두 저장됨' : '');
+}
 async function flush(){
-  if (!queue.length) return;
-  const batch = queue.slice(0, 50);
-  try { const r = await post({ action: 'lines', name: cfg.name, items: batch }); if (r.ok) { queue = queue.slice(batch.length); saveQueue(); } } catch (_) {}
+  if (sending || !queue.length || !cfg.url) return;
+  sending = true;
+  const batch = queue.slice(0, 100);
+  const ac = window.AbortController ? new AbortController() : null;
+  const to = setTimeout(() => ac && ac.abort(), 45000);
+  try {
+    const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
+    if (!r.ok) throw new Error(r.error || '저장 실패');
+    const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || []));
+    queue = queue.filter(q => !done.has(q.uid));
+    if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
+    sendErr = ''; sentOnce = true;
+  } catch (e) {
+    sendErr = e.name === 'AbortError' ? '서버 응답이 45초 넘게 없음' : (e.message === 'Failed to fetch' ? '인터넷 연결 끊김' : (e.message || '연결 실패'));
+    sendErrAt = Date.now();
+  } finally {
+    clearTimeout(to); sending = false; saveQueue();
+  }
+  if (!sendErr && queue.length) setTimeout(flush, 200);
 }
 setInterval(flush, 4000);
+// 창을 닫을 때: 대기열은 그대로 두고 마지막으로 한 번 던져 본다 (저장됐는지 모르니 다음 접속 때 다시 보내고, 서버가 중복을 거른다)
+window.addEventListener('pagehide', () => {
+  if (!queue.length || !cfg.url || !navigator.sendBeacon) return;
+  try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'lines', pw: cfg.pw, items: queue.slice(0, 100) })], { type: 'text/plain' })); } catch(_) {}
+});
+function otherRooms(){
+  const box = $('otherQ'); let total = 0; const keys = [];
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey()) { const n = JSON.parse(localStorage.getItem(k) || '[]').length; if (n) { total += n; keys.push(k); } } } } catch(_) {}
+  box.classList.toggle('hide', !total); box.innerHTML = '';
+  if (!total) return;
+  box.append('다른 방 주소로 못 보낸 말이 ' + total + '줄 있어요. 그 방으로 다시 들어가면 자동으로 보내요. ');
+  const b = el('button', '', '버리기'); b.dataset.label = '버리기'; twoStep(b, async () => { keys.forEach(k => S.del(k)); otherRooms(); }); box.append(b);
+}
 
 let ws = null, rec = null, stream = null, running = false, wantStop = false, micStatus = 'off';
 function micState(cls, text){
@@ -939,7 +1182,7 @@ async function startMic(){
     let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
     if (m.type !== 'Results') return;
     const t = (m.channel && m.channel.alternatives && m.channel.alternatives[0] || {}).transcript || '';
-    if (m.is_final) { $('interim').textContent = ''; if (t.trim()) { lastActivity = Date.now(); queue.push({ t: new Date().toISOString(), text: t.trim() }); saveQueue(); } }
+    if (m.is_final) { $('interim').textContent = ''; if (t.trim()) { lastActivity = Date.now(); queue.push({ uid: newUid(), name: cfg.name, session: live.session || '', rv: live.resetVer || '', t: new Date().toISOString(), text: t.trim() }); saveQueue(); } }
     else $('interim').textContent = t ? cfg.name + ': ' + t : '';
   };
   ws.onclose = () => {
@@ -970,7 +1213,6 @@ setInterval(() => {
   if (!stream || wantStop) return;
   if (Date.now() - lastActivity > IDLE_MS) { stopAll(); $('idleNote').classList.remove('hide'); document.title = '⏸ 받아쓰기 멈춤 · TRPG Archive'; }
 }, 30000);
-window.addEventListener('beforeunload', saveQueue);
 
 /* ── 설정 ── */
 $('micFx').checked = S.get('t_fx') === '1';
@@ -999,7 +1241,10 @@ $('sNameSave').onclick = () => {
   const old = cfg.name; cfg.name = n; S.set('t_name', n); $('meName').textContent = n;
   post({ action: 'color', name: n, color: colorOf(old) }); toast('이름을 바꿨어요. 이제부터 새 이름으로 적혀요');
 };
-$('leave').onclick = () => { stopAll(); ['t_url','t_pw','t_name','t_kpw','t_colorSent'].forEach(S.del); location.reload(); };
+$('leave').onclick = () => {
+  if (queue.length && !confirm('아직 시트에 저장 안 된 말이 ' + queue.length + '줄 있어요. 이 기기에 남겨 두고 나갈까요? (같은 방에 다시 들어오면 보내요)')) return;
+  stopAll(); ['t_url','t_pw','t_name','t_kpw','t_colorSent'].forEach(S.del); location.reload();
+};
 $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중…'; const r = await post({ action: 'glossary', glossary: $('gloss').value }); $('glossMsg').textContent = r.ok ? '저장됨 (다음에 받아쓰기를 켤 때부터 반영)' : r.error; };
 
 /* ── 키퍼 ── */
@@ -1022,10 +1267,20 @@ async function keeperOn(pw){
 }
 $('kGo').onclick = async () => { $('kMsg').textContent = '확인 중…'; $('kMsg').textContent = (await keeperOn($('kPw').value.trim())) ? '' : '키퍼 비밀번호가 틀렸어요'; };
 $('kCopyLink').onclick = () => copyText($('kCopyLink'), $('kLink').value);
-$('kProcess').onclick = async () => { $('kOut').textContent = '정리 중… (10~40초)'; const r = await kpost({ action: 'process' }); $('kOut').textContent = r.ok ? (r.message || '완료') : r.error; refreshData(); };
-twoStep($('kSession'), async () => { $('kOut').textContent = '이전 대화 정리 후 새 세션을 엽니다…'; const r = await kpost({ action: 'newSession' }); $('kOut').textContent = r.ok ? ('세션 ' + r.session + ' 시작') : r.error; refreshData(); });
-twoStep($('kClear'), async () => { $('kOut').textContent = '지우는 중…'; const r = await kpost({ action: 'clearLog' }); $('kOut').textContent = r.ok ? r.message : r.error; });
-twoStep($('kReset'), async () => { $('kOut').textContent = '초기화 중…'; const r = await kpost({ action: 'resetAll' }); $('kOut').textContent = r.ok ? r.message : r.error; });
+async function keeperCall(body, busyText, okText){
+  $('kOut').textContent = busyText; $('kOut').style.color = '';
+  try {
+    const r = await kpost(body);
+    $('kOut').textContent = r.ok ? (okText ? okText(r) : (r.message || '완료')) : r.error;
+    if (!r.ok || r.warning) $('kOut').style.color = '#ffb3ae';
+    if (r.warning) $('kOut').textContent = (okText ? okText(r) : '') + ' ⚠ ' + r.warning;
+  } catch (e) { $('kOut').textContent = '응답을 못 받았어요 (' + e.message + '). 요약 탭의 상태줄에서 결과를 확인해 주세요.'; $('kOut').style.color = '#ffb3ae'; }
+  refreshData();
+}
+$('kProcess').onclick = () => keeperCall({ action: 'process' }, '정리 중… (줄이 많으면 1~3분)');
+twoStep($('kSession'), () => keeperCall({ action: 'newSession' }, '이전 대화 정리 후 새 세션을 엽니다… (최대 3분)', r => { live.session = r.session; $('sessPill').textContent = '세션 ' + r.session; return '세션 ' + r.session + ' 시작'; }));
+twoStep($('kClear'), () => keeperCall({ action: 'clearLog' }, '지우는 중…'));
+twoStep($('kReset'), () => keeperCall({ action: 'resetAll' }, '초기화 중…'));
 $('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '키퍼 이름 저장됨' : r.error; refreshData(); };
 function drawMap(tabs, saved){
   const box = $('kMap'); box.innerHTML = '';
@@ -1074,6 +1329,7 @@ function start(){
   $('meName').textContent = cfg.name; $('sName').value = cfg.name; $('meDot').style.background = colorOf(cfg.name);
   if (!navigator.mediaDevices || !window.MediaRecorder) { micState('err', '받아쓰기 불가'); $('micInfo').textContent = '이 브라우저는 받아쓰기를 못 해요 (PC 크롬 권장)'; $('micBtn').disabled = true; }
   renderWho([]); drawSwatches();
+  loadQueue(); otherRooms(); flush();
   pollOnce();
   if (cfg.kpw) keeperOn(cfg.kpw);
 }
