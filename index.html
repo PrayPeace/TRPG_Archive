@@ -220,7 +220,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .modal h3{margin:0 0 4px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);padding:10px 16px;border-radius:10px;z-index:70;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
 
-/* 키퍼 탭 */
+/* 마스터 탭 */
 #tabKeeper{color:var(--gold2)}
 .kwarn{font-size:12.5px;color:#c9ad6e;background:#2b2213;border:1px solid #4a3a1c;border-radius:9px;padding:8px 12px;margin-bottom:12px;line-height:1.5}
 .ktabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
@@ -273,7 +273,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .aw input[type=checkbox]{width:auto;margin-top:10px}
 .aw .f{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .aw .f .w{grid-column:1/-1}
-/* 키퍼가 공개한 카드 (요약 탭) */
+/* 마스터가 공개한 카드 (요약 탭) */
 .pub{border:1px solid #4a3a1c;background:linear-gradient(180deg,#221c11,#181b22);border-radius:12px;padding:14px 16px;margin-bottom:14px}
 .pub h3{margin:0 0 6px;font-size:15px;color:var(--gold2);display:flex;align-items:center;gap:8px}
 .pub .pk{font-size:11.5px;color:var(--faint);font-weight:700;letter-spacing:.04em;margin-top:10px}
@@ -294,7 +294,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 <div id="join" class="join hide">
   <div class="brand" style="margin-bottom:14px"><i>✦</i>TRPG Archive</div>
   <h1>입장</h1>
-  <p class="note">키퍼가 보내 준 링크로 들어오면 방 주소와 비밀번호는 채워져 있어요. 이름만 적으면 됩니다.</p>
+  <p class="note">마스터가 보내 준 링크로 들어오면 방 주소와 비밀번호는 채워져 있어요. 이름만 적으면 됩니다.</p>
   <label>내 이름 (회의록에 붙는 이름)</label>
   <input id="jName" placeholder="예: 프레이피스">
   <label>방 주소</label>
@@ -338,7 +338,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
         <button data-t="chars">캐릭터</button>
         <button data-t="imgs">이미지</button>
         <button data-t="set">설정</button>
-        <button data-t="keeper" id="tabKeeper" class="hide">🗝 키퍼</button>
+        <button data-t="keeper" id="tabKeeper" class="hide">🗝 마스터</button>
       </nav>
 
       <section id="t-log" class="panel">
@@ -357,7 +357,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
       </section>
 
       <section id="t-sum" class="panel hide">
-        <div class="ph"><h2>요약</h2><span class="note">5분마다 자동 정리 · ✎로 직접 고칠 수 있어요</span><span class="grow"></span><button id="copySum">전체 복사 (한글에 붙여넣기)</button></div>
+        <div class="ph"><h2>요약</h2><span class="note">10분마다 자동 정리 · 급하면 [지금 요약] · ✎로 직접 고칠 수 있어요</span><span class="grow"></span><button id="sumNow" class="pri">지금 요약</button><button id="copySum">전체 복사 (한글에 붙여넣기)</button></div>
         <div id="sumState" class="sumst">상태 확인 중…</div>
         <div id="pubCards"></div>
         <details class="story" open>
@@ -387,7 +387,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
       <section id="t-imgs" class="panel hide">
         <div class="ph"><h2>이미지 · 핸드아웃</h2></div>
         <div id="imgUp" class="hide card" style="margin-bottom:14px">
-          <b>이미지 올리기 (키퍼)</b>
+          <b>이미지 올리기 (마스터)</b>
           <div class="row" style="margin-top:8px"><input type="file" id="imgFile" accept="image/*" class="grow"><input id="imgCap" class="grow" placeholder="메모 (선택) 예: 2층 서재의 편지"><button class="pri" id="imgGo">올리고 분석</button></div>
           <div id="imgMsg" class="note" style="margin-top:6px"></div>
         </div>
@@ -403,6 +403,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
             <div class="row"><input id="sName" class="grow"><button id="sNameSave">바꾸기</button></div>
             <label>내 이름 색</label>
             <div class="swatches" id="swatches"></div>
+            <div class="row" style="margin-top:8px"><input type="color" id="hexPick" style="width:44px;padding:2px"><input id="hexIn" maxlength="7" placeholder="#RRGGBB (헥스코드)" style="width:150px"><button id="hexSet">색 적용</button><span id="hexMsg" class="note"></span></div>
             <label>마이크 확인</label>
             <div class="row"><button id="micTest">마이크 확인 (10초)</button><span id="micMsg" class="note"></span></div>
             <div class="meter" style="margin-top:8px"><i id="testLevel"></i></div>
@@ -421,10 +422,10 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
         </div>
 
         <div class="kbox" style="margin-top:22px">
-          <h3>키퍼 메뉴</h3>
+          <h3>마스터 메뉴</h3>
           <div id="kLock">
-            <div class="note" style="margin-bottom:8px">키퍼 비밀번호를 넣으면 열려요. 비밀번호는 로그인할 때 한 번만 서버로 보내고 이 기기에 저장하지 않아요. 그 뒤로는 12시간짜리 로그인 표식만 써요.</div>
-            <div class="row"><input id="kPw" type="password" placeholder="키퍼 비밀번호" class="grow" autocomplete="off"><button class="pri" id="kGo">키퍼로 전환</button></div>
+            <div class="note" style="margin-bottom:8px">마스터 비밀번호를 넣으면 열려요. 비밀번호는 로그인할 때 한 번만 서버로 보내고 이 기기에 저장하지 않아요. 그 뒤로는 12시간짜리 로그인 표식만 써요.</div>
+            <div class="row"><input id="kPw" type="password" placeholder="마스터 비밀번호" class="grow" autocomplete="off"><button class="pri" id="kGo">마스터로 전환</button></div>
             <label style="display:flex;gap:8px;align-items:center;font-weight:500;margin-top:8px"><input type="checkbox" id="kRemember" style="width:auto"> 이 기기에서 로그인 유지 (끄면 이 탭을 닫을 때 로그인이 풀려요. 내 PC에서만 켜고, PC방에서는 끄세요)</label>
             <span id="kMsg" class="note"></span>
           </div>
@@ -432,19 +433,21 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
             <div class="row" style="margin-top:8px">
               <button class="pri" id="kProcess">지금 바로 정리</button>
               <button id="kSession" data-label="새 세션 시작 (다음 날 이어서)">새 세션 시작 (다음 날 이어서)</button>
-              <span class="grow"></span><button id="kLock2">🔒 키퍼 잠그기</button>
+              <span class="grow"></span><button id="kLock2">🔒 마스터 잠그기</button>
             </div>
             <div class="row" style="margin-top:6px"><span id="kOut" class="note"></span></div>
-            <label>키퍼 이름 (회의록 이름 그대로 · 요약에서 이 사람 말을 빠짐없이 담아요)</label>
+            <label>마스터 이름 (회의록 이름 그대로 · 요약에서 이 사람 말을 빠짐없이 담아요)</label>
             <div class="row"><input id="kName" class="grow" placeholder="예: 프레이피스"><button id="kNameSave">저장</button></div>
 
             <label>캐릭터시트 (구글 스프레드시트 주소 · 다른 시트로 바꾸려면 새 주소를 넣고 탭 불러오기)</label>
             <div class="row"><input id="kCharUrl" class="grow" placeholder="https://docs.google.com/spreadsheets/d/…"><button id="kTabs">탭 불러오기</button></div>
             <div id="kMap" style="margin-top:8px"></div>
             <div class="row" style="margin-top:8px">
-              <button class="pri" id="kCharSave">연결 저장</button><button id="kCharRef">다시 읽기</button><button id="kCharOff">연결 해제</button>
+              <button id="kCharPrev">플레이어에게 보일 카드 미리 보기</button><button class="pri" id="kCharSave">연결 저장</button><button id="kCharRef">다시 읽기</button><button id="kCharOff">연결 해제</button>
               <span id="kCharMsg" class="note"></span>
             </div>
+            <div class="note" style="margin-top:6px">AI에 보내는 것: 체크한 탭의 앞 120줄×30칸에 "화면에 보이는 값"(수식 계산 결과)을 이어 붙인 글(9000자까지). 공개되는 것: 이름·직업·나이·성별·체력·이성·마력·행운·능력치·기술·소지품·메모 칸뿐이고, 그 밖의 칸은 서버가 버려요. 이 앱의 저장용 시트를 연결하면 앱이 쓰는 탭과, 그 탭의 값을 끌어오는 수식이 있는 탭은 연결할 수 없고, 저장 전에 아래 미리 보기를 꼭 봐야 해요.</div>
+            <div id="kCharPrevBox" style="margin-top:8px"></div>
 
             <label>기록 지우기 (되돌릴 수 없어요 · 두 번 눌러야 실행)</label>
             <div class="row">
@@ -463,12 +466,12 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
   </div>
 </div>
 
-<!-- 키퍼 전용 탭: 내용은 키퍼로 로그인했을 때만 서버에서 받아 와서 채운다 (여기에는 아무 자료도 없다) -->
+<!-- 마스터 전용 탭: 내용은 마스터로 로그인했을 때만 서버에서 받아 와서 채운다 (여기에는 아무 자료도 없다) -->
 <template id="keeperTpl">
-  <div class="ph"><h2>키퍼 전용</h2><span class="grow"></span><button id="kReload">새로 고침</button><button id="kLockBtn">🔒 키퍼 잠그기</button></div>
-  <div class="kwarn">이 탭은 키퍼만 볼 수 있어요. 디스코드에서 <b>화면 공유</b> 중일 때는 열지 마세요. 자리를 비울 때는 "키퍼 잠그기"를 눌러 주세요.</div>
+  <div class="ph"><h2>마스터 전용</h2><span class="grow"></span><button id="kReload">새로 고침</button><button id="kLockBtn">🔒 마스터 잠그기</button></div>
+  <div class="kwarn">이 탭은 마스터만 볼 수 있어요. 디스코드에서 <b>화면 공유</b> 중일 때는 열지 마세요. 자리를 비울 때는 "마스터 잠그기"를 눌러 주세요.</div>
   <div id="kVer" class="kwarn2 hide"></div>
-  <div id="kWeak" class="kwarn2 hide">⚠ 키퍼 비밀번호가 10자보다 짧아요. 지금도 쓸 수는 있지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워요. Code.gs 맨 위의 KEEPER_PW를 10자 이상으로 바꾸고 다시 배포하는 것을 권해요.</div>
+  <div id="kWeak" class="kwarn2 hide">⚠ 마스터 비밀번호가 10자보다 짧아요. 지금도 쓸 수는 있지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워요. Code.gs 맨 위의 KEEPER_PW를 10자 이상으로 바꾸고 다시 배포하는 것을 권해요.</div>
   <details class="kguide" id="kGuide"><summary>AI를 몇 번 부르는지 (비용 가늠용)</summary>
     <table>
       <tr><td>현황 갱신 · NPC 반응 · 시작 카드 · 피드백 · 진상 다듬기</td><td>누를 때마다 1번</td></tr>
@@ -495,7 +498,7 @@ const S = {
   set(k,v){ try{ localStorage.setItem(k,v); }catch(_){} },
   del(k){ try{ localStorage.removeItem(k); }catch(_){} }
 };
-// 탭을 닫으면 사라지는 저장소 (키퍼 로그인 토큰용)
+// 탭을 닫으면 사라지는 저장소 (마스터 로그인 토큰용)
 const SS = {
   get(k){ try{ return sessionStorage.getItem(k); }catch(_){ return null; } },
   set(k,v){ try{ sessionStorage.setItem(k,v); }catch(_){} },
@@ -515,7 +518,7 @@ function scriptUrl(v){
   if (v.startsWith('http')) return v.replace(/\/(dev|exec)?\/?$/, '/exec').replace(/\/exec\/exec$/, '/exec');
   return 'https://script.google.com/macros/s/' + v + '/exec';
 }
-// kt: 키퍼 로그인 토큰. 기본은 이 탭에만(sessionStorage), "로그인 유지"를 켰을 때만 이 기기에(localStorage) 둔다. 키퍼 비밀번호 자체는 저장하지 않는다.
+// kt: 마스터 로그인 토큰. 기본은 이 탭에만(sessionStorage), "로그인 유지"를 켰을 때만 이 기기에(localStorage) 둔다. 마스터 비밀번호 자체는 저장하지 않는다.
 const cfg = { url: scriptUrl(S.get('t_url')), pw: S.get('t_pw') || '', name: S.get('t_name') || '', kt: SS.get('t_kt') || S.get('t_kt') || '' };
 
 /* ── 서버 ── */
@@ -529,13 +532,13 @@ async function post(body){
   const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify(body) });
   return r.json();
 }
-/* 키퍼 요청. 보낸 뒤에 키퍼를 잠갔거나 회의록이 초기화됐으면(K.epoch가 바뀜) 늦게 도착한 답은 쓰지 않는다.
- * 키퍼 토큰은 요청 본문(POST)으로만 보낸다. 주소(GET)에는 싣지 않는다. */
+/* 마스터 요청. 보낸 뒤에 마스터를 잠갔거나 회의록이 초기화됐으면(K.epoch가 바뀜) 늦게 도착한 답은 쓰지 않는다.
+ * 마스터 토큰은 요청 본문(POST)으로만 보낸다. 주소(GET)에는 싣지 않는다. */
 async function kpost(b){
   const ep = K.epoch, kt = cfg.kt, guarded = /^k[A-Z]/.test(String(b.action || ''));
   const r = await post(Object.assign(b, { kt }));
-  if (r && r.kexp) { if (cfg.kt === kt) keeperOff('키퍼 로그인이 만료됐어요. 다시 로그인해 주세요'); return r; }
-  if (guarded && ep !== K.epoch) return { ok: false, stale: true, late: true, error: '기다리는 사이에 회의록이 지워졌거나 키퍼를 잠가서, 늦게 도착한 결과는 쓰지 않았어요' };
+  if (r && r.kexp) { if (cfg.kt === kt) keeperOff('마스터 로그인이 만료됐어요. 다시 로그인해 주세요'); return r; }
+  if (guarded && ep !== K.epoch) return { ok: false, stale: true, late: true, error: '기다리는 사이에 회의록이 지워졌거나 마스터를 잠가서, 늦게 도착한 결과는 쓰지 않았어요' };
   return r;
 }
 
@@ -547,6 +550,7 @@ const colorOf = name => colorMap[name] || hashColor(name);
 function drawSwatches(){
   const box = $('swatches'); box.innerHTML = '';
   const mine = colorOf(cfg.name);
+  if ($('hexIn') && document.activeElement !== $('hexIn')) { $('hexIn').value = mine; $('hexPick').value = /^#[0-9a-fA-F]{6}$/.test(mine) ? mine : '#f0c873'; }
   PALETTE.forEach(c => {
     const b = el('button', 'sw' + (c === mine ? ' sel' : '')); b.style.background = c; b.title = c;
     b.onclick = async () => {
@@ -556,6 +560,16 @@ function drawSwatches(){
     box.append(b);
   });
 }
+function normHex(v){ v = String(v || '').trim().replace(/^#?/, '#'); if (/^#[0-9a-fA-F]{3}$/.test(v)) v = '#' + v.slice(1).split('').map(c => c + c).join(''); return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : ''; }
+async function applyHex(raw){
+  const c = normHex(raw); if (!c) { $('hexMsg').textContent = '#과 영문·숫자 6자리로 적어 주세요 (예: #f0c873)'; $('hexMsg').className = 'note kerr'; return; }
+  colorMap[cfg.name] = c; drawSwatches(); recolor(); $('hexMsg').className = 'note'; $('hexMsg').textContent = '저장 중…';
+  const r = await post({ action: 'color', name: cfg.name, color: c }); $('hexMsg').textContent = r.ok ? '바꿨어요' : r.error; if (!r.ok) $('hexMsg').className = 'note kerr';
+}
+$('hexSet').onclick = () => applyHex($('hexIn').value);
+$('hexIn').onkeydown = e => { if (e.key === 'Enter') applyHex($('hexIn').value); };
+$('hexPick').oninput = () => { $('hexIn').value = $('hexPick').value; };
+$('hexPick').onchange = () => applyHex($('hexPick').value);
 function recolor(){
   document.querySelectorAll('[data-who]').forEach(e => { e.style.color = colorOf(e.dataset.who); });
   document.querySelectorAll('[data-whodot]').forEach(e => { e.style.background = colorOf(e.dataset.whodot); });
@@ -769,7 +783,7 @@ function renderWho(list){
     const w = el('div', 'who' + (p.online ? '' : ' off'));
     const d = el('span', 'dot'); d.dataset.whodot = p.name; d.style.background = colorOf(p.name);
     const nm = el('div', 'nm'); const t = el('span', '', p.name); t.dataset.who = p.name; t.style.color = colorOf(p.name); nm.append(t);
-    if (p.name === keeperName) nm.append(el('span', 'badge', '키퍼'));
+    if (p.name === keeperName) nm.append(el('span', 'badge', '마스터'));
     if (p.name === cfg.name) nm.append(el('span', 'note', ' (나)'));
     const st = el('span', 'st', !p.online ? '접속 끊김' : p.mic === 'on' ? '🎙 받아쓰는 중' : p.mic === 'conn' ? '… 연결 중' : p.mic === 'err' ? '⚠ 오류' : '🔇 꺼 둠');
     w.append(d, nm, st); box.append(w);
@@ -991,9 +1005,9 @@ function shrink(file, max, q){
     img.onerror = rej; img.src = URL.createObjectURL(file);
   });
 }
-function renderChars(list){
-  const box = $('chars'); box.innerHTML = '';
-  if (!list.length) { box.append(el('div', 'empty', '키퍼가 설정에서 캐릭터시트를 연결하면 여기에 캐릭터 카드가 나와요.')); return; }
+function renderChars(list, target, preview){
+  const box = target || $('chars'); box.innerHTML = '';
+  if (!list.length && !preview) { box.append(el('div', 'empty', '마스터가 설정에서 캐릭터시트를 연결하면 여기에 캐릭터 카드가 나와요.')); return; }
   list.forEach(ch => {
     const c = el('div', 'idc');
     const top = el('div', 'idc-top'); top.append(el('span', '', 'INVESTIGATOR · 탐사자 신분증'), el('span', '', ch.tab || '')); c.append(top);
@@ -1006,7 +1020,8 @@ function renderChars(list){
     fi.onchange = async () => { const f = fi.files[0]; if (!f) return; up.textContent = '올리는 중…';
       try { const d64 = await shrink(f, 700, 0.88); const r = await post({ action: 'portrait', tab: ch.tab, data: d64 }); toast(r.ok ? '사진을 바꿨어요' : r.error); if (r.ok) refreshData(); }
       catch (e) { toast('실패: ' + e.message); } up.textContent = '사진 바꾸기'; };
-    pic.append(up, fi); body.append(pic);
+    if (!preview) pic.append(up, fi);
+    body.append(pic);
     const info = el('div');
     info.append(el('div', 'nm', ch.name || ch.tab));
     info.append(el('div', 'sub', [ch.occupation, ch.age && (ch.age + '세'), ch.gender].filter(Boolean).join(' · ') || ' '));
@@ -1023,7 +1038,7 @@ function renderChars(list){
   });
 }
 // 근거 원문 창: 해당 줄은 밝게, 앞뒤 줄은 흐리게
-async function showEvidence(q, title){
+async function showEvidence(q, title, onOpen){
   const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
   m.append(el('h3', '', '📎 근거 발언'), el('div', 'note', title ? String(title).slice(0, 80) : ''));
   const box = el('div'); box.style.marginTop = '12px'; box.append(el('div', 'note', '불러오는 중…')); m.append(box);
@@ -1033,6 +1048,8 @@ async function showEvidence(q, title){
     const r = await api('evidence', Object.assign({ ctx: 2, rv: (data && data.v && data.v.resetVer) || '' }, q));
     if (!r.ok) throw new Error(r.error);
     box.innerHTML = '';
+    if (q.session) box.append(el('div', 'note', '세션 ' + q.session + '의 발언만 보여요'));
+    if (onOpen) onOpen(r);
     if (!r.lines.length) box.append(el('div', 'empty', '원문을 찾지 못했어요. 회의록이 지워졌거나 이전 버전에서 만든 기록이에요.'));
     let prevId = 0;
     r.lines.forEach(l => {
@@ -1042,7 +1059,7 @@ async function showEvidence(q, title){
       d.append(el('span', 't', String(l.time).slice(11, 19) + '\n#' + l.id));
       const b = el('div'); const n = el('b', '', l.name + '  '); n.style.color = colorOf(l.name); b.append(n, l.text); d.append(b); box.append(d);
     });
-    if ((r.missing || []).length && r.lines.length) box.append(el('div', 'note', '일부 근거는 찾지 못했어요 (' + r.missing.length + '개)'));
+    if ((r.missing || []).length) box.append(el('div', 'note kerr', '찾지 못한 근거: ' + r.missing.join(', ') + (q.session ? ' (없는 번호이거나 다른 회차의 발언이에요)' : '')));
   } catch (e) { box.innerHTML = ''; box.append(el('div', 'empty', '불러오기 실패: ' + e.message)); }
 }
 // 요약 줄 끝의 (#12, #15)를 눌러 볼 수 있는 근거 표시로 바꾼다
@@ -1064,15 +1081,28 @@ const sortSums = list => list.slice().sort((a, b) => (Number(a.session) - Number
 function renderSums(d){
   $('story').innerHTML = ''; $('story').append(linkify(d.story || '(아직 없어요)'));
   const box = $('sums'); box.innerHTML = '';
-  if (!d.summaries.length) { box.append(el('div', 'empty', '아직 정리된 요약이 없어요. 대화가 쌓이면 5분 안에 생겨요.')); }
-  let cur = null, tl = null;
-  sortSums(d.summaries).forEach(s => {
-    if (s.session !== cur) { cur = s.session; box.append(el('div', 'sess', '세션 ' + cur)); tl = el('div', 'tl'); box.append(tl); }
-    const it = el('div', 'tl-item');
-    const h = el('div', 'tl-h'); h.append(el('span', '', String(s.from).slice(11, 16) + ' ~ ' + String(s.to).slice(11, 16)));
-    const eb = el('button', 'icon', '✎'); eb.title = '고치기';
-    eb.onclick = () => openForm('요약 고치기', [{ key: 'text', label: '요약 (끝의 (#번호)는 근거 표시예요)', type: 'area', rows: 10 }], { text: s.text }, v => post({ action: 'sumSave', id: s.id, text: v.text, rv: d.v.resetVer }));
-    const tt = el('div', 'tl-t'); tt.append(sumText(s.text)); h.append(eb); it.append(h, tt); tl.append(it);
+  if (!d.summaries.length) { box.append(el('div', 'empty', '아직 정리된 요약이 없어요. 대화가 쌓이면 10분 안에 생겨요. 급하면 [지금 요약]을 눌러 주세요.')); }
+  // 세션별로 묶는다. 잡담뿐인 구간은 연달아 있으면 한 줄로 합쳐 보이고, 이전 세션은 접어 둔다 (가장 나중 세션만 펼침)
+  const isIdle = t => /^\s*-?\s*\(잡담 위주, 진행 없음\)\s*$/.test(String(t || ''));
+  const groups = []; sortSums(d.summaries).forEach(s => { let g = groups[groups.length - 1]; if (!g || g.session !== s.session) { g = { session: s.session, rows: [] }; groups.push(g); } g.rows.push(s); });
+  groups.forEach((g, gi) => {
+    const last = gi === groups.length - 1;
+    const tl = el('div', 'tl');
+    let run = null;
+    const flush = () => { if (!run) return; const it = el('div', 'tl-item idle'); const h = el('div', 'tl-h'); h.append(el('span', '', String(run.from).slice(11, 16) + ' ~ ' + String(run.to).slice(11, 16)));
+      const tt = el('div', 'tl-t'); tt.textContent = '잡담 위주 · 진행 없음' + (run.n > 1 ? ' (' + run.n + '구간 통합)' : ''); tt.style.opacity = '.6'; it.append(h, tt); tl.append(it); run = null; };
+    g.rows.forEach(s => {
+      if (isIdle(s.text)) { if (!run) run = { from: s.from, to: s.to, n: 0 }; run.n++; if (String(s.to) > String(run.to)) run.to = s.to; return; }
+      flush();
+      const it = el('div', 'tl-item');
+      const h = el('div', 'tl-h'); h.append(el('span', '', String(s.from).slice(11, 16) + ' ~ ' + String(s.to).slice(11, 16)));
+      const eb = el('button', 'icon', '✎'); eb.title = '고치기';
+      eb.onclick = () => openForm('요약 고치기', [{ key: 'text', label: '요약 (끝의 (#번호)는 근거 표시예요)', type: 'area', rows: 10 }], { text: s.text }, v => post({ action: 'sumSave', id: s.id, text: v.text, rv: d.v.resetVer }));
+      const tt = el('div', 'tl-t'); tt.append(sumText(s.text)); h.append(eb); it.append(h, tt); tl.append(it);
+    });
+    flush();
+    if (last) { box.append(el('div', 'sess', '세션 ' + g.session), tl); }
+    else { const dt = document.createElement('details'); dt.className = 'pastsess'; const sm = document.createElement('summary'); sm.className = 'sess'; sm.textContent = '세션 ' + g.session + ' (이전 세션 · ' + g.rows.filter(x => !isIdle(x.text)).length + '개 구간) — 눌러서 펼치기'; sm.style.cursor = 'pointer'; dt.append(sm, tl); box.append(dt); }
   });
   const m = $('memos'); m.innerHTML = '';
   if ((d.corrections || []).length) { m.append(el('div', '', '기억하고 있는 정정 메모')); d.corrections.slice(-8).forEach(c => m.append(el('div', '', '· ' + c.text))); }
@@ -1087,7 +1117,7 @@ function renderSumState(v){
   let cls = '', txt = '', col = '';
   if (v.job) { cls = 'run'; col = 'var(--gold)'; txt = '🌀 ' + (v.job.kind === 'correct' ? 'AI 정정' : '요약') + ' 만드는 중… (' + Math.max(0, Math.round((Date.now() - v.job.at) / 1000)) + '초째)'; }
   else if (v.proc && v.proc.ok === false) { cls = 'err'; col = 'var(--red)'; txt = '⚠ ' + t(v.proc.at) + ' 요약 실패: ' + v.proc.error + ' · 요약 대기 ' + left + '줄 (다음 자동 정리 때 같은 구간부터 다시 시도)'; }
-  else if (left > 0) { col = 'var(--gold)'; txt = '⏳ 요약 대기 ' + left + '줄 · 5분 안에 자동으로 정리돼요' + (v.proc && v.proc.at ? ' (마지막 정리 ' + t(v.proc.at) + ')' : ''); }
+  else if (left > 0) { col = 'var(--gold)'; txt = '⏳ 요약 대기 ' + left + '줄 · 10분마다 자동으로 정리돼요 (급하면 [지금 요약])' + (v.proc && v.proc.at ? ' (마지막 정리 ' + t(v.proc.at) + ')' : ''); }
   else if (!hasSum) txt = '아직 요약할 대화가 없어요';
   else txt = '✔ 최신 상태' + (v.proc && v.proc.at ? ' (마지막 정리 ' + t(v.proc.at) + ')' : '');
   box.className = 'sumst ' + cls; box.textContent = txt;
@@ -1134,6 +1164,14 @@ async function refreshData(){
 
 $('storyEdit').onclick = e => { e.preventDefault(); e.stopPropagation();
   openForm('누적 줄거리 고치기', [{ key: 'text', label: '누적 줄거리 (AI가 다음 요약 때 이걸 바탕으로 이어 써요)', type: 'area', rows: 14 }], { text: data ? data.story : '' }, v => post({ action: 'storySave', text: v.text })); };
+$('sumNow').onclick = async () => {
+  const b = $('sumNow'); b.disabled = true; const t0 = b.textContent; b.textContent = '요약 중…';
+  try {
+    const r = await post({ action: 'process' });
+    toast(r.ok ? r.message : (r.busy ? r.error : '요약 실패: ' + r.error));
+  } catch (e) { toast('응답을 못 받았어요 (' + e.message + '). 요약 탭 상태줄에서 결과를 확인해 주세요'); }
+  b.disabled = false; b.textContent = t0; refreshData();
+};
 $('copySum').onclick = () => {
   if (!data) return;
   let cur = null; const out = ['■ 누적 줄거리\n' + (data.story || '')];
@@ -1159,8 +1197,8 @@ async function pollOnce(){
     const v = r.v;
     if (live.resetVer !== undefined && v.resetVer !== live.resetVer) {
       resetLog(); ver = {}; live = {};
-      keeperReset();                                  // 지워진 회의록으로 만들던 키퍼 쪽 결과·초안도 버린다 (늦게 오는 답 포함)
-      toast('키퍼가 기록을 초기화했어요');
+      keeperReset();                                  // 지워진 회의록으로 만들던 마스터 쪽 결과·초안도 버린다 (늦게 오는 답 포함)
+      toast('마스터가 기록을 초기화했어요');
       setTimeout(pollOnce, 300); return;
     }
     live = { session: v.session, resetVer: v.resetVer };
@@ -1351,13 +1389,13 @@ $('sNameSave').onclick = () => {
 $('leave').onclick = async () => {
   if (queue.length && !confirm('아직 시트에 저장 안 된 말이 ' + queue.length + '줄 있어요. 이 기기에 남겨 두고 나갈까요? (같은 방에 다시 들어오면 보내요)')) return;
   stopAll();
-  // 키퍼로 로그인해 있었다면 서버에서도 로그인을 끊고 나간다 (응답은 2초까지만 기다림)
+  // 마스터로 로그인해 있었다면 서버에서도 로그인을 끊고 나간다 (응답은 2초까지만 기다림)
   if (cfg.kt) { try { await Promise.race([post({ action: 'klogout', kt: cfg.kt }), sleep(2000)]); } catch(_) {} }
   SS.del('t_kt'); ['t_url','t_pw','t_name','t_kpw','t_kt','t_colorSent'].forEach(S.del); location.reload();
 };
 $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중…'; const r = await post({ action: 'glossary', glossary: $('gloss').value }); $('glossMsg').textContent = r.ok ? '저장됨 (다음에 받아쓰기를 켤 때부터 반영)' : r.error; };
 
-/* ── 키퍼 ── */
+/* ── 마스터 ── */
 function twoStep(btn, run){
   btn.onclick = async () => {
     if (btn.dataset.arm !== '1') { btn.dataset.arm = '1'; btn.textContent = '한 번 더 누르면 실행';
@@ -1381,7 +1419,7 @@ $('kProcess').onclick = () => keeperCall({ action: 'process' }, '정리 중… (
 twoStep($('kSession'), () => keeperCall({ action: 'newSession' }, '이전 대화 정리 후 새 세션을 엽니다… (최대 3분)', r => { live.session = r.session; $('sessPill').textContent = '세션 ' + r.session; return '세션 ' + r.session + ' 시작'; }));
 twoStep($('kClear'), () => keeperCall({ action: 'clearLog' }, '지우는 중…'));
 twoStep($('kReset'), () => keeperCall({ action: 'resetAll' }, '초기화 중…'));
-$('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '키퍼 이름 저장됨' : r.error; refreshData(); };
+$('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '마스터 이름 저장됨' : r.error; refreshData(); };
 function drawMap(tabs, saved){
   const box = $('kMap'); box.innerHTML = '';
   tabs.forEach(t => {
@@ -1397,13 +1435,33 @@ function drawMap(tabs, saved){
 $('kTabs').onclick = async () => {
   $('kCharMsg').textContent = '탭 읽는 중…';
   const r = await kpost({ action: 'tabs', url: $('kCharUrl').value.trim() });
-  if (!r.ok) { $('kCharMsg').textContent = r.error + ' (키퍼 구글 계정이 열 수 있는 시트여야 해요)'; return; }
+  if (!r.ok) { $('kCharMsg').textContent = r.error + ' (마스터 구글 계정이 열 수 있는 시트여야 해요)'; return; }
   const same = data && data.charUrl === $('kCharUrl').value.trim();
   drawMap(r.tabs, same ? data.charMap : []);
-  $('kCharMsg').textContent = '캐릭터 탭에 체크하고 플레이어 이름을 적은 뒤 연결 저장' + (r.same ? ' · 이 주소는 이 앱의 저장용 시트라서, 앱이 쓰는 탭 ' + r.hidden + '개(설정·대화·키퍼자료 등)는 목록에서 뺐어요' : '');
+  $('kCharMsg').textContent = '캐릭터 탭에 체크하고 플레이어 이름을 적은 뒤 ' + (r.same ? '"플레이어에게 보일 카드 미리 보기" → 연결 저장' : '연결 저장') + (r.same ? ' · 이 주소는 이 앱의 저장용 시트라서, 앱이 쓰는 탭 ' + r.hidden + '개(설정·대화·키퍼자료 등)는 목록에서 뺐어요' : '') + ((r.blocked || []).length ? ' · 마스터 전용 내용이 섞일 수 있어 뺀 탭: ' + r.blocked.map(x => x.tab + ' (' + x.why + ')').join(' / ') : '');
+};
+function kCharMap(){ return [...$('kMap').querySelectorAll('.row')].map(r => { const i = r.querySelectorAll('input'); return i[0].checked ? { tab: i[0].dataset.tab, player: i[1].value.trim() } : null; }).filter(Boolean); }
+$('kCharPrev').onclick = async () => {
+  const map = kCharMap(), pb = $('kCharPrevBox'); pb.innerHTML = '';
+  if (!map.length) { $('kCharMsg').textContent = '캐릭터 탭을 하나 이상 체크해 주세요'; return; }
+  $('kCharMsg').textContent = '카드를 만들어 보는 중… (인원수 × 10초)'; $('kCharPrev').disabled = true;
+  try {
+    const r = await kpost({ action: 'charsPreview', url: $('kCharUrl').value.trim(), map });
+    if (!r.ok) { $('kCharMsg').textContent = r.error; return; }
+    $('kCharMsg').textContent = '미리 보기예요. 아직 저장·공개되지 않았어요. 내용을 확인한 뒤 "연결 저장"을 누르면 이 카드가 그대로 공개돼요 (30분 안에)';
+    pb.append(el('div', 'kwarn', '아래 카드가 플레이어 모두에게 보이게 돼요. 마스터 전용 내용이 섞여 있지 않은지 확인하세요.'));
+    r.items.forEach(it => {
+      const dt = document.createElement('details'); dt.className = 'kcard';
+      const sm = document.createElement('summary'); sm.textContent = it.tab + ' → ' + (it.player || '(플레이어 이름 없음)') + ' · AI에 보내는 글 ' + it.inputChars + '자 (눌러서 보기)'; dt.append(sm);
+      const pre = el('div', 'note'); pre.style.whiteSpace = 'pre-wrap'; pre.textContent = it.input + (it.inputChars > it.input.length ? '\n⋯ (앞 ' + it.input.length + '자만 보여요)' : ''); dt.append(pre); pb.append(dt);
+    });
+    const cardBox = el('div', 'ids'); pb.append(cardBox);
+    renderChars(r.items.map(it => Object.assign({}, it.card, { tab: it.tab, player: it.player })), cardBox, true);
+  } catch (e) { $('kCharMsg').textContent = '미리 보기 실패: ' + e.message; }
+  finally { $('kCharPrev').disabled = false; }
 };
 $('kCharSave').onclick = async () => {
-  const map = [...$('kMap').querySelectorAll('.row')].map(r => { const i = r.querySelectorAll('input'); return i[0].checked ? { tab: i[0].dataset.tab, player: i[1].value.trim() } : null; }).filter(Boolean);
+  const map = kCharMap();
   if (!map.length) { $('kCharMsg').textContent = '캐릭터 탭을 하나 이상 체크해 주세요'; return; }
   $('kCharMsg').textContent = 'AI가 캐릭터시트를 읽는 중… (인원수 × 10초)';
   const r = await kpost({ action: 'chars', url: $('kCharUrl').value.trim(), map });
@@ -1424,15 +1482,15 @@ $('imgGo').onclick = async () => {
   $('imgGo').disabled = false;
 };
 
-/* ══════════════ 키퍼 전용 탭 ══════════════
- * 이 탭의 내용은 키퍼 로그인(12시간 토큰)이 있을 때만 서버에서 받아 온다.
+/* ══════════════ 마스터 전용 탭 ══════════════
+ * 이 탭의 내용은 마스터 로그인(12시간 토큰)이 있을 때만 서버에서 받아 온다.
  * 잠그면 받아 둔 자료와 화면을 모두 지운다. 받은 자료는 이 기기에 저장하지 않는다. */
-/* K.epoch: 키퍼를 잠그거나 회의록이 초기화될 때마다 1씩 오른다. 요청을 보낼 때의 값과 답이 왔을 때의 값이 다르면 그 답은 버린다.
+/* K.epoch: 마스터를 잠그거나 회의록이 초기화될 때마다 1씩 오른다. 요청을 보낼 때의 값과 답이 왔을 때의 값이 다르면 그 답은 버린다.
  * K.rv / K.gen: 마지막으로 받은 회의록 번호(초기화번호)·시나리오 자료 번호. 바뀌면 그것으로 만든 화면 기억(초안·제안·통계)을 지운다. */
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-19';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-19.3';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -1463,12 +1521,12 @@ function keeperShow(){
 // 회의록(세션 기록)으로 만든 화면 기억을 지운다
 function kForgetSession(){ K.stats = {}; K.statsRv = {}; K.aw = {}; K.awMeta = {}; K.recapF = {}; K.npcR = null; K.rollR = null; K.ccf = null; K.ccfMis = false; }
 function keeperOff(msg){
-  K.epoch++;                                                      // 이 뒤에 도착하는 키퍼 답은 모두 버린다
+  K.epoch++;                                                      // 이 뒤에 도착하는 마스터 답은 모두 버린다
   cfg.kt = ''; SS.del('t_kt'); S.del('t_kt'); S.del('t_kpw');
   kForgetSession();
   K.d = null; K.rv = null; K.gen = null; K.npcF = null; K.rollF = null; K.kbF = null; K.upNote = ''; K.digestErr = ''; K.stop = true;
   if (modalOnClose) closeModal();
-  $('t-keeper').innerHTML = '';                                   // 받아 둔 키퍼 자료를 화면에서도 지운다
+  $('t-keeper').innerHTML = '';                                   // 받아 둔 마스터 자료를 화면에서도 지운다
   $('tabKeeper').classList.add('hide'); $('kMenu').classList.add('hide'); $('imgUp').classList.add('hide'); $('kLock').classList.remove('hide');
   $('kPw').value = ''; $('kMsg').textContent = msg || '';
   if (!$('t-keeper').classList.contains('hide')) showTab('set');
@@ -1482,15 +1540,15 @@ function keeperReset(){
 async function keeperLogin(pw, remember){
   let r;
   try { r = await post({ action: 'klogin', kpw: pw }); } catch (e) { return '서버에 연결하지 못했어요'; }
-  if (!r.ok) return (r.error || '키퍼 비밀번호가 틀렸어요') + (r.left != null && r.left <= 5 ? ' · 앞으로 ' + r.left + '번 더 틀리면 10분 동안 잠겨요' : '');
+  if (!r.ok) return (r.error || '마스터 비밀번호가 틀렸어요') + (r.left != null && r.left <= 5 ? ' · 앞으로 ' + r.left + '번 더 틀리면 10분 동안 잠겨요' : '');
   cfg.kt = r.kt; SS.set('t_kt', r.kt);
   if (remember) S.set('t_kt', r.kt); else S.del('t_kt');
   keeperShow();
-  return r.weak ? '로그인했어요 · ⚠ 키퍼 비밀번호가 10자보다 짧아요. 10자 이상으로 바꾸는 것을 권해요' : '';
+  return r.weak ? '로그인했어요 · ⚠ 마스터 비밀번호가 10자보다 짧아요. 10자 이상으로 바꾸는 것을 권해요' : '';
 }
 async function keeperLock(all){
   const kt = cfg.kt;
-  keeperOff('키퍼를 잠갔어요');
+  keeperOff('마스터를 잠갔어요');
   try { await post({ action: 'klogout', kt, all: !!all }); } catch (_) {}
 }
 $('kGo').onclick = async () => {
@@ -1502,7 +1560,7 @@ $('kGo').onclick = async () => {
 $('kPw').onkeydown = e => { if (e.key === 'Enter') $('kGo').click(); };
 $('kLock2').onclick = () => keeperLock(false);
 async function keeperResume(){
-  // 예전 버전이 이 기기에 저장해 둔 키퍼 비밀번호는 지운다. 유효한 로그인이 없을 때만 로그인 요청에 한 번 쓰고, 그 뒤로는 어디에도 두지 않는다.
+  // 예전 버전이 이 기기에 저장해 둔 마스터 비밀번호는 지운다. 유효한 로그인이 없을 때만 로그인 요청에 한 번 쓰고, 그 뒤로는 어디에도 두지 않는다.
   const old = S.get('t_kpw'); S.del('t_kpw');
   if (cfg.kt) {
     try { const r = await post({ action: 'kping', kt: cfg.kt }); if (r.ok && r.keeper) { keeperShow(); return; } } catch (_) { return; }
@@ -1525,7 +1583,7 @@ function kCheck(val, label, on){ const l = el('label'); l.style.cssText = 'displ
 function kDatalist(id, items){ const d = el('datalist'); d.id = id; uniq(items).forEach(x => { const o = el('option'); o.value = x; d.append(o); }); return d; }
 function kKV(parent, label, value, cls){ if (!value) return; parent.append(el('div', 'kk', label)); const v = el('div', 'kv2' + (cls ? ' ' + cls : ''), value); parent.append(v); return v; }
 function kEmpty(text){ return el('div', 'empty', text); }
-// 버튼을 잠그고 키퍼 요청을 보낸다. 실패하면 msg 칸에 이유를 적는다.
+// 버튼을 잠그고 마스터 요청을 보낸다. 실패하면 msg 칸에 이유를 적는다.
 // stale: 서버가 "기다리는 사이 기록이 지워져서 버렸다"고 한 답. 화면 기억에 넣지 않고, 지금 상태를 새로 받는다.
 async function kDo(btn, busy, body, msg){
   const label = btn.textContent; btn.disabled = true; btn.textContent = busy;
@@ -1549,8 +1607,8 @@ const withChar = player => { const c = charOf(player); return c ? player + ' (' 
 /* ── 탭 열기·자료 받기 ── */
 async function kLoad(){
   let r;
-  try { r = await kpost({ action: 'kData' }); } catch (e) { toast('키퍼 자료를 못 받아 왔어요: ' + e.message); return false; }
-  if (!r.ok) { if (!r.kexp && !r.late) toast(r.error || '키퍼 자료를 못 받아 왔어요'); return false; }
+  try { r = await kpost({ action: 'kData' }); } catch (e) { toast('마스터 자료를 못 받아 왔어요: ' + e.message); return false; }
+  if (!r.ok) { if (!r.kexp && !r.late) toast(r.error || '마스터 자료를 못 받아 왔어요'); return false; }
   // 다른 탭·다른 기기에서 지웠을 수도 있다: 번호가 바뀌었으면 그것으로 만든 화면 기억을 버린다
   if (K.rv != null && r.resetVer !== K.rv) kForgetSession();
   if (K.gen != null && r.kbGen !== K.gen) { K.npcR = null; K.rollR = null; }
@@ -1566,14 +1624,14 @@ async function kOpen(){
     host.append($('keeperTpl').content.cloneNode(true));
     $('kReload').onclick = () => kLoad();
     $('kLockBtn').onclick = () => keeperLock(false);
-    $('kview').append(kEmpty('키퍼 자료를 받아 오는 중…'));
+    $('kview').append(kEmpty('마스터 자료를 받아 오는 중…'));
   }
   await kLoad();
 }
 function kRender(){
   if (!K.d || !$('kview')) return;
   if ($('kWeak')) $('kWeak').classList.toggle('hide', !K.d.weak);
-  if ($('kVer')) { const diff = K.d.code !== APP_VER; $('kVer').classList.toggle('hide', !diff); if (diff) $('kVer').textContent = '⚠ 화면과 서버의 판이 달라요 (화면 ' + APP_VER + ' / 서버 ' + (K.d.code || '예전 판') + '). Code.gs를 새 버전으로 다시 배포했는지, 이 페이지를 새로 고쳤는지 확인해 주세요. 판이 다르면 일부 키퍼 기능이 동작하지 않을 수 있어요.'; }
+  if ($('kVer')) { const diff = K.d.code !== APP_VER; $('kVer').classList.toggle('hide', !diff); if (diff) $('kVer').textContent = '⚠ 화면과 서버의 판이 달라요 (화면 ' + APP_VER + ' / 서버 ' + (K.d.code || '예전 판') + '). Code.gs를 새 버전으로 다시 배포했는지, 이 페이지를 새로 고쳤는지 확인해 주세요. 판이 다르면 일부 마스터 기능이 동작하지 않을 수 있어요.'; }
   const nav = $('ktabs'); nav.innerHTML = '';
   KVIEWS.forEach(([k, label]) => { const b = el('button', K.view === k ? 'act' : '', label); b.dataset.k = k; b.onclick = () => { K.view = k; kRender(); }; nav.append(b); });
   const box = $('kview'); box.innerHTML = '';
@@ -1625,7 +1683,7 @@ function kvBoard(box){
   });
   if (b && b.wrong.length) { box.append(kH('플레이어가 잘못 짚고 있는 것')); b.wrong.forEach(w => { const c = el('div', 'kcard'); c.append(el('div', '', w.text)); if (w.why) c.append(el('div', 'note', '실제: ' + w.why)); box.append(c); }); }
   if (b && b.lies.length) {
-    box.append(kH('NPC의 주장과 실제', '공개 기록에 남은 주장을 키퍼 자료와 견준 결과 (AI 판단)'));
+    box.append(kH('NPC의 주장과 실제', '공개 기록에 남은 주장을 마스터 자료와 견준 결과 (AI 판단)'));
     b.lies.forEach(l => { const c = el('div', 'kcard'); const h = el('div', 'row'); h.append(el('span', 'kst ' + (l.verdict === '거짓' ? 'unfound' : l.verdict === '참' ? 'found' : 'partial'), l.verdict || '불명'), el('b', '', l.npc)); c.append(h, el('div', '', l.claim)); if (l.truth) c.append(el('div', 'note', '실제: ' + l.truth)); box.append(c); });
   }
   if (b && b.hints.length) { box.append(kH('막혔을 때 줄 만한 힌트')); b.hints.forEach(h => box.append(el('div', 'kcard', '💡 ' + h))); }
@@ -1669,7 +1727,7 @@ function kvNpc(box){
     const c = el('div', 'kcard');
     if (res.warn) { const w = el('div', 'note kerr', '⚠ ' + res.warn); w.style.marginBottom = '6px'; c.append(w); }
     (res.lines || []).forEach(l => { const ln = el('div', 'kline'); ln.append(el('div', 'say', '“' + l + '”')); const cp = el('button', 'icon', '복사'); cp.onclick = () => copyText(cp, l); ln.append(cp); c.append(ln); });
-    kKV(c, '표정·몸짓', res.expression); kKV(c, '속마음 (키퍼만)', res.inner); kKV(c, '이번에 드러내도 되는 것', res.reveal); kKV(c, '계속 숨길 것', res.hide); kKV(c, '이전 주장과의 일관성', res.consistency);
+    kKV(c, '표정·몸짓', res.expression); kKV(c, '속마음 (마스터만)', res.inner); kKV(c, '이번에 드러내도 되는 것', res.reveal); kKV(c, '계속 숨길 것', res.hide); kKV(c, '이전 주장과의 일관성', res.consistency);
     out.append(c);
   };
   if (K.npcR) show(K.npcR.name, K.npcR.result, K.npcR.used);
@@ -1681,7 +1739,7 @@ function kvNpc(box){
 
 /* ── 판정 보조 ──
  * 화면에 나오는 것은 세 종류이고 서로 다른 딱지를 붙인다.
- *   [AI 정리본]  AI가 시나리오를 읽고 만든 정리 (원문 그대로가 아니다). 키퍼가 고친 항목은 [키퍼가 고침]
+ *   [AI 정리본]  AI가 시나리오를 읽고 만든 정리 (원문 그대로가 아니다). 마스터가 고친 항목은 [마스터가 고침]
  *   [원문 그대로] 올린 자료에서 글자 그대로 잘라 온 대목 (파일 이름·쪽 번호 표시)
  *   [AI 제안]    지금 새로 만든 제안 ("AI 제안도 받기"를 눌렀을 때만) */
 function kvRoll(box){
@@ -1712,7 +1770,7 @@ function kvRoll(box){
   if (!r.written.length) box.append(kEmpty('정리본에는 이 판정이 없어요.'));
   r.written.forEach(w => {
     const c = el('div', 'kcard'); const head = el('div');
-    head.append(w.locked ? srcTag('hand', '키퍼가 고침') : srcTag('digest', 'AI 정리본'));
+    head.append(w.locked ? srcTag('hand', '마스터가 고침') : srcTag('digest', 'AI 정리본'));
     if (w.otherPlace) { const t = el('b', 'ttl kerr', '다른 장소: ' + (w.where || '(장소 미상)')); head.append(t, ' · ' + w.skill); }
     else head.append(el('b', 'ttl', (w.where ? w.where + ' · ' : '') + w.skill));
     c.append(head);
@@ -1973,7 +2031,7 @@ function kbEdit(sec, item){
   }
   const vals = Object.assign({}, item || {}); if (sec === 'clues') vals.core = item ? (item.core ? '예' : '아니오') : '예';
   openForm((item ? '고치기 · ' : '추가 · ') + def.title, def.fields, vals, v => kpost({ action: 'kKbSave', sec, item: Object.assign({}, v, { id: item && item.id }), gen: K.gen }),
-    { extra, hint: '저장하면 🔒 키퍼가 확정한 항목이 되어, 자료를 더 올려도 AI가 바꾸지 않아요.', after: () => kLoad() });
+    { extra, hint: '저장하면 🔒 마스터가 확정한 항목이 되어, 자료를 더 올려도 AI가 바꾸지 않아요.', after: () => kLoad() });
 }
 function kvKb(box){
   const d = K.d, kb = d.kb, f = K.kbF || (K.kbF = { source: '', paste: '', truth: null, memo: null });
@@ -1997,7 +2055,7 @@ function kvKb(box){
   row.append(pt); up.append(row);
   if (d.chunks) { const bar = el('div', 'kbar'); const fill = el('i'); fill.id = 'kProgBar'; fill.style.width = Math.round((d.chunks - d.pending) / d.chunks * 100) + '%'; bar.append(fill); up.append(bar); }
   if (K.upNote) { const un = el('div', 'note', '지난번 올리기: ' + K.upNote); un.id = 'kUpNote'; un.style.marginTop = '6px'; up.append(un); }
-  up.append(el('div', 'note', 'PDF는 이 기기에서 글자만 뽑아 보내고, 원문은 키퍼 구글 시트의 "키퍼원문" 탭에만 저장돼요. AI가 한 조각(7,000자쯤)씩 읽어 아래 정리본을 채워요 (조각마다 AI 호출 1번). 글자가 없는 그림 쪽이 있으면 어느 쪽을 AI로 읽을지 먼저 물어봐요.'));
+  up.append(el('div', 'note', 'PDF는 이 기기에서 글자만 뽑아 보내고, 원문은 마스터 구글 시트의 "키퍼원문" 탭에만 저장돼요. AI가 한 조각(7,000자쯤)씩 읽어 아래 정리본을 채워요 (조각마다 AI 호출 1번). 글자가 없는 그림 쪽이 있으면 어느 쪽을 AI로 읽을지 먼저 물어봐요.'));
   box.append(up);
   if (d.sources.length) {
     d.sources.forEach(sx => {
@@ -2031,7 +2089,12 @@ function kvKb(box){
     box.append(grid);
   });
 
-  box.append(kH('키퍼 메모', '자유롭게 적는 칸 (AI에 보내지 않아요)'));
+  box.append(kH('마스터 용어집', '마스터만 보는 용어 풀이 (플레이어에게 공개되지 않고 AI에도 보내지 않아요)'));
+  const ga = kArea(f.glossary != null ? f.glossary : kb.glossary, 4, '', v => { f.glossary = v; });
+  const gr = el('div', 'row'); gr.style.marginTop = '8px'; const gs = el('button', '', '용어집 저장'); gs.id = 'kGlossSave'; const gm = el('span', 'note');
+  gs.onclick = async () => { const r = await kDo(gs, '저장 중…', { action: 'kKbText', key: 'glossary', text: ga.value, gen: K.gen }, gm); if (r.ok) { f.glossary = null; gm.textContent = '저장됨'; } };
+  gr.append(gs, gm); box.append(ga, gr);
+  box.append(kH('마스터 메모', '자유롭게 적는 칸 (AI에 보내지 않아요)'));
   const ma = kArea(f.memo != null ? f.memo : kb.memo, 3, '', v => { f.memo = v; });
   const mr = el('div', 'row'); mr.style.marginTop = '8px'; const ms = el('button', '', '메모 저장'); const mm = el('span', 'note');
   ms.onclick = async () => { const r = await kDo(ms, '저장 중…', { action: 'kKbText', key: 'memo', text: ma.value, gen: K.gen }, mm); if (r.ok) { f.memo = null; mm.textContent = '저장됨'; } };
@@ -2140,7 +2203,7 @@ function statAwards(st){
   const top = (arr2, key, min) => { const s = arr2.slice().sort((a, b) => b[key] - a[key]); return s.length && s[0][key] >= (min || 1) && (s.length < 2 || s[0][key] > s[1][key]) ? s[0] : null; };
   let w;
   if ((w = top(pls, 'chars'))) out.push({ title: '수다왕', winner: withChar(w.name), text: '발언 비중 ' + w.share + '% (' + w.lines + '줄)' });
-  if ((w = top(pls, 'replies', 3))) out.push({ title: '티키타카상', winner: withChar(w.name), text: '키퍼의 말을 가장 많이 바로 받아쳤어요 (' + w.replies + '번)' });
+  if ((w = top(pls, 'replies', 3))) out.push({ title: '티키타카상', winner: withChar(w.name), text: '마스터의 말을 가장 많이 바로 받아쳤어요 (' + w.replies + '번)' });
   if ((w = top(pls, 'questions', 3))) out.push({ title: '질문왕', winner: withChar(w.name), text: '질문 ' + w.questions + '번' });
   if ((w = top(pls, 'longest', 80))) out.push({ title: '최장 연설상', winner: withChar(w.name), text: '쉬지 않고 ' + w.longest + '자를 말했어요 (#' + w.longestId + ')' });
   const loss = (key, title, label) => { const c = (st.chars || []).filter(x => x[key] && x[key].diff < 0).sort((a, b) => a[key].diff - b[key].diff); if (c.length && (c.length < 2 || c[0][key].diff < c[1][key].diff)) out.push({ title, winner: (c[0].player ? c[0].player + ' (' + c[0].name + ')' : c[0].name), text: label + ' ' + c[0][key].from + ' → ' + c[0][key].to + ' (' + c[0][key].diff + ')' }); };
@@ -2194,20 +2257,20 @@ function kvAwards(box){
   if (!st) { box.append(kEmpty('"통계 계산"을 누르면 발언 점유율과 시상 후보가 나와요.')); return; }
   if (st.empty) { box.append(kEmpty('세션 ' + sess + '에는 대화 기록이 없어요.')); }
   else {
-    box.append(kH('발언 점유율', '플레이어끼리 비교 (글자 수 기준) · 키퍼 발언은 전체의 ' + st.keeperShare + '%' + (st.keeper ? '' : ' · ⚠ 키퍼 이름이 설정되지 않아 키퍼도 플레이어로 계산됐어요')));
+    box.append(kH('발언 점유율', '플레이어끼리 비교 (글자 수 기준) · 마스터 발언은 전체의 ' + st.keeperShare + '%' + (st.keeper ? '' : ' · ⚠ 마스터 이름이 설정되지 않아 마스터도 플레이어로 계산됐어요')));
     shareBars(box, st);
   }
 
   /* 후보 목록 (통계 + AI)
    *  - AI 후보는 공개 기록만으로 만든다 (서버가 시나리오 자료를 읽지 못하게 막은 채로 AI를 부른다). 후보마다 바뀌지 않는 id가 있다.
-   *  - "진상과 견줘 보기"는 따로 누를 때만, 별도의 AI 호출로 후보별 🔒 키퍼 메모만 받아 온다. 후보의 상 이름·설명은 그 호출로 바뀌지 않는다.
+   *  - "진상과 견줘 보기"는 따로 누를 때만, 별도의 AI 호출로 후보별 🔒 마스터 메모만 받아 온다. 후보의 상 이름·설명은 그 호출로 바뀌지 않는다.
    *  - 예전 버전이 만든 후보(진상을 함께 보냈을 수 있음)는 공개용으로 쓰지 않고 따로 보여 주기만 한다. */
   const logs = (d.awardsLogs || []).filter(l => l.session === sess);
   const aiLog = logs.find(l => !l.legacy), oldLog = aiLog ? null : logs.find(l => l.legacy);
   const notes = (aiLog && aiLog.notes) || null;
   if (!K.aw[sess]) {
     const list = statAwards(st).map(x => Object.assign({ on: false, src: '통계' }, x));
-    ((aiLog && aiLog.highlights) || []).forEach(h => list.push({ on: false, id: h.id, src: 'AI 후보 · ' + (h.category || '활약'), title: h.title || h.category, winner: h.player ? (h.character && h.character !== h.player ? h.player + ' (' + h.character + ')' : h.player) : h.character, text: h.text }));
+    ((aiLog && aiLog.highlights) || []).forEach(h => list.push({ on: false, id: h.id, ev: h.ev || [], seen: false, src: 'AI 후보 · ' + (h.category || '활약'), title: h.title || h.category, winner: h.player ? (h.character && h.character !== h.player ? h.player + ' (' + h.character + ')' : h.player) : h.character, text: h.text }));
     K.aw[sess] = list;
     K.awMeta[sess] = { rv: K.statsRv[sess] || d.resetVer, draftId: aiLog ? aiLog.id : '' };       // 이 목록을 만든 때의 초기화번호·후보 묶음
   }
@@ -2216,14 +2279,14 @@ function kvAwards(box){
   const arow = el('div', 'row'); const ab = el('button', '', aiLog ? 'AI 활약 장면 후보 다시 받기 (AI 호출 1번)' : 'AI 활약 장면 후보 받기 (AI 호출 1번)'); ab.id = 'kAwGet'; const am = el('span', 'note');
   arow.append(ab, am);
   ab.onclick = async () => { const r = await kDo(ab, 'AI가 요약을 읽는 중…', { action: 'kAwards', session: sess }, am); if (r.ok) { K.aw[sess] = null; await kLoad(); } };
-  box.append(arow, el('div', 'ksent', 'AI에 보내는 자료: 이 세션의 요약과 캐릭터 이름뿐이에요. 시나리오 자료(진상·NPC 비밀·원문)와 판정 기록은 보내지 않아요. 그래서 후보 글에는 진상이 들어갈 수 없어요.'));
+  box.append(arow, el('div', 'ksent', 'AI에 보내는 자료: 이 세션의 요약과 캐릭터 이름뿐이에요. 시나리오 자료(진상·NPC 비밀·원문)와 판정 기록은 보내지 않아요. 후보 생성에는 공개 기록만 사용해요.'));
   if (aiLog) {
     const crow = el('div', 'row'); crow.style.marginTop = '8px';
     const cb2 = el('button', '', notes ? '진상과 다시 견줘 보기 (AI 호출 1번 추가)' : '진상과 견줘 보기 (AI 호출 1번 추가)'); cb2.id = 'kAwCmp'; const cm = el('span', 'note'); cm.id = 'kAwCmpMsg';
     const hasKb = !!(d.kb.truth || d.kb.clues.length); cb2.disabled = !hasKb;
     cb2.onclick = async () => { const r = await kDo(cb2, 'AI가 견주는 중…', { action: 'kAwardsCompare', draftId: aiLog.id }, cm); if (r.ok) await kLoad(); else if (!r.stale) { cm.textContent = (r.error || '실패') + ' · 위 후보는 그대로 남아 있어요. 이 버튼만 다시 누르면 돼요'; cm.className = 'note kerr'; } };
     crow.append(cb2, cm); box.append(crow);
-    box.append(el('div', 'ksent', hasKb ? '기본은 견주지 않아요. 누르면 AI를 한 번 더 불러서 위 후보와 시나리오 자료(진상·핵심 단서)를 함께 보내고, 후보마다 🔒 키퍼 메모만 받아 와요. 후보의 상 이름·받는 사람·설명은 바뀌지 않고, 메모는 공개되지 않아요.' + (notes ? ' (마지막으로 견준 때: ' + String(aiLog.notesAt).slice(5, 16) + ')' : '') : '견줄 시나리오 자료가 아직 없어요.'));
+    box.append(el('div', 'ksent', hasKb ? '기본은 견주지 않아요. 누르면 AI를 한 번 더 불러서 위 후보와 시나리오 자료(진상·핵심 단서)를 함께 보내고, 후보마다 🔒 마스터 메모만 받아 와요. 후보의 상 이름·받는 사람·설명은 바뀌지 않고, 메모는 공개되지 않아요.' + (notes ? ' (마지막으로 견준 때: ' + String(aiLog.notesAt).slice(5, 16) + ')' : '') : '견줄 시나리오 자료가 아직 없어요.'));
   }
   if (oldLog) {
     const w = el('div', 'kwarn2'); w.id = 'kAwOld';
@@ -2231,25 +2294,36 @@ function kvAwards(box){
     (oldLog.highlights || []).forEach(h => { const x = el('div', 'note'); x.style.marginTop = '4px'; x.textContent = '· ' + [h.title, h.player, h.text].filter(Boolean).join(' · ') + (h.kNote ? '  🔒 ' + h.kNote : ''); w.append(x); });
     box.append(w);
   }
+  if (aiLog && (aiLog.dropped || []).length) {
+    const w = el('div', 'kwarn'); w.id = 'kAwDropped';
+    w.append(el('b', '', '근거 번호를 확인할 수 없어서 뺀 후보 ' + aiLog.dropped.length + '개: '), aiLog.dropped.map(x => x.title + ' (' + x.why + ')').join(' / '));
+    box.append(w);
+  }
   if (!list.length) box.append(kEmpty('아직 후보가 없어요. 대화가 더 쌓이거나 AI 후보를 받아 보세요.'));
   const cnt = el('span', 'note');
-  const upd = () => { cnt.textContent = '선택 ' + list.filter(x => x.on).length + '개'; };
+  const upd = () => { const on = list.filter(x => x.on), ai = on.filter(x => x.id); cnt.textContent = '선택 ' + on.length + '개' + (ai.length ? ' · AI 후보 원문 확인 ' + ai.filter(x => x.seen).length + '/' + ai.length : ''); };
   list.forEach(a => {
     const r = el('div', 'aw'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = a.on; cb.onchange = () => { a.on = cb.checked; upd(); };
     const f = el('div'); const g = el('div', 'f');
     g.append(kInput(a.title, '상 이름', v => { a.title = v; }), kInput(a.winner, '받는 사람', v => { a.winner = v; }));
     const tx = kInput(a.text, '설명', v => { a.text = v; }); tx.className = 'w'; g.append(tx); f.append(g);
     const meta = el('div', 'note'); meta.style.marginTop = '4px'; meta.append(a.src + ' ');
-    const ids = (String(a.text).match(/#(\d+)/g) || []).map(x => x.slice(1));
-    if (ids.length) { const ev = el('span', 'ev', '📎 근거 보기'); ev.onclick = () => showEvidence({ ids: ids.join(',') }, a.title + ' · ' + a.winner); meta.append(ev); }
+    if (a.id) {          // AI 후보: 서버가 실제 있고 이 세션에 속한다고 확인한 번호(a.ev)의 원문을 열어 볼 수 있다. 열어 본 후보는 ✓
+      const mark = el('span', 'tag', a.seen ? '원문 확인함 ✓' : '원문 아직 안 봄'); mark.className = a.seen ? 'tag ok' : 'tag';
+      const ev = el('span', 'ev', '📎 근거 원문 보기 ' + (a.ev || []).map(n => '#' + n).join(' '));
+      ev.onclick = () => showEvidence({ ids: (a.ev || []).join(','), session: sess }, a.title + ' · ' + a.winner, rr => { if ((rr.lines || []).length) { a.seen = true; mark.textContent = '원문 확인함 ✓'; mark.className = 'tag ok'; upd(); } });
+      meta.append(ev, mark);
+      const typed = new Set(((String(a.text).match(/#(\d+)/g) || []).map(x => Number(x.slice(1)))));
+      if ([...typed].some(n => (a.ev || []).indexOf(n) < 0)) meta.append(el('span', 'kerr', ' ⚠ 설명에 서버가 확인하지 않은 발언 번호가 있어요'));
+    }
     f.append(meta);
-    if (a.id && notes && notes[a.id]) { const kn = el('div', 'note knote', '🔒 키퍼 메모 (공개되지 않음): ' + notes[a.id]); f.append(kn); }
+    if (a.id && notes && notes[a.id]) { const kn = el('div', 'note knote', '🔒 마스터 메모 (공개되지 않음): ' + notes[a.id]); f.append(kn); }
     r.append(cb, f); box.append(r);
   });
   const prow = el('div', 'row'); prow.style.marginTop = '14px'; const pb = el('button', 'pri', '선택한 항목 공개'); pb.id = 'kAwPub'; const pm = el('span', 'note');
   pb.onclick = async () => {
     const meta = K.awMeta[sess] || {};
-    // 보내는 것은 항목마다 id(어느 AI 후보인지)·상 이름·받는 사람·설명뿐이다. 키퍼 메모는 보내지 않는다.
+    // 보내는 것은 항목마다 id(어느 AI 후보인지)·상 이름·받는 사람·설명뿐이다. 마스터 메모는 보내지 않는다.
     const items = list.filter(x => x.on).map(x => ({ id: x.id || '', title: x.title, winner: x.winner, text: x.text }));
     const r = await kDo(pb, '공개 중…', { action: 'kAwardsPublish', session: sess, items, rv: meta.rv, draftId: meta.draftId }, pm);
     if (r.ok) { toast('시상식 ' + r.count + '개를 공개했어요. 요약 탭 맨 위에 보여요'); await kLoad(); refreshData(); }
@@ -2257,7 +2331,7 @@ function kvAwards(box){
   prow.append(pb, cnt); upd();
   if (d.awards) { const off = el('button', '', '공개 취소'); off.onclick = async () => { const r = await kDo(off, '…', { action: 'kAwardsOff' }, pm); if (r.ok) { await kLoad(); refreshData(); } }; prow.append(off); }
   prow.append(pm, el('span', 'note', d.awards ? '지금 공개 중: 세션 ' + d.awards.session + ' 시상식 ' + d.awards.items.length + '개' : '지금 공개된 시상식 없음'));
-  box.append(prow, el('div', 'note', '공개되는 것은 체크한 항목의 상 이름·받는 사람·설명 세 칸뿐이에요. 🔒 키퍼 메모는 서버로 보내지도 저장되지도 않아요. 설명을 직접 고쳤다면 아직 밝혀지지 않은 진상이 비치지 않는지 한 번 읽어 보세요.'));
+  box.append(prow, el('div', 'note', '공개되는 것은 체크한 항목의 상 이름·받는 사람·설명 세 칸뿐이에요. 🔒 마스터 메모는 서버로 보내지도 저장되지도 않아요. 설명을 직접 고쳤다면 아직 밝혀지지 않은 진상이 비치지 않는지 한 번 읽어 보세요.'));
 }
 
 /* ── 마스터링 피드백 ── */
@@ -2269,11 +2343,11 @@ function kvFeedback(box){
   ai.onclick = async () => { const r = await kDo(ai, 'AI가 세션을 돌아보는 중…', { action: 'kFeedback', session: sess, full: K.fbFull }, msg); if (r.ok) { K.stats[sess] = r.stats; K.statsRv[sess] = r.rv; await kLoad(); } };
   box.append(el('div', 'ksent', 'AI에 보내는 자료: 숫자 통계 · 이 세션의 요약 · 정리본의 핵심 단서 ' + d.kb.clues.filter(c => c.core).length + '개 · 장면 제목 ' + d.kb.scenes.length + '개. "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요.' +
     (fb ? ' · 지금 보이는 피드백을 만들 때: ' + (fb.sent ? '진상 전체 ' + (fb.sent.truth ? '포함' : '미포함') : '예전 버전에서 만든 것이라 진상 전체가 포함됐어요') : '')));
-  box.append(el('div', 'note', '키퍼만 보는 화면이에요. 받아쓰기 글자만 보고 하는 분석이라 목소리·분위기는 반영되지 않아요. 숫자는 정확하고, AI 의견은 📎 근거를 눌러 확인하면서 참고하세요.'));
+  box.append(el('div', 'note', '마스터만 보는 화면이에요. 받아쓰기 글자만 보고 하는 분석이라 목소리·분위기는 반영되지 않아요. 숫자는 정확하고, AI 의견은 📎 근거를 눌러 확인하면서 참고하세요.'));
   if (st && !st.empty) {
     box.append(kH('숫자로 본 세션 ' + sess, st.lines + '줄 · ' + Math.floor(st.minutes / 60) + '시간 ' + (st.minutes % 60) + '분 (조용한 구간 뺀 ' + st.activeMinutes + '분)'));
     const c = el('div', 'kcard');
-    c.append(el('div', '', '키퍼 발언 비율 ' + st.keeperShare + '%' + (st.keeper ? ' (' + st.keeper + ')' : ' · ⚠ 설정에서 키퍼 이름을 넣어야 정확해요')));
+    c.append(el('div', '', '마스터 발언 비율 ' + st.keeperShare + '%' + (st.keeper ? ' (' + st.keeper + ')' : ' · ⚠ 설정에서 마스터 이름을 넣어야 정확해요')));
     const kbar = el('div', 'kbar'); const kf = el('i'); kf.style.width = st.keeperShare + '%'; kbar.append(kf); c.append(kbar);
     box.append(c);
     box.append(kH('플레이어별 비중', '스포트라이트가 고르게 갔는지'));
@@ -2314,7 +2388,7 @@ function kvFeedback(box){
   if (fb.next.length) { box.append(kH('다음 회차에 해 볼 것')); fb.next.forEach(x => box.append(el('div', 'kcard', '· ' + x))); }
 }
 
-/* ── 키퍼가 공개한 카드 (모두의 요약 탭 맨 위) ── */
+/* ── 마스터가 공개한 카드 (모두의 요약 탭 맨 위) ── */
 function renderPubCards(d){
   const box = $('pubCards'); if (!box) return; box.innerHTML = '';
   const r = d.recap;
