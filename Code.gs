@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.16';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.17';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -393,11 +393,11 @@ function writeNotes(n) { blobWrite(SH.NOTES, 'notesSlot', n); }
 // 정리 AI에 줄 현재 정리: 이번 대화에 이름이 나온 항목만 전체, 나머지는 이름표(id+이름)만. 단서는 앞부분만. (길어질수록 무거워지는 것을 막는다)
 function notesForAiLite(n, transcript) {
   const t = String(transcript || '');
-  const hit = x => [x.name, x.player, x.title].some(v => { v = String(v || '').trim(); return v.length >= 2 && t.indexOf(v) >= 0; });
+  const hit = x => [x.name, x.player, x.title].concat(akaList(x.aka)).some(v => { v = String(v || '').trim(); return v.length >= 2 && t.indexOf(v) >= 0; });
   const cut = (v, n) => { v = String(v || ''); return v.length > n ? '…' + v.slice(-n) : v; };
   const strip = x => { const y = Object.assign({}, x); delete y.src; delete y.img; delete y.editedAt; if (!y.locked) delete y.locked; ['found', 'desc', 'text', 'said', 'relation'].forEach(k => { if (y[k]) y[k] = cut(y[k], k === 'text' ? 600 : 300); }); return y; };
   const o = {};
-  ['places', 'npcs', 'pcs', 'handouts'].forEach(sec => { o[sec] = (n[sec] || []).map(x => hit(x) ? strip(x) : (sec === 'handouts' ? { id: x.id, title: x.title } : { id: x.id, name: x.name, locked: x.locked ? true : undefined })); });
+  ['places', 'npcs', 'pcs', 'handouts'].forEach(sec => { o[sec] = (n[sec] || []).map(x => hit(x) ? strip(x) : (sec === 'handouts' ? { id: x.id, title: x.title } : { id: x.id, name: x.name, aka: x.aka || undefined, locked: x.locked ? true : undefined })); });
   o.clues = (n.clues || []).slice(-40).map(x => ({ id: x.id, text: String(x.text || '').slice(0, 70), status: x.status, locked: x.locked ? true : undefined }));
   o.deleted = n.deleted || {};
   return JSON.stringify(o);
@@ -410,6 +410,9 @@ function notesForAi(n) {
   o.deleted = n.deleted || {};
   return JSON.stringify(o);
 }
+// 다른 이름(aka): 쉼표로 구분한 글 ↔ 배열. 합칠 때는 겹치지 않게 더한다 (최대 12개)
+function akaList(v) { return (Array.isArray(v) ? v : String(v || '').split(/[,，、\n]+/)).map(x => String(x || '').trim()).filter(x => x.length >= 2 && x.length <= 30); }
+function akaUnion(a, b) { const out = []; akaList(a).concat(akaList(b)).forEach(x => { if (out.indexOf(x) < 0) out.push(x); }); return out.slice(0, 12).join(', '); }
 function unionSrc(a, b) {
   const out = [];
   [].concat(a || [], b || []).forEach(x => { x = String(x || ''); if (x && out.indexOf(x) < 0) out.push(x); });
@@ -434,13 +437,18 @@ function mergeNotes(base, ai, human) {
       const k = itemKey(sec, x);
       let i = (x.id && byId[x.id] != null) ? byId[x.id] : (k && byKey[k] != null ? byKey[k] : -1);
       if (i >= 0) {
-        if (res[i].locked && !human) return;             // 사람이 고친 항목은 그대로 (정정 요청일 때만 바꿈)
+        if (res[i].locked && !human) {                   // 사람이 고친 항목은 그대로 (정정 요청일 때만 바꿈). 다른 이름만은 더해 준다
+          if (x.aka != null) { const ak = akaUnion(res[i].aka, x.aka); if (ak !== String(res[i].aka || '')) res[i] = Object.assign({}, res[i], { aka: ak }); }
+          return;
+        }
         const src = unionSrc(res[i].src, x.src);
+        if (x.aka != null) x.aka = akaUnion(res[i].aka, x.aka);           // 다른 이름은 지우지 않고 더한다
         res[i] = Object.assign({}, res[i], x, { id: res[i].id, locked: !!(human && res[i].locked), src });
         if (fadd && String(res[i].found || '').indexOf(fadd) < 0) res[i].found = (String(res[i].found || '').trim() ? String(res[i].found).trim() + '\n' : '') + fadd;
         return;
       }
       if (!k || dead.has(k)) return;                      // 이름 없음, 또는 사람이 지운 대상
+      if (x.aka != null) x.aka = akaUnion('', x.aka);
       const item = Object.assign({}, x, { id: newId(), locked: false, src: unionSrc([], x.src) });
       if (fadd) item.found = (String(item.found || '').trim() ? String(item.found).trim() + '\n' : '') + fadd;
       res.push(item); byId[item.id] = res.length - 1; byKey[k] = res.length - 1;
@@ -452,7 +460,7 @@ function mergeNotes(base, ai, human) {
 function mergeWriteNotes(aiNotes, human) { writeNotes(mergeNotes(readNotes(), aiNotes, human)); bump('notesVer'); }
 function saveAiNotes(aiNotes, human) { withLock(30000, () => mergeWriteNotes(aiNotes, human)); }
 
-const NOTE_FIELDS = ['name', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'kind', 'title', 'img', 'age', 'affil', 'player'];
+const NOTE_FIELDS = ['name', 'aka', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'kind', 'title', 'img', 'age', 'affil', 'player'];
 function noteSave(sec, item) {
   if (SECTIONS.indexOf(sec) < 0 || !item) return { ok: false, error: '잘못된 항목' };
   return withLock(20000, () => {
@@ -1168,14 +1176,15 @@ function tickMore() {
 }
 
 const NOTES_RULE =
-  '정리(notes) 규칙: places=[{id,name,desc,found_add,src}] 장소와 거기서 일어난 일·발견한 것. 기존 장소의 found(지금까지 적힌 내용)는 다시 쓰지 말고, 이번 대화에서 새로 일어난 일·발견한 것만 found_add에 한두 문장으로 적어라(덧붙여 저장된다). desc는 바뀔 때만 적어라. ' +
-  'npcs=[{id,name,affil,age,traits,said,relation,src}] NPC의 소속·직업(affil), 나이(age, 언급됐을 때만), 캐릭터성(성격·말투·행동 습관을 쉼표로 구분한 짧은 말들. 대화에서 드러난 것만), 가장 인상적인 대사 한두 개(said), 탐사자들과의 관계, ' +
-  'pcs=[{id,name,player,traits,said,relation,src}] 탐사자(플레이어 캐릭터)의 특징. name은 "플레이어 = 캐릭터" 목록의 캐릭터 이름(목록에 없으면 플레이어 이름), player는 플레이어 이름, ' +
+  '정리(notes) 규칙: places=[{id,name,aka,desc,found_add,src}] 장소와 거기서 일어난 일·발견한 것. 기존 장소의 found(지금까지 적힌 내용)는 다시 쓰지 말고, 이번 대화에서 새로 일어난 일·발견한 것만 found_add에 한두 문장으로 적어라(덧붙여 저장된다). desc는 바뀔 때만 적어라. ' +
+  'npcs=[{id,name,aka,affil,age,traits,said,relation,src}] NPC의 소속·직업(affil), 나이(age, 언급됐을 때만), 캐릭터성(성격·말투·행동 습관을 쉼표로 구분한 짧은 말들. 대화에서 드러난 것만), 가장 인상적인 대사 한두 개(said), 탐사자들과의 관계, ' +
+  'pcs=[{id,name,aka,player,traits,said,relation,src}] 탐사자(플레이어 캐릭터)의 특징. name은 "플레이어 = 캐릭터" 목록의 캐릭터 이름(목록에 없으면 플레이어 이름), player는 플레이어 이름, ' +
   'traits는 그 플레이어 본인의 발언·결정(캐릭터로서 한 말과 행동, 선택)에서 드러난 성격·말투·행동 습관·판단 성향을 쉼표로 구분한 짧은 말들(최대 8개), said는 가장 인상적인 발언 1~2개, relation은 동료·NPC와의 관계. ' +
   '마스터의 묘사나 판정 요구만으로는 탐사자의 특징을 적지 마라. 이번 대화에서 새로 드러난 특징이 있을 때만 출력하고, 출력할 때는 기존 특징과 합쳐 전체를 다시 써라. ' +
   'clues=[{id,text,status,kind,src}] 얻은 정보와 단서. status는 "미해결" 또는 "해결". ' +
   'kind는 "확인"(마스터 묘사나 판정 결과로 확인된 사실), "주장"(NPC가 한 말이라 사실인지 모름. text에 "OO는 ~라고 주장함"처럼 누가 말했는지 적는다), "추측"(탐사자의 추리·의심) 중 하나. ' +
   'handouts=[{id,title,text,src}] 핸드아웃 내용. ' +
+  'aka(장소·NPC·탐사자)=그 대상이 대화에서 정식 이름 말고 다르게 불린 말을 쉼표로: 이름만·성만(예: "루시 프레이저"→"루시, 프레이저"), 별명·호칭(예: "프레이저 양"), 받아쓰기·발음 차이로 다르게 적힌 표기(예: "해켓"↔"헤켓", "브라이든"↔"브라이던"), 장소의 줄임말(예: "보든 암스 호텔"→"호텔, 보든 암스"), 방·층(예: "312호")은 aka가 아니라 따로 장소로. 새로 드러난 것만 적으면 기존 것에 더해진다. 다른 대상과 헷갈릴 말은 넣지 마라. ' +
   'src는 그 내용의 근거가 된 발언 번호 배열(예: [12,15], 1~5개, 대화에 #번호로 표시됨). 대화가 아니라 이미지에서 나온 내용이면 src는 비운다. ' +
   '기존 항목은 id를 그대로 유지하고, 새 항목은 id를 비워라. 바뀐 항목과 새 항목만 출력하고, 바뀐 항목은 id와 바뀐 칸만 적어라(적지 않은 칸은 그대로 남는다). 바뀌지 않은 항목은 출력하지 마라. 같은 대상을 새 항목으로 또 만들지 말고 기존 id에 보강하라. ' +
   '"locked":true 인 항목은 사람이 직접 확정한 내용이니 출력하지 말고 건드리지 마라. ' +
