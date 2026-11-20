@@ -44,7 +44,7 @@ function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).re
 const MODEL = 'claude-sonnet-5-5';
 // NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
 const MODEL_LIGHT = 'claude-haiku-5-5';
-const CODE_VER = '2026-11-20.4';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.5';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1069,16 +1069,23 @@ function stageFind(key) {
   const s = stageSheet(), last = s.getLastRow();
   if (last < 2) return null;
   const keys = s.getRange(2, 1, last - 1, 1).getValues();
+  let first = null; const bad = [];
   for (let i = 0; i < keys.length; i++) if (String(keys[i][0]) === key) {
     const row = i + 2, w = Math.max(5, s.getLastColumn());
     const r = s.getRange(row, 1, 1, w).getValues()[0];
     let res = null;
     try { res = JSON.parse(fromCells(r.slice(4))); } catch (e) {}
+    if (res && typeof res !== 'object') res = null;
     const on = x => String(x) === '1';
-    return { row, sum: on(r[1]), story: on(r[2]), notes: on(r[3]), res };
+    const o = { row, sum: on(r[1]), story: on(r[2]), notes: on(r[3]), res };
+    if (res) { o.bad = bad; return o; }                 // 같은 키의 깨진 줄은 건너뛰고 제대로 읽히는 줄을 쓴다
+    bad.push(row); if (!first) first = o;
   }
-  return null;
+  if (first) first.bad = bad;
+  return first;
 }
+// 같은 키의 깨진 보관 줄(AI 결과를 읽을 수 없는 줄)을 모두 지운다 (아래 줄부터)
+function stageDropBad(st) { if (!st || !st.bad) return; st.bad.slice().sort((a, b) => b - a).forEach(r => stageSheet().deleteRows(r, 1)); }
 function stagePut(key, res) {
   const s = stageSheet(), parts = toCells(JSON.stringify(res));
   const row = s.getLastRow() + 1;
@@ -1189,7 +1196,7 @@ function processWindow(job, t0, budget) {
     for (let gi = 0; gi < order.length; gi++) {
       const sess = order[gi];
       const segKey = prefix + 's' + sess;
-      let st = stageFind(segKey);
+      let st = stageFind(segKey), fresh = null;
       if (!st && existing.has(segKey)) continue;                 // 예전 버전에서 이미 끝낸 구간
       if (st && st.sum && st.story && st.notes) continue;        // 세 단계 모두 반영됨
       if (!st || !st.res) {
@@ -1204,33 +1211,39 @@ function processWindow(job, t0, budget) {
           if (!jobAlive(job) || Number(getConf('processedId') || 0) !== p.from) return 'stale';
           const cur = stageFind(segKey);
           if (cur && cur.res) return 'ok';                        // 그 사이 다른 실행이 보관함
-          if (cur) stageSheet().deleteRows(cur.row, 1);           // 깨진 보관분은 지우고 다시
+          stageDropBad(cur);                                      // 깨진 보관분은 모두 지우고 다시
           stagePut(segKey, keep);
           return 'ok';
         });
         if (put === 'stale') return { stale: true, lines: 0, segs };
+        fresh = keep;
       }
       // 보관된 AI 결과를 단계별로 반영 (각 단계 끝에 표시 → 실패하면 다음 실행이 남은 단계부터)
       const applied = withLock(30000, () => {
         if (!jobAlive(job) || Number(getConf('processedId') || 0) !== p.from) return 'stale';
-        const cur = stageFind(segKey);
-        if (!cur || !cur.res) throw new Error('보관된 AI 결과를 찾지 못했어요');
+        let cur = stageFind(segKey);
+        if ((!cur || !cur.res) && fresh) {                        // 보관본을 다시 못 읽었지만 방금 받은 AI 답이 있다: 한 번 더 보관하고, 그래도 안 되면 그대로 반영
+          stageDropBad(cur); stagePut(segKey, fresh); cur = stageFind(segKey);
+          if (!cur || !cur.res) { Logger.log('요약대기 보관본을 읽지 못해 메모리의 결과로 바로 반영: ' + segKey); cur = { row: 0, sum: false, story: false, notes: false, res: fresh }; }
+        }
+        if (!cur || !cur.res) throw new Error('보관된 AI 결과를 찾지 못했어요 (다음 정리 때 이 구간을 다시 요약해요)');
         const r = cur.res;
+        const mark = (c) => { if (cur.row) stageMark(cur.row, c); };
         if (!cur.sum) {
           if (!summaryKeys().has(segKey)) {
             const ms = sheet(SH.SUM);
             ms.getRange(ms.getLastRow() + 1, 1, 1, 6).setNumberFormat('@').setValues([[String(r.session), r.from, r.to, enc(String(r.summary)), now(), segKey]]);
           }
-          stageMark(cur.row, 2);
+          mark(2);
         }
         if (!cur.story) {
           storyApply(segKey, r);          // 줄거리 내용과 "이 구간은 반영함" 표시를 한 칸에 한 번에 쓴다
-          stageMark(cur.row, 3);
+          mark(3);
         }
         if (!cur.notes) {
           if (r.notes) mergeWriteNotes(r.notes);                       // 예전 버전이 보관해 둔 결과
           else queueNotes({ k: segKey, s: String(r.session), f: p.from, t: p.to });   // NPC·장소·단서 정리는 따로(요약을 막지 않게)
-          stageMark(cur.row, 4);
+          mark(4);
         }
         bump('sumVer');
         return 'ok';
@@ -1261,7 +1274,7 @@ function processWindow(job, t0, budget) {
     // 이 구간의 모든 묶음이 세 단계까지 반영됐는지 마지막으로 확인
     for (let gi = 0; gi < order.length; gi++) {
       const k = prefix + 's' + order[gi], st = stageFind(k);
-      if (st ? !(st.sum && st.story && st.notes) : !summaryKeys().has(k)) return 'incomplete';
+      if (st && st.res ? !(st.sum && st.story && st.notes) : !summaryKeys().has(k)) return 'incomplete';     // 보관본을 못 읽는 줄이면 요약이 실제로 저장됐는지로 판단
     }
     setConf('processedId', String(p.to)); setJson('pending', null);
     stageDeleteWindow(prefix);
@@ -2022,6 +2035,27 @@ function keeperLogout(kt, all) {
   return { ok: true };
 }
 
+/* 구글 문서 링크에서 글자를 읽는다 (마스터 전용). 읽은 글은 화면이 받아서 PDF와 같은 길(kSrcAdd)로 올린다.
+ * 문서에 탭이 여러 개면 탭마다 ⟦탭 이름⟧ 표시를 붙여 모두 읽는다. 마스터(이 시트 주인)의 구글 계정으로 열 수 있어야 한다. */
+function kDocText(url) {
+  url = String(url || '').trim();
+  const m = url.match(/\/document\/d\/([A-Za-z0-9_-]{20,})/) || url.match(/^([A-Za-z0-9_-]{25,})$/);
+  if (!m) return { ok: false, error: '구글 문서 링크가 아니에요 (https://docs.google.com/document/d/… 형식). 구글 드라이브에 올린 PDF·워드 파일은 내려받아서 파일로 올려 주세요' };
+  let doc;
+  try { doc = DocumentApp.openById(m[1]); }
+  catch (e) { return { ok: false, error: '이 구글 문서를 열 수 없어요. 이 시트 주인(마스터)의 구글 계정이 볼 수 있게 공유돼 있는지 확인해 주세요 · ' + String(e && e.message || e).slice(0, 120) }; }
+  let parts = [];
+  try {
+    const tabs = [];
+    const walk = t => { tabs.push(t); (t.getChildTabs() || []).forEach(walk); };
+    (doc.getTabs() || []).forEach(walk);
+    parts = tabs.map(t => { const tx = t.asDocumentTab().getBody().getText(); return tabs.length > 1 ? '⟦' + t.getTitle() + '⟧\n' + tx : tx; });
+  } catch (e) { parts = []; }
+  if (!parts.join('').trim()) { try { parts = [doc.getBody().getText()]; } catch (e) {} }
+  const text = parts.join('\n\n').trim();
+  if (!text) return { ok: false, error: '문서에 읽을 글자가 없어요 (그림만 있는 문서는 PDF로 저장해서 올려 주세요)' };
+  return { ok: true, title: String(doc.getName() || '구글 문서').slice(0, 60), text: text.slice(0, 800000), chars: text.length };
+}
 /* ───────────── 마스터 도구 목록 ───────────── */
 function keeperTool(b) {
   switch (b.action) {
@@ -2029,6 +2063,7 @@ function keeperTool(b) {
     // 시나리오 자료
     case 'kSrcAdd':        return kbGuard(b.gen, () => kSrcAdd(b));
     case 'kSrcDel':        return kSrcDel(b.source);
+    case 'kDocText':       return kDocText(b.url);
     case 'kOcr':           return kOcr(b);
     case 'kDigest':        return kDigestStep();
     case 'kKbSave':        return kbGuard(b.gen, () => kKbSave(b.sec, b.item));
