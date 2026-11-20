@@ -23,34 +23,48 @@ const KEEPER_PW    = '키퍼비밀번호';    // 마스터만 아는 비밀번�
 // 새 방을 만들 때 어떤 룰로 진행할지 고른다 (아래 RULES의 이름 중 하나). 이미 만든 방은 마스터 탭에서 바꿀 수 있다.
 const RULE = 'coc';
 const RULES = {
-  coc:       { name: '크툴루의 부름', pc: '탐사자', en: 'INVESTIGATOR', hint: '',
+  coc:       { abbr: 'CoC', name: '크툴루의 부름', pc: '탐사자', en: 'INVESTIGATOR', hint: '',
                gloss: '요그소토스, 틴달로스의 사냥개, 크툴루, 니알라토텝, 아자토스, 슈브니구라스, 네크로노미콘, 이성 판정' },
-  triangle:  { name: '트라이앵글 에이전시', pc: '요원', en: 'AGENT',
+  triangle:  { abbr: 'TA', name: '트라이앵글 에이전시', pc: '요원', en: 'AGENT',
                hint: '이 세션은 트라이앵글 에이전시 룰이다. 플레이어 캐릭터는 "요원"이라 부른다. 룰 용어와 설정은 대화에 나온 것만 적고, 알고 있다고 짐작해서 보태지 마라. ',
                gloss: '트라이앵글 에이전시, 요원, 이상 현상' },
-  unlimited: { name: '언리미티드 월드', pc: '캐릭터', en: 'CHARACTER',
+  unlimited: { abbr: 'UW', name: '언리미티드 월드', pc: '캐릭터', en: 'CHARACTER',
                hint: '이 세션은 언리미티드 월드 룰이다. 룰 용어와 설정은 대화에 나온 것만 적고, 짐작해서 보태지 마라. ',
                gloss: '언리미티드 월드' },
-  shinobi:   { name: '시노비가미', pc: '닌자', en: 'SHINOBI',
+  shinobi:   { abbr: 'SG', name: '시노비가미', pc: '닌자', en: 'SHINOBI',
                hint: '이 세션은 시노비가미 룰이다. 플레이어 캐릭터는 "닌자"라 부른다. 비밀·사명·인연·감정·유파·닌법 같은 룰 용어는 대화에 나온 그대로 적고, 나오지 않은 설정은 보태지 마라. ',
                gloss: '시노비가미, 닌법, 유파, 비밀, 사명, 인연' },
-  etc:       { name: '기타 TRPG', pc: '캐릭터', en: 'CHARACTER', hint: '', gloss: '' }
+  etc:       { abbr: 'ETC', name: '기타 TRPG', pc: '캐릭터', en: 'CHARACTER', hint: '', gloss: '' }
 };
 function ruleKey() { const k = String(getConf('rule') || RULE); return RULES[k] ? k : 'coc'; }
 function R() { return RULES[ruleKey()]; }
 function ruleInfo() { const r = R(); return { key: ruleKey(), name: r.name, pc: r.pc, en: r.en, list: Object.keys(RULES).map(k => ({ key: k, name: RULES[k].name })) }; }
+// 스프레드시트(방) 이름 규칙: "🎲TRPG Archive · 룰약자 방이름" (예: 🎲TRPG Archive · CoC 질긴 결속)
+function roomFileName(rule, name) { return '🎲TRPG Archive · ' + (RULES[rule] || RULES.coc).abbr + ' ' + String(name || '').trim(); }
+function bareRoomName(full) {
+  const ab = Object.keys(RULES).map(k => RULES[k].abbr).join('|');
+  return String(full || '').replace(/^\s*(?:🎲)?\s*TRPG Archive\s*[·\-]\s*/, '').replace(new RegExp('^(?:' + ab + ')\\s+'), '').trim();
+}
+// 지금 방의 이름을 규칙에 맞게 고친다 (setup·룰 바꾸기 때). 방 이름은 그대로, 앞부분과 룰 약자만 맞춘다
+function fixRoomName() {
+  try {
+    const ss = SpreadsheetApp.getActive(), cur = String(ss.getName() || '');
+    const want = roomFileName(ruleKey(), bareRoomName(cur) || cur);
+    if (want !== cur) { ss.rename(want); Logger.log('방 이름을 바꿨어요: ' + cur + ' → ' + want); }
+  } catch (e) { Logger.log('방 이름 바꾸기 실패: ' + e); }
+}
 function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).replace(/탐사자/g, pc); }     // 프롬프트의 "탐사자"를 룰에 맞는 말로 (대화 원문에는 쓰지 않는다)
 
 const MODEL = 'claude-sonnet-5-5';
 // NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
 const MODEL_LIGHT = 'claude-haiku-5-5';
-// AI가 답하기 전에 속으로 생각하는 양. 생각한 글자도 출력 토큰으로 값을 낸다. 요약·정리·정정 같은 공개 기록 작업은 깊은 생각이 필요 없어서 'low'로 둔다 (마스터 도구는 적용 안 함).
-// 품질이 아쉬우면 'medium', 예전처럼 하려면 '' (빈칸이면 보내지 않는다)
-const AI_EFFORT = 'low';
+// AI가 답하기 전에 속으로 생각하는 양. 생각한 글자도 출력 토큰으로 값을 낸다. 요약·정리·정정 같은 공개 기록 작업은 'medium'으로 둔다 (low는 요약 품질이 떨어져서 쓰지 않음. 마스터 도구는 적용 안 함).
+// 더 아끼려면 'low', 예전처럼 하려면 '' (빈칸이면 보내지 않는다)
+const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.9';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.10';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -130,6 +144,7 @@ function setup() {
     return s;
   };
   make(SH.CONF, ['키', '값']);
+  fixRoomName();                                   // 방 이름을 "🎲TRPG Archive · 룰약자 방이름"으로 맞춘다
   const L = make(SH.LINES, ['번호', '시각', '세션', '이름', '말', '발언ID']);
   const M = make(SH.SUM, ['세션', '시작', '끝', '요약', '만든 시각', '구간키']);
   make(SH.NOTES, ['정리 JSON (자동, 칸 A)', '정리 JSON (자동, 칸 B)']);
@@ -703,7 +718,7 @@ function readLines(sinceId, maxRows) {
 }
 function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 
-function roomTitle() { try { return String(SpreadsheetApp.getActive().getName() || '').replace(/^TRPG Archive\s*[·\-]\s*/, '').slice(0, 40); } catch (e) { return ''; } }
+function roomTitle() { try { return bareRoomName(SpreadsheetApp.getActive().getName()).slice(0, 40); } catch (e) { return ''; } }
 /* 새 방: 이 스프레드시트를 복사한다 (붙어 있는 Apps Script도 같이 복사됨). 복사본에서 앱 기록 탭을 모두 비우고 룰만 정해 둔다.
  * 지금 방의 기록은 그대로 남는다. 복사본은 주인이 한 번 열어서 setup 실행 → 웹 앱 배포를 해야 쓸 수 있다 (구글 정책상 자동으로는 못 함). */
 function newRoom(name, rule) {
@@ -711,18 +726,19 @@ function newRoom(name, rule) {
   if (!name) return { ok: false, error: '새 방 이름을 적어 주세요' };
   rule = RULES[rule] ? rule : ruleKey();
   const ss = SpreadsheetApp.getActive();
-  const f = DriveApp.getFileById(ss.getId()).makeCopy('TRPG Archive · ' + name);
+  const f = DriveApp.getFileById(ss.getId()).makeCopy(roomFileName(rule, name));
   const c = SpreadsheetApp.openById(f.getId());
   Object.keys(SH).forEach(k => { const sh = c.getSheetByName(SH[k]); if (sh) sh.clear(); });     // 대화·요약·정리·마스터 자료·토큰기록 등 앱 탭은 모두 비운다
   const cs = c.getSheetByName(SH.CONF);
   if (cs) cs.getRange(1, 1, 3, 2).setNumberFormat('@').setValues([['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]]);
-  return { ok: true, url: c.getUrl(), name, rule: RULES[rule].name,
+  return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name,
     message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
 }
 function setRule(k) {
   k = String(k || '');
   if (!RULES[k]) return { ok: false, error: '알 수 없는 룰이에요' };
   withLock(20000, () => { setConf('rule', k); bump('notesVer'); bump('charVer'); });
+  fixRoomName();                                   // 방 이름 앞의 룰 약자도 맞춘다
   return { ok: true, rule: ruleInfo(), message: RULES[k].name + '로 바꿨어요. 이미 쌓인 용어집·기록은 그대로예요 (용어집은 직접 고쳐 주세요)' };
 }
 function versions() {

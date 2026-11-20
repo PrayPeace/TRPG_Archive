@@ -1894,7 +1894,7 @@ $('nrGo').onclick = async () => {
        '설정 탭 → 내 방 목록 → "+ 방 추가"에 그 주소와 새 방 비밀번호를 넣으면 끝 (새 멤버에게는 그 방의 초대 링크를 보내요)'].forEach(t => steps.append(el('li', '', t)));
       o.append(steps);
     }
-  } catch (e) { $('nrOut').textContent = '응답을 못 받았어요 (' + e.message + '). 구글 드라이브에 "TRPG Archive · ' + name + '" 파일이 생겼는지 확인해 주세요'; }
+  } catch (e) { $('nrOut').textContent = '응답을 못 받았어요 (' + e.message + '). 구글 드라이브에 "🎲TRPG Archive · ' + name + '" 같은 이름의 파일이 생겼는지 확인해 주세요'; }
   b.disabled = false; b.textContent = '새 방 만들기';
 };
 $('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '마스터 이름 저장됨' : r.error; refreshData(); };
@@ -1968,7 +1968,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.9';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.10';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
