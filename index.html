@@ -948,35 +948,68 @@ $('copySess').onclick = async () => {
 };
 
 /* ── 이름 자동 링크 (형광펜) ──
- * 정리 목록의 이름뿐 아니라 흔한 변형도 잡는다: "이니드 캐링턴의 장미 정원" = "이니드 캐링턴 장미 정원" = "이니드캐링턴의장미정원",
- * 장소는 뒤쪽 이름("장미 정원"), 인물은 이름 조각("캐링턴")도. 두 대상이 같은 조각을 가지면 그 조각은 쓰지 않는다. */
-let linkRe = null, linkMap = {};
-const LK_TITLES = new Set(['박사','교수','씨','부인','경','선생','선생님','신부','목사','경감','형사','의사','집사','양','군','님','미스','미스터','부장','사장','회장','교수님']);
-const lkKey = t => String(t).replace(/\s+|의/g, '');
-function lkAliases(sec, nm){
-  const out = new Set([nm]);
-  const w = nm.split(/\s+/).filter(Boolean);
-  if (sec === 'places' && w.length >= 2) {
-    for (let i = 1; i < w.length; i++) {
-      const tail = w.slice(i).join(' ').replace(/^.*의\s+/, '');
-      if (tail.split(' ').length >= 2 || tail.replace(/\s/g, '').length >= 4) out.add(tail);
-    }
+ * 정리 목록의 이름뿐 아니라 흔한 변형도 잡는다.
+ *  - 띄어쓰기·"의" 무시: "이니드 캐링턴의 장미 정원" = "이니드캐링턴 장미정원"
+ *  - 장소: 뒤쪽 이름("장미 정원", "호텔"), 끝이 호텔·저택 같은 말이면 앞부분("보든 암스")도
+ *  - 인물: 이름 조각("루시", "프레이저"), 괄호 속 다른 표기("알프레드 해켓(헤켓)" → "헤켓", "알프레드 헤켓")
+ *  - 정리 항목의 "다른 이름"(aka, AI가 채우거나 직접 적음)
+ *  - 발음이 헷갈리는 모음은 같게 본다: ㅐ=ㅔ, ㅒ=ㅖ, ㅙ=ㅚ=ㅞ (세 글자 이상이면 ㅓ=ㅡ도: 브라이든=브라이던)
+ *  - 312호 같은 방 번호는 장소 색으로 칠한다 (같은 번호의 장소 항목이 있으면 그걸 연다)
+ *  두 대상이 같은 조각을 가지면 그 조각은 쓰지 않는다. */
+let linkRe = null, linkMap = {}, linkRooms = {};
+const LK_TITLES = new Set(['박사','교수','씨','부인','경','선생','선생님','신부','목사','경감','형사','의사','집사','양','군','님','미스','미스터','부장','사장','회장','교수님','경위','경사','반장','기자','변호사','주인','아저씨','아줌마','할머니','할아버지','아가씨','도련님']);
+const LK_PLACE_END = new Set(['호텔','저택','집','병원','교회','성당','도서관','정원','서재','카페','식당','은행','경찰서','학교','대학','대학교','공원','묘지','항구','역','마을','농장','상점','가게','사무실','연구소','박물관','극장','바','클럽','여관','아파트','빌딩','별장','오두막','숲','호수','다리','광장','창고','지하실','다락방','방','홀','관','당','원','소','점']);
+const ROOM_RE = /\d{1,4}\s*호(?:실)?(?![선기차])/;
+// 모음 묶음: 같은 묶음이면 같은 글자로 본다
+const VG = { 1: 'a', 5: 'a', 3: 'b', 7: 'b', 10: 'c', 11: 'c', 15: 'c', 4: 'd', 18: 'd' };
+const VG_SET = { a: [1, 5], b: [3, 7], c: [10, 11, 15], d: [4, 18] };
+function lkCanon(ch){
+  const c = ch.charCodeAt(0) - 0xAC00; if (c < 0 || c > 11171) return ch;
+  const v = Math.floor((c % 588) / 28), g = VG[v]; if (!g) return ch;
+  return String.fromCharCode(0xAC00 + Math.floor(c / 588) * 588 + VG_SET[g][0] * 28 + (c % 28));
+}
+const lkKey = t => [...String(t).replace(/\s+|의/g, '')].map(lkCanon).join('');
+function lkChar(ch, loose){
+  const c = ch.charCodeAt(0) - 0xAC00;
+  if (c >= 0 && c <= 11171) {
+    const v = Math.floor((c % 588) / 28), g = VG[v];
+    if (g && (g !== 'd' || loose)) return '[' + VG_SET[g].map(x => String.fromCharCode(0xAC00 + Math.floor(c / 588) * 588 + x * 28 + (c % 28))).join('') + ']';
   }
-  if ((sec === 'npcs' || sec === 'pcs') && w.length >= 2) w.forEach(x => { x = x.replace(/의$/, ''); if (x.length >= 2 && !LK_TITLES.has(x)) out.add(x); });
-  return [...out];
+  return ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 function lkPattern(alias){
-  const w = alias.split(/\s+/).filter(Boolean).map((x, i, a) => (i < a.length - 1 ? x.replace(/의$/, '') : x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const loose = alias.replace(/\s/g, '').length >= 3;
+  const w = alias.split(/\s+/).filter(Boolean).map((x, i, a) => [...(i < a.length - 1 ? x.replace(/의$/, '') : x)].map(ch => lkChar(ch, loose)).join(''));
   return w.join('(?:\\s*의)?\\s*');
 }
+// 이름 하나 → [정식 이름, 변형들]
+function lkAliases(sec, raw, aka){
+  const out = new Set();
+  const paren = []; const nm = String(raw).replace(/[(（\[]([^)）\]]*)[)）\]]/g, (_, x) => { paren.push(x.trim()); return ' '; }).replace(/\s+/g, ' ').trim();
+  if (nm.length >= 2) out.add(nm);
+  const w = nm.split(' ').filter(Boolean);
+  paren.forEach(x => x.split(/[,，/]/).map(y => y.trim()).filter(y => y.length >= 2 && !/^[A-Za-z .'-]+$/.test(y)).forEach(y => {
+    out.add(y); if (w.length >= 2 && y.split(' ').length === 1) out.add(w.slice(0, -1).concat([y]).join(' '));
+  }));
+  if (sec === 'places') {
+    for (let i = 1; i < w.length; i++) { const tail = w.slice(i).join(' ').replace(/^.*의\s+/, ''); if (tail.replace(/\s/g, '').length >= 2) out.add(tail); }
+    if (w.length >= 2 && LK_PLACE_END.has(w[w.length - 1])) { const head = w.slice(0, -1).join(' ').replace(/의$/, ''); if (head.replace(/\s/g, '').length >= 2) out.add(head); }
+  }
+  if ((sec === 'npcs' || sec === 'pcs') && w.length >= 2) w.forEach(x => { x = x.replace(/의$/, ''); if (x.length >= 2 && !LK_TITLES.has(x)) out.add(x); });
+  String(aka || '').split(/[,，、\n]+/).map(x => x.trim()).filter(x => x.length >= 2 && x.length <= 30).forEach(x => out.add(x));
+  return { name: nm, list: [...out] };
+}
 function buildLinks(n){
-  linkMap = {};
+  linkMap = {}; linkRooms = {};
   const full = {}, part = {};
   [['npcs','name'],['pcs','name'],['places','name'],['handouts','title']].forEach(([sec, k]) => (n && n[sec] || []).forEach(it => {
-    const nm = String(it[k] || '').trim(); if (nm.length < 2) return;
+    const raw = String(it[k] || '').trim(); if (raw.length < 2) return;
     const ref = { sec, id: it.id };
-    if (!full[lkKey(nm)]) full[lkKey(nm)] = { ref, alias: nm };
-    lkAliases(sec, nm).slice(1).forEach(a => { const key = lkKey(a); (part[key] = part[key] || []).push({ ref, alias: a }); });
+    // 방 번호가 든 장소("보든 암스 호텔 312호")는 번호로만 잇는다 → 글에서는 "보든 암스 호텔"(호텔)과 "312호"(방)가 따로 칠해진다
+    if (sec === 'places') { const rm = ROOM_RE.exec(raw); if (rm) { const rk = rm[0].replace(/\s/g, ''); if (!linkRooms[rk]) linkRooms[rk] = ref; return; } }
+    const al = lkAliases(sec, raw, sec === 'handouts' ? '' : it.aka);
+    if (al.name.length >= 2 && !full[lkKey(al.name)]) full[lkKey(al.name)] = { ref, alias: al.name };
+    al.list.forEach(a => { const key = lkKey(a); if (key === lkKey(al.name)) return; (part[key] = part[key] || []).push({ ref, alias: a }); });
   }));
   const pats = [];
   Object.keys(full).forEach(key => { linkMap[key] = full[key].ref; pats.push(full[key].alias); });
@@ -986,7 +1019,8 @@ function buildLinks(n){
     linkMap[key] = part[key][0].ref; pats.push(part[key][0].alias);
   });
   const sorted = pats.sort((a, b) => lkKey(b).length - lkKey(a).length).map(lkPattern);
-  linkRe = sorted.length ? new RegExp('(' + sorted.join('|') + ')', 'g') : null;
+  sorted.push(ROOM_RE.source);                                                   // 방 번호는 맨 마지막 (이름에 들어 있으면 이름이 먼저 잡힌다)
+  linkRe = new RegExp('(' + sorted.join('|') + ')', 'g');
 }
 // 글자 안의 NPC·장소 이름을 형광펜으로 칠하고 눌러서 열 수 있게 만든다 (장소 파랑, NPC 노랑, 탐사자 초록, 핸드아웃 보라)
 function linkify(text){
@@ -994,11 +1028,15 @@ function linkify(text){
   if (!linkRe) { frag.append(text); return frag; }
   let last = 0; linkRe.lastIndex = 0; let m;
   while ((m = linkRe.exec(text))) {
-    const ref = linkMap[lkKey(m[0])];
+    let ref = linkMap[lkKey(m[0])];
+    if (!ref && ROOM_RE.test(m[0])) {                                            // 방 번호: 장소 색만 칠하고, 같은 번호의 장소가 있으면 연결
+      ref = linkRooms[m[0].replace(/\s/g, '')] || { sec: 'places', id: null };
+    }
     if (!ref) continue;
     if (m.index > last) frag.append(text.slice(last, m.index));
     const a = el('span', 'lk k-' + ref.sec, m[0]);
-    a.onclick = e => { e.stopPropagation(); openDetail(ref.sec, ref.id); };
+    if (ref.id) a.onclick = e => { e.stopPropagation(); openDetail(ref.sec, ref.id); };
+    else { a.style.cursor = 'default'; a.title = '장소 목록에 아직 없는 방이에요'; }
     frag.append(a); last = m.index + m[0].length;
   }
   if (last < text.length) frag.append(text.slice(last));
@@ -1074,13 +1112,13 @@ function applyRule(r){
 }
 const SEC = {
   npcs:    { title: 'NPC', icon: '👤', kind: 'NPC', key: 'name', photo: true,
-             fields: [{ key: 'name', label: '이름' }, { key: 'affil', label: '소속·직업' }, { key: 'age', label: '나이' },
+             fields: [{ key: 'name', label: '이름' }, { key: 'aka', label: '다른 이름 (쉼표로: 이름만·성만·별명·다르게 들린 표기. 요약에서 이 말도 색칠돼요)' }, { key: 'affil', label: '소속·직업' }, { key: 'age', label: '나이' },
                       { key: 'said', label: '인상적인 대사', type: 'area', rows: 3 }, { key: 'traits', label: '특징 (쉼표로 구분하면 태그로 보여요)', type: 'area', rows: 3 }, { key: 'relation', label: '탐사자들과의 관계' }] },
   pcs:     { title: '탐사자', icon: '🧭', kind: 'INVESTIGATOR', key: 'name', photo: true,
-             fields: [{ key: 'name', label: '캐릭터 이름' }, { key: 'player', label: '플레이어' },
+             fields: [{ key: 'name', label: '캐릭터 이름' }, { key: 'aka', label: '다른 이름 (쉼표로: 이름만·성만·별명)' }, { key: 'player', label: '플레이어' },
                       { key: 'said', label: '인상적인 발언', type: 'area', rows: 3 }, { key: 'traits', label: '특징 (쉼표로 구분하면 태그로 보여요)', type: 'area', rows: 3 }, { key: 'relation', label: '동료·NPC와의 관계' }] },
   places:  { title: '장소', icon: '📍', kind: 'PLACE', key: 'name', photo: true,
-             fields: [{ key: 'name', label: '장소 이름' }, { key: 'desc', label: '설명', type: 'area' }, { key: 'found', label: '발견한 것·일어난 일', type: 'area' }] },
+             fields: [{ key: 'name', label: '장소 이름' }, { key: 'aka', label: '다른 이름 (쉼표로: 줄임말 등. 예: 호텔, 보든 암스)' }, { key: 'desc', label: '설명', type: 'area' }, { key: 'found', label: '발견한 것·일어난 일', type: 'area' }] },
   clues:   { title: '단서 · 정보', icon: '🔎', kind: 'CLUE', key: 'text',
              fields: [{ key: 'text', label: '내용', type: 'area' }, { key: 'status', label: '상태', type: 'select', options: ['미해결', '해결'] },
                       { key: 'kind', label: '종류 (확인=묘사·판정으로 확인된 사실 · 주장=NPC가 한 말 · 추측=탐사자의 추리)', type: 'select', options: ['', '확인', '주장', '추측'] }] },
@@ -2335,7 +2373,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.16';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.17';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
