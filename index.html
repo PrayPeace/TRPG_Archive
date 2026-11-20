@@ -454,12 +454,15 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 #lFx .b4{top:70%;height:14px;background:#e3222f;transform:rotate(-18deg);animation-delay:.24s}
 #lFx .fx-tri{position:absolute;left:50%;top:37%;width:230px;height:230px;margin:-115px 0 0 -115px;animation:fxTri .5s cubic-bezier(.3,1.6,.4,1) .25s both,fxPulse 1.5s ease-in-out 1s 3 alternate,fxZoom .6s cubic-bezier(.6,0,.9,.4) 5.6s forwards}
 #lFx .fx-word{position:absolute;left:0;right:0;top:61%;display:flex;justify-content:center;gap:3px;transform:rotate(-8deg)}
-#lFx .fx-word span{display:inline-block;font:900 34px/1 P,system-ui,sans-serif;padding:6px 7px 5px;animation:fxDrop .22s cubic-bezier(.3,1.7,.5,1) both}
+#lFx .fx-word span{display:inline-block;font:900 36px/1 P,system-ui,sans-serif;padding:6px 7px 5px;box-shadow:3px 3px 0 rgba(0,0,0,.6);animation:fxDrop .22s cubic-bezier(.3,1.7,.5,1) both}
 #lFx .fx-word span:nth-child(3n+1){background:#f4ece6;color:#111;transform:rotate(-6deg)}
 #lFx .fx-word span:nth-child(3n+2){background:#111;color:#f4ece6;transform:rotate(5deg) translateY(4px);font-size:30px;box-shadow:0 0 0 2px #f4ece6}
 #lFx .fx-word span:nth-child(3n){background:#e3222f;color:#fff;transform:rotate(-2deg) translateY(-3px)}
-#lFx .fx-tag{position:absolute;left:-10px;right:-10px;top:73%;padding:9px 0 8px;background:#f4ece6;color:#111;text-align:center;font:900 17px/1.2 P,system-ui,sans-serif;letter-spacing:.5px;transform:rotate(-8deg);box-shadow:6px 6px 0 #e3222f;z-index:5;animation:fxTag .5s cubic-bezier(.2,.9,.2,1) 4.2s both}
-#lFx .fx-os{position:absolute;left:24px;top:56px;font:800 11px/1.5 ui-monospace,Menlo,monospace;color:#ff9aa1;letter-spacing:1px;animation:fxFade .2s .3s both}
+#lFx .fx-tag{position:absolute;left:-14px;right:-14px;top:63%;padding:12px 0 12px;background:#f4ece6;color:#0a0708;text-align:center;font-family:P,system-ui,sans-serif;transform:rotate(-7deg);box-shadow:0 0 0 4px #0a0708,10px 10px 0 4px #e3222f;z-index:5;animation:fxSlam .5s cubic-bezier(.2,1.5,.4,1) 4.1s both}
+#lFx .fx-tag b{display:block;font-weight:900;font-size:50px;line-height:1;letter-spacing:-1px}
+#lFx .fx-tag span{display:inline-block;margin-top:8px;padding:4px 12px 5px;background:#e3222f;color:#fff;font-weight:900;font-size:24px;line-height:1.1;letter-spacing:-.3px}
+@keyframes fxSlam{from{opacity:0;transform:rotate(-7deg) scale(2.2)}60%{opacity:1}to{opacity:1;transform:rotate(-7deg) scale(1)}}
+#lFx .fx-os{position:absolute;left:18px;top:52px;z-index:2;padding:7px 10px;background:rgba(0,0,0,.72);border-left:3px solid #e3222f;font:800 12.5px/1.6 ui-monospace,Menlo,monospace;color:#ffc2c6;letter-spacing:.5px;text-shadow:0 1px 2px #000;animation:fxFade .2s .3s both}
 #lFx .fx-os i{font-style:normal;opacity:0;animation:fxFade .1s both}
 #lFx .fx-guy{position:absolute;left:50%;bottom:-40px;width:150px;margin-left:-75px;z-index:3;transform-origin:50% 100%;animation:fxCreep 4.2s cubic-bezier(.45,0,.25,1) 1.2s both}
 #lFx .fx-guy img{display:block;width:100%;filter:drop-shadow(1.5px 0 0 rgba(244,236,230,.8)) drop-shadow(-1.5px 0 0 rgba(244,236,230,.8)) drop-shadow(0 -1.5px 0 rgba(244,236,230,.8)) drop-shadow(0 0 18px rgba(227,34,47,.6))}
@@ -2494,7 +2497,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.10';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.11';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -4070,8 +4073,9 @@ function unlock(){
     const word = el('div', 'fx-word'); '에이전시OS'.split('').forEach((c, i) => { const sp = el('span', '', c); sp.style.animationDelay = (.42 + i * .045) + 's'; word.append(sp); });
     const os = el('div', 'fx-os'); os.innerHTML = 'AGENCY OS v3.0<br>&gt; 요원 확인 중… <i style="animation-delay:.9s"><b>승인</b></i><br><i style="animation-delay:1.5s">&gt; 출근 기록 완료</i><br><i style="animation-delay:2.4s">&gt; 오늘도 지켜보고 있어요</i>';
     const tri = el('div', 'fx-tri'); tri.innerHTML = FX_TRI;
+    const tag = el('div', 'fx-tag'); tag.append(el('b', '', '출근하세요.'), el('span', '', '세계를 구하세요.'));
     const guy = el('div', 'fx-guy'); guy.innerHTML = '<img src="agent.png?v=1" alt="">';
-    st.append(el('div', 'fx-dots'), el('div', 'fx-band b1'), el('div', 'fx-band b2'), el('div', 'fx-band b3'), el('div', 'fx-band b4'), os, tri, word, el('div', 'fx-tag', '출근하세요. 세계를 구하세요.'), guy, el('div', 'fx-vig'), el('div', 'fx-scan'), el('div', 'fx-flash'));
+    st.append(el('div', 'fx-dots'), el('div', 'fx-band b1'), el('div', 'fx-band b2'), el('div', 'fx-band b3'), el('div', 'fx-band b4'), os, tri, word, tag, guy, el('div', 'fx-vig'), el('div', 'fx-flash'));
     fx.append(st);
   }, T0);
   const done = () => { lk.classList.remove('fx-hack'); lk.classList.add('lb-up'); lobbyBg(); };
