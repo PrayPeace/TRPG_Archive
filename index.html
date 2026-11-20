@@ -3372,16 +3372,27 @@ function newRoomForm(){
     };
   });
 }
+/* 새 방을 웹 앱으로 배포해서 로비에 연결하는 순서 (방 개설 직후 안내, 주소 연결 화면의 "배포 방법"에서 같이 쓴다) */
+function deploySteps(s, sheetUrl){
+  const ol = el('ol'); ol.style.cssText = 'padding-left:20px;line-height:1.7;font-size:13.5px;margin:12px 0 0';
+  const step = (title, sub) => { const li = el('li'); li.style.marginBottom = '8px'; li.append(el('b', '', title)); if (sub) { const d = el('div', 'note'); d.style.marginTop = '2px'; d.append(sub); li.append(d); } ol.append(li); return li; };
+  const open = el('span');
+  if (sheetUrl) { const a = el('a', '', '새 시트 열기'); a.href = sheetUrl; a.target = '_blank'; a.style.color = '#f0c873'; open.append(a, ' → '); }
+  open.append('메뉴 확장 프로그램 → Apps Script');
+  step('Apps Script 열기', open);
+  step('연결 코드 확인 (고칠 것 없음)', 'Room.gs와 라이브러리 TRPG가 이미 복사돼 있어요. 맨 위 ROOM_PW_FIRST = \'\' 따옴표 안에 글자가 있으면 지우고 저장하세요. 이 방 비밀번호는 개설할 때 이미 들어갔어요.');
+  step('setup 실행', '위쪽 함수 선택에서 setup → ▶ 실행. 처음이면 권한 창이 떠요: 권한 검토 → 내 계정 → "고급" → "(안전하지 않음)으로 이동" → 허용. 실행 로그에 "설치 완료"가 나오면 돼요.');
+  step('웹 앱으로 새 배포', '오른쪽 위 배포 → 새 배포 → 유형 선택(⚙) → 웹 앱 → 다음 사용자 인증 정보로 실행: 나 · 액세스 권한이 있는 사용자: 모든 사용자 → 배포. 권한을 또 물으면 허용해 주세요.');
+  step('웹 앱 주소 복사', '배포가 끝나면 나오는 "웹 앱" URL(https://script.google.com/macros/s/…/exec)을 복사해요. "라이브러리" URL이 아니라 웹 앱 URL이에요.');
+  step('로비에 주소 연결', '아래 "주소 연결"을 눌러 붙여 넣고 저장하면 로비에 방이 나타나요. 플레이어는 그 방을 눌러 이름과 방 비밀번호만 넣으면 돼요.');
+  s.append(ol);
+  s.append(el('div', 'note', '※ 이 방은 한 번만 배포하면 돼요. 앞으로 업데이트는 엔진만 저장하면 자동으로 따라가요. 혹시 "새 배포"를 또 만들어 주소가 바뀌면, ⚙ 설정에서 그 방의 "주소 바꾸기"로 새 주소를 넣어 주세요.'));
+}
 function deployGuide(idx, sheetUrl, file){
   sheetOpen(s => {
     s.append(el('h3', '', '✔ 시트를 만들었어요'));
-    s.append(el('div', 'note', '"' + file + '" · 이제 한 번만 배포하면 방이 열려요.'));
-    const ol = el('ol'); ol.style.cssText = 'padding-left:20px;line-height:1.75;font-size:13.5px;margin:12px 0 0';
-    const li1 = el('li'); const a = el('a', '', '새 시트 열기'); a.href = sheetUrl; a.target = '_blank'; a.style.color = '#f0c873'; li1.append(a, ' → 메뉴 확장 프로그램 → Apps Script'); ol.append(li1);
-    ['함수 선택에서 setup → ▶ 실행 (권한 허용). 방 비밀번호는 이미 들어가 있어서 Code.gs를 고칠 필요가 없어요',
-     '배포 → 새 배포 → 유형: 웹 앱 · 실행: 나 · 액세스: 모든 사용자 → 배포 → 웹 앱 주소 복사',
-     '아래 "주소 연결"을 눌러 그 주소를 붙여 넣으면 로비에 방이 나타나요'].forEach(t => ol.append(el('li', '', t)));
-    s.append(ol);
+    s.append(el('div', 'note', '"' + file + '" · 아래 순서대로 한 번만 배포하면 방이 열려요.'));
+    deploySteps(s, sheetUrl);
     const go = bigBtn(s, '주소 연결'); go.onclick = () => connectForm(idx);
     const later = bigBtn(s, '나중에 하기', 'lb-sec'); later.onclick = settingsPanel;
   });
@@ -3396,6 +3407,7 @@ function connectForm(i){
     const u = field(s, '웹 앱 주소', '', r && r.url ? r.url : '', 'https://script.google.com/macros/s/…/exec');
     const nm = r ? null : field(s, '방 이름 (비우면 시트에서 읽어요)');
     const go = bigBtn(s, r ? '저장' : '추가'), msg = lmsg(s);
+    const how = bigBtn(s, '배포 방법 보기', 'lb-sec'); how.onclick = () => deployGuide(i, r && r.sheet, r ? r.name : '방');
     go.onclick = async () => {
       let raw = u.value.trim(); const mm = raw.match(/#(.*)$/); if (mm) { const hh = new URLSearchParams(mm[1]); if (hh.get('s')) raw = hh.get('s'); }
       const url = scriptUrl(raw);
