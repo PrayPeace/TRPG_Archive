@@ -473,6 +473,18 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 @keyframes fxPulse{from{transform:scale(1) rotate(-6deg)}to{transform:scale(1.06) rotate(-4deg)}}
 @keyframes fxFade{from{opacity:0}to{opacity:1}}
 @keyframes fxOut{to{opacity:0;visibility:hidden}}
+/* 로비 뒤 배경: 컷인이 끝나면 에이전시 배경이 은은하게 깔린다 (아주 느린 흐름만, 깜빡임 없음) */
+#lBg{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity 1.8s ease;overflow:hidden;
+ background:radial-gradient(1100px 760px at 72% 28%,rgba(227,34,47,.24),transparent 62%),radial-gradient(900px 700px at 8% 100%,rgba(120,20,40,.28),transparent 60%),linear-gradient(160deg,#1b0b10,#08070b 72%)}
+#lBg.on{opacity:1}
+#lBg .bg-tri{position:absolute;right:-12vmin;top:-10vmin;width:110vmin;height:110vmin;opacity:.16;filter:blur(1.5px);animation:bgDrift 48s ease-in-out infinite alternate}
+#lBg .bg-tri2{position:absolute;left:-20vmin;bottom:-30vmin;width:70vmin;height:70vmin;opacity:.07;filter:blur(3px);transform:rotate(14deg);animation:bgDrift2 60s ease-in-out infinite alternate}
+#lBg .bg-dots{position:absolute;inset:-10%;background:radial-gradient(circle,rgba(255,90,100,.5) 1.2px,transparent 1.8px) 0 0/12px 12px;transform:rotate(-14deg);opacity:.12;-webkit-mask-image:radial-gradient(ellipse at 70% 30%,#000,transparent 65%);mask-image:radial-gradient(ellipse at 70% 30%,#000,transparent 65%)}
+#lBg .bg-band{position:absolute;left:-20%;width:140%;transform:rotate(-18deg);opacity:.07}
+#lBg .bg-vig{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,transparent 45%,rgba(0,0,0,.65) 100%)}
+@keyframes bgDrift{from{transform:rotate(-10deg) translate(0,0)}to{transform:rotate(-4deg) translate(-3vmin,4vmin)}}
+@keyframes bgDrift2{from{transform:rotate(14deg) translate(0,0)}to{transform:rotate(20deg) translate(4vmin,-3vmin)}}
+.lb-phone{z-index:1}
 .lb-wid{margin:0 4px 16px;padding:11px 13px;border-radius:18px;background:rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;flex:none}
 .lb-wid .lw-h{display:flex;font-size:11.5px;font-weight:700;opacity:.75;margin-bottom:6px}
 .lb-wid .lw-r{margin-top:7px}
@@ -526,6 +538,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 
 <!-- 로비 (폰 화면): 방 아이콘을 눌러 들어간다 -->
 <div id="lobby" class="hide">
+  <div id="lBg"></div>
   <div class="lb-phone"><div class="lb-screen" id="lScreen">
     <div class="lb-notch"></div>
     <div class="lb-sbar"><span id="lTime1">00:00</span><span class="lb-ic" id="lBat"></span></div>
@@ -2478,7 +2491,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.7';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.8';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -4023,10 +4036,19 @@ const FX_TRI = (() => {
   <path d="M127 34 L224 212 L30 212 Z" fill="#000"/><path d="M115 22 L212 200 L18 200 Z" fill="#e3222f" stroke="#f4ece6" stroke-width="10" stroke-linejoin="round"/>
   <g clip-path="url(#fxc)">${ln}</g></svg>`;
 })();
+function lobbyBg(){
+  const b = $('lBg'); if (!b || b.classList.contains('on')) return;
+  if (!b.childElementCount) {
+    let ln = ''; for (let i = 0; i < 9; i++) { const y = 196 - i * 11, a = 14 - i * 1.2; ln += `<path d="M30 ${y} C 80 ${y - a}, 110 ${y + a}, 140 ${y - a * .6} S 190 ${y + a * .8}, 230 ${y - a * .4}" fill="none" stroke="#ffd2c2" stroke-width="2.4" stroke-opacity="${(.9 - i * .08).toFixed(2)}"/>`; }
+    const tri = `<svg viewBox="0 0 230 230"><defs><clipPath id="bgc"><path d="M115 18 L214 200 L16 200 Z"/></clipPath></defs><path d="M115 18 L214 200 L16 200 Z" fill="#e3222f"/><g clip-path="url(#bgc)">${ln}</g><path d="M115 18 L214 200 L16 200 Z" fill="none" stroke="#f4ece6" stroke-width="3"/></svg>`;
+    b.innerHTML = `<div class="bg-band" style="top:22%;height:90px;background:#e3222f"></div><div class="bg-band" style="top:30%;height:14px;background:#f4ece6"></div><div class="bg-band" style="top:74%;height:120px;background:#000;opacity:.25"></div><div class="bg-dots"></div><div class="bg-tri2">${tri}</div><div class="bg-tri">${tri}</div><div class="bg-vig"></div>`;
+  }
+  b.classList.add('on');
+}
 function unlock(){
   const lk = $('lLock'); if (lk.classList.contains('lb-up') || $('lFx')) return;
   let reduce = false; try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) {}
-  if (reduce) { lk.classList.add('lb-up'); return; }
+  if (reduce) { lk.classList.add('lb-up'); lobbyBg(); return; }
   const fx = el('div'); fx.id = 'lFx'; const timers = [];
   const later = (f, ms) => timers.push(setTimeout(f, ms));
   // 1) 감염: 잠금 화면이 천천히 붉게 어두워지고 경고 창이 뜬다 (광과민 배려: 깜빡임·빠른 떨림 없음)
@@ -4049,7 +4071,7 @@ function unlock(){
     st.append(el('div', 'fx-dots'), el('div', 'fx-band b1'), el('div', 'fx-band b2'), el('div', 'fx-band b3'), el('div', 'fx-band b4'), os, tri, word, el('div', 'fx-tag', '출근하세요. 세계를 구하세요.'), guy, el('div', 'fx-vig'), el('div', 'fx-scan'), el('div', 'fx-flash'));
     fx.append(st);
   }, T0);
-  const done = () => { lk.classList.remove('fx-hack'); lk.classList.add('lb-up'); };
+  const done = () => { lk.classList.remove('fx-hack'); lk.classList.add('lb-up'); lobbyBg(); };
   later(done, T0 + 5750); later(() => fx.remove(), T0 + 6700);
   fx.onclick = e => { e.stopPropagation(); timers.forEach(clearTimeout); clearInterval(iv); done(); fx.classList.add('fx-skip'); setTimeout(() => fx.remove(), 300); };
 }
@@ -4063,6 +4085,7 @@ async function lobbyShow(fromApp){
   L.fromApp = !!fromApp; sheetClose();
   $('lobby').classList.remove('hide'); $('join').classList.add('hide');
   $('lLock').classList.toggle('lb-up', !!fromApp);          // 앱 안에서 열면 잠금 화면은 건너뛴다
+  if (fromApp) lobbyBg();
   lTick(); clearInterval(L.timer); L.timer = setInterval(lTick, 10000);
   await L.ready;
   if (!L.kt && cfg.kt && cfg.url && cfg.url === L.hub) L.kt = cfg.kt;     // 로비 방에 마스터로 들어와 있으면 그 로그인을 그대로 쓴다
