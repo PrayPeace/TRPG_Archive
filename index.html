@@ -114,6 +114,10 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .crow .cm{display:flex;gap:5px;align-items:center;flex:none}
 .crow.done{opacity:.62}
 .cmore{display:flex;gap:8px;justify-content:center;margin:10px 0 4px}
+.toktb{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0 12px}
+.toktb th,.toktb td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right}
+.toktb th:first-child,.toktb td:first-child{text-align:left}
+.toktb tr.sum td{font-weight:700;border-top:1px solid var(--line2)}
 .tabs button .tdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;vertical-align:middle}
 .ev{display:inline-block;font-size:11px;padding:0 6px;margin-left:4px;border-radius:5px;background:#202a3d;color:#9fc0ff;border:1px solid #2f3f5f;cursor:pointer;font-weight:700;white-space:nowrap}
 .ev:hover{border-color:#9fc0ff}
@@ -329,6 +333,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
   <label>방 비밀번호</label>
   <input id="jPw" type="password">
   <div class="row" style="margin-top:16px"><button class="pri" id="jGo">입장</button><span id="jMsg" class="note"></span></div>
+  <div id="jRooms" class="row" style="margin-top:12px;flex-wrap:wrap"></div>
 </div>
 
 <!-- 본 화면 -->
@@ -336,6 +341,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
   <div class="top">
     <div class="top-in">
       <div class="brand"><i>✦</i><span class="bt">TRPG Archive</span></div>
+      <span class="chip" id="roomPill" title="방 바꾸기·추가 (설정 탭)" style="cursor:pointer">🏠 <span id="roomName">방</span> ▾</span>
       <span class="chip" id="sessPill">세션 -</span>
       <span class="chip net" id="netPill" title="5초마다 새 대화를 받아 오는 연결"><span class="dot"></span><span>연결 중</span></span>
       <span class="chip net hide" id="sendPill" title="내 말이 시트에 저장됐는지"><span class="dot"></span><span></span></span>
@@ -441,6 +447,17 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
             <label style="display:flex;gap:8px;align-items:center;font-weight:500;margin-top:8px"><input type="checkbox" id="alNotif" style="width:auto"> 다른 창을 보고 있을 때 바탕화면 알림도 받기</label>
             <div class="note">화면 오른쪽 아래에 빨간 알림이 뜨고 제목이 깜빡여요. 일부러 나가거나 직접 받아쓰기를 끈 사람은 알리지 않아요.</div>
             <div id="otherQ" class="note hide" style="margin-top:14px"></div>
+            <div id="roomsSec" style="margin-top:18px">
+              <label>내 방 목록 (이 기기에 저장)</label>
+              <div class="note">방마다 기록이 따로 남아요. 다른 방으로 옮겨도 지금 방의 기록은 그대로예요.</div>
+              <div id="roomList" style="margin-top:6px"></div>
+              <details id="roomAdd" style="margin-top:6px"><summary style="cursor:pointer;font-weight:600">+ 방 추가</summary>
+                <label>방 이름 (내가 알아보기 쉽게)</label><input id="raName" placeholder="예: 화요일 팀 · 시노비가미">
+                <label>방 주소 (웹 앱 주소 또는 초대 링크)</label><input id="raUrl" placeholder="https://script.google.com/macros/s/…/exec">
+                <label>방 비밀번호 (초대 링크에 들어 있으면 비워도 돼요)</label><input id="raPw" type="password">
+                <div class="row" style="margin-top:8px"><button class="pri" id="raGo">확인하고 추가</button><span id="raMsg" class="note"></span></div>
+              </details>
+            </div>
             <div class="row" style="margin-top:18px"><button id="leave">방 나가기 (이 기기 설정 지우기)</button></div>
           </div>
           <div>
@@ -465,11 +482,17 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
               <span class="grow"></span><button id="kLock2">🔒 마스터 잠그기</button>
             </div>
             <div class="row" style="margin-top:6px"><span id="kOut" class="note"></span></div>
+            <div class="row" style="margin-top:10px"><b>AI 사용량</b><span class="note">어느 기능이 토큰을 얼마나 썼는지 (구글 시트의 '토큰기록'에 전부 남아요)</span><span class="grow"></span><button id="kTok">불러오기</button></div>
+            <div id="kTokBox"></div>
             <label>마스터 이름 (회의록 이름 그대로 · 요약에서 이 사람 말을 빠짐없이 담아요)</label>
             <div class="row"><input id="kName" class="grow" placeholder="예: 프레이피스"><button id="kNameSave">저장</button></div>
 
             <label>룰 (AI가 쓰는 말과 정리 칸 이름이 바뀌어요 · 쌓인 기록은 그대로)</label>
             <div class="row"><select id="kRule" class="grow"></select><button id="kRuleSave">바꾸기</button></div>
+
+            <label>새 방 만들기 (다른 멤버와 새 캠페인 · 지금 방의 기록은 그대로)</label>
+            <div class="row"><input id="nrName" class="grow" placeholder="새 방 이름 (예: 시노비가미 · 목요일 팀)"><select id="nrRule"></select><button id="nrGo">새 방 만들기</button></div>
+            <div id="nrOut" class="note"></div>
 
             <label>캐릭터시트 (구글 스프레드시트 주소 · 다른 시트로 바꾸려면 새 주소를 넣고 탭 불러오기)</label>
             <div class="row"><input id="kCharUrl" class="grow" placeholder="https://docs.google.com/spreadsheets/d/…"><button id="kTabs">탭 불러오기</button></div>
@@ -615,6 +638,8 @@ function showJoin(msg){
   $('jName').value = cfg.name; $('jUrl').value = S.get('t_url') || ''; $('jPw').value = cfg.pw;
   if (msg) $('jMsg').textContent = msg;
 }
+(function(){ const box = $('jRooms'); const a = roomsGet(); if (!a.length) return; box.append(el('span', 'note', '저장된 방:'));
+  a.forEach(r => { const b = el('button', '', r.name); b.onclick = () => { $('jUrl').value = r.url; $('jPw').value = r.pw || ''; if ($('jName').value.trim()) $('jGo').click(); else $('jName').focus(); }; box.append(b); }); })();
 $('jGo').onclick = async () => {
   const name = $('jName').value.trim(), url = scriptUrl($('jUrl').value), pw = $('jPw').value.trim();
   if (!name || !url || !pw) { $('jMsg').textContent = '세 칸을 모두 채워 주세요'; return; }
@@ -622,7 +647,7 @@ $('jGo').onclick = async () => {
   try {
     const r = await api('ping');
     if (!r.ok) { $('jMsg').textContent = r.error || '입장 실패'; return; }
-    cfg.name = name; S.set('t_name', name); S.set('t_url', $('jUrl').value.trim()); S.set('t_pw', pw);
+    cfg.name = name; S.set('t_name', name); S.set('t_url', $('jUrl').value.trim()); S.set('t_pw', pw); roomRemember(r.title || '');
     resetLog(); live = {}; ver = {}; data = null; authBad = false;
     cfg.kt = ''; SS.del('t_kt'); S.del('t_kt');
     start();
@@ -828,6 +853,41 @@ function renderWho(list){
 /* ── 자료 표시 ── */
 let data = null, ver = {};
 let RULEUI = { key: 'coc', name: '크툴루의 부름', pc: '탐사자', en: 'INVESTIGATOR' };
+/* ── 방 목록: 이 기기에 저장한 방들 [{name,url,pw}] ── */
+function roomsGet(){ try { const a = JSON.parse(S.get('t_rooms') || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } }
+function roomsSet(a){ S.set('t_rooms', JSON.stringify(a.slice(0, 20))); }
+function roomRemember(name){
+  if (!cfg.url) return;
+  const a = roomsGet(), i = a.findIndex(x => scriptUrl(x.url) === cfg.url);
+  if (i >= 0) { if (name && !a[i].named) a[i].name = name; a[i].pw = cfg.pw; }
+  else a.unshift({ name: name || '방 ' + (a.length + 1), url: cfg.url, pw: cfg.pw });
+  roomsSet(a); renderRooms();
+}
+function renderRooms(){
+  const box = $('roomList'); if (!box) return; box.innerHTML = '';
+  const a = roomsGet();
+  if (!a.length) { box.append(el('div', 'note', '아직 저장된 방이 없어요')); return; }
+  a.forEach((r, i) => {
+    const cur = scriptUrl(r.url) === cfg.url;
+    const row = el('div', 'row'); row.style.cssText = 'padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;background:var(--bg2)';
+    row.append(el('b', '', (cur ? '🏠 ' : '') + r.name), el('span', 'grow'));
+    if (cur) row.append(el('span', 'note', '지금 방'));
+    else { const go = el('button', 'pri', '이 방으로'); go.onclick = () => switchRoom(r); row.append(go); }
+    const rn = el('button', '', '이름'); rn.onclick = () => { const v = prompt('방 이름', r.name); if (v && v.trim()) { const b = roomsGet(); b[i].name = v.trim().slice(0, 40); b[i].named = true; roomsSet(b); renderRooms(); if (cur) $('roomName').textContent = b[i].name; } };
+    row.append(rn);
+    if (!cur) { const rm = el('button', '', '빼기'); rm.onclick = () => { if (!confirm('"' + r.name + '"을 이 기기의 목록에서 뺄까요? (방과 기록은 지워지지 않아요)')) return; const b = roomsGet(); b.splice(i, 1); roomsSet(b); renderRooms(); }; row.append(rm); }
+    box.append(row);
+  });
+}
+async function switchRoom(r){
+  if (queue.length && !confirm('아직 저장 안 된 말이 ' + queue.length + '줄 있어요. 이 기기에 남겨 두고 옮길까요? (이 방에 다시 오면 보내요)')) return;
+  stopAll('user');
+  try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
+  if (cfg.kt) { try { await Promise.race([post({ action: 'klogout', kt: cfg.kt }), sleep(2000)]); } catch(_) {} }
+  SS.del('t_kt'); S.del('t_kt'); S.del('t_colorSent');
+  S.set('t_url', r.url); S.set('t_pw', r.pw || '');
+  location.reload();
+}
 function applyRule(r){
   if (!r || !r.pc) return;
   RULEUI = r;
@@ -835,6 +895,7 @@ function applyRule(r){
   const tb = document.querySelector('[data-t="notes"]'); if (tb) tb.textContent = '장소 · NPC · ' + r.pc + ' · 단서';
   const sel = $('kRule');
   if (sel) { if (!sel.options.length) (r.list || []).forEach(o => { const op = document.createElement('option'); op.value = o.key; op.textContent = o.name; sel.append(op); }); if (document.activeElement !== sel) sel.value = r.key; }
+  const ns = $('nrRule'); if (ns && !ns.options.length) { (r.list || []).forEach(o => { const op = document.createElement('option'); op.value = o.key; op.textContent = o.name; ns.append(op); }); ns.value = r.key; }
 }
 const SEC = {
   npcs:    { title: 'NPC', icon: '👤', kind: 'NPC', key: 'name', photo: true,
@@ -1156,6 +1217,15 @@ function renderChars(list, target, preview){
     const foot = el('div', 'idc-foot');
     const pl = el('div', 'idc-pl'); const d = el('span', 'dot'); d.dataset.whodot = ch.player; d.style.background = colorOf(ch.player || '');
     const pn = el('span', '', 'PL ' + (ch.player || '?')); pn.dataset.who = ch.player; pn.style.color = colorOf(ch.player || ''); pl.append(d, pn); foot.append(pl);
+    // 대화에서 정리된 탐사자 특징·관계 (정리 탭의 카드와 같은 내용)
+    const pc = !preview && data && data.notes && (data.notes.pcs || []).find(x => (ch.name && String(x.name || '').trim() === String(ch.name).trim()) || (ch.player && String(x.player || '').trim() === String(ch.player).trim()));
+    if (pc && (pc.traits || pc.relation || pc.said)) {
+      const tb = el('div', 'idc-pc'); tb.style.cssText = 'padding:8px 14px;border-top:1px solid var(--line);font-size:13px;line-height:1.55;cursor:pointer'; tb.title = '정리 탭의 카드 열기'; tb.onclick = () => openDetail('pcs', pc.id);
+      if (pc.traits) { const tg = el('div', 'tags'); splitTags(pc.traits).slice(0, 8).forEach(t => tg.append(el('span', 'tg', t))); tb.append(tg); }
+      if (pc.relation) tb.append(el('div', '', '🤝 ' + pc.relation));
+      if (pc.said) tb.append(el('div', 'note', '💬 ' + pc.said));
+      c.append(tb);
+    }
     if (ch.items) foot.append(el('div', '', '🎒 ' + ch.items));
     if (ch.memo) foot.append(el('div', '', '📝 ' + ch.memo));
     c.append(foot); box.append(c);
@@ -1319,6 +1389,8 @@ $('lightbox').onclick = () => $('lightbox').classList.add('hide');
 
 function renderAll(d){
   data = d; colorMap = d.colors || {}; keeperName = d.keeperName || ''; applyRule(d.rule);
+  if (d.roomTitle != null) { const nm0 = (roomsGet().find(x => scriptUrl(x.url) === cfg.url) || {}); $('roomName').textContent = nm0.named ? nm0.name : (d.roomTitle || nm0.name || '방'); if (!nm0.url) roomRemember(d.roomTitle); else if (!nm0.named && d.roomTitle && nm0.name !== d.roomTitle) roomRemember(d.roomTitle); }
+  renderRooms();
   $('sessPill').textContent = '세션 ' + d.v.session;
   const oldRe = linkRe ? linkRe.source : ''; buildLinks(d.notes);
   if ((linkRe ? linkRe.source : '') !== oldRe) redrawLog();
@@ -1718,6 +1790,7 @@ $('leave').onclick = async () => {
   try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
   // 마스터로 로그인해 있었다면 서버에서도 로그인을 끊고 나간다 (응답은 2초까지만 기다림)
   if (cfg.kt) { try { await Promise.race([post({ action: 'klogout', kt: cfg.kt }), sleep(2000)]); } catch(_) {} }
+  roomsSet(roomsGet().filter(x => scriptUrl(x.url) !== cfg.url));      // 이 방만 목록에서 뺀다 (다른 방은 그대로)
   SS.del('t_kt'); ['t_url','t_pw','t_name','t_kpw','t_kt','t_colorSent'].forEach(S.del); location.reload();
 };
 $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중…'; const r = await post({ action: 'glossary', glossary: $('gloss').value }); $('glossMsg').textContent = r.ok ? '저장됨 (다음에 받아쓰기를 켤 때부터 반영)' : r.error; };
@@ -1746,6 +1819,62 @@ twoStep($('kSession'), () => keeperCall({ action: 'newSession' }, '이전 대화
 twoStep($('kClear'), () => keeperCall({ action: 'clearLog' }, '지우는 중…'));
 twoStep($('kReset'), () => keeperCall({ action: 'resetAll' }, '초기화 중…'));
 $('kRuleSave').onclick = async () => { const r = await kpost({ action: 'setRule', rule: $('kRule').value }); $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
+function tokTable(title, list, tot){
+  const w = el('div'); w.append(el('div', 'k', title));
+  if (!list.length) { w.append(el('div', 'note', '아직 기록이 없어요')); return w; }
+  const t = el('table', 'toktb'); const h = el('tr'); ['기능 · 모델', '횟수', '입력', '출력'].forEach(x => h.append(el('th', '', x))); t.append(h);
+  const f = n => Number(n || 0).toLocaleString();
+  list.forEach(r => { const tr = el('tr'); [r.k, f(r.n), f(r.i), f(r.o)].forEach(x => tr.append(el('td', '', x))); t.append(tr); });
+  const tr = el('tr', 'sum'); ['합계', f(tot[0]), f(tot[1]), f(tot[2])].forEach(x => tr.append(el('td', '', x))); t.append(tr);
+  w.append(t); return w;
+}
+$('kTok').onclick = async () => {
+  const b = $('kTok'), box = $('kTokBox'); b.disabled = true; b.textContent = '불러오는 중…';
+  try {
+    const r = await kpost({ action: 'tokenUsage' });
+    box.innerHTML = '';
+    if (!r.ok) box.append(el('div', 'note', r.error || '불러오지 못했어요'));
+    else { box.append(tokTable('이번 세션 (세션 ' + r.session + ')', r.byS, r.tot.s), tokTable('최근 24시간', r.byD, r.tot.d)); box.append(el('div', 'note', '출력 토큰은 입력보다 값이 몇 배 비싸요. 금액은 Anthropic 콘솔의 Usage·Cost 화면이 정확해요.')); }
+  } catch (e) { box.textContent = '불러오지 못했어요 (' + e.message + ')'; }
+  b.disabled = false; b.textContent = '불러오기';
+};
+$('roomPill').onclick = () => { showTab('set'); setTimeout(() => { const x = $('roomsSec'); if (x) x.scrollIntoView({ block: 'center' }); }, 50); };
+$('raGo').onclick = async () => {
+  let raw = $('raUrl').value.trim(), pw = $('raPw').value.trim(), name = $('raName').value.trim();
+  const m = raw.match(/#(.*)$/); if (m) { const h = new URLSearchParams(m[1]); if (h.get('s')) raw = h.get('s'); if (h.get('p') && !pw) pw = h.get('p'); }      // 초대 링크를 그대로 붙여 넣어도 된다
+  const url = scriptUrl(raw);
+  if (!url || !pw) { $('raMsg').textContent = '방 주소와 비밀번호를 채워 주세요'; return; }
+  $('raMsg').textContent = '확인 중…';
+  try {
+    const r = await (await fetch(url + '?' + new URLSearchParams({ action: 'ping', pw }))).json();
+    if (!r.ok) { $('raMsg').textContent = r.error || '들어갈 수 없는 방이에요 (비밀번호 확인)'; return; }
+    const a = roomsGet().filter(x => scriptUrl(x.url) !== url);
+    a.push({ name: name || r.title || ('방 ' + (a.length + 1)), named: !!name, url, pw }); roomsSet(a);
+    $('raUrl').value = ''; $('raPw').value = ''; $('raName').value = '';
+    $('raMsg').textContent = '✔ 추가했어요. 목록에서 "이 방으로"를 누르면 옮겨 가요'; renderRooms();
+  } catch (e) { $('raMsg').textContent = '방 주소에 연결하지 못했어요. 웹 앱으로 배포했는지, 주소가 맞는지 확인해 주세요'; }
+};
+$('nrGo').onclick = async () => {
+  const name = $('nrName').value.trim(); if (!name) { $('nrOut').textContent = '새 방 이름을 적어 주세요'; return; }
+  const b = $('nrGo'); b.disabled = true; b.textContent = '만드는 중… (10~30초)'; $('nrOut').textContent = '';
+  try {
+    const r = await kpost({ action: 'newRoom', name, rule: $('nrRule').value });
+    const o = $('nrOut'); o.innerHTML = '';
+    if (!r.ok) o.textContent = r.error || '만들지 못했어요';
+    else {
+      o.append(el('div', '', '✔ ' + r.message));
+      const steps = el('ol'); steps.style.cssText = 'margin:6px 0 0 18px;line-height:1.7';
+      const a = el('a', '', '새 방 스프레드시트 열기'); a.href = r.url; a.target = '_blank'; a.rel = 'noopener';
+      const li1 = el('li'); li1.append(a, ' → 메뉴 확장 프로그램 → Apps Script'); steps.append(li1);
+      ['맨 위 4줄 확인: 키는 그대로 써도 되고, 방 비밀번호·키퍼 비밀번호는 새 멤버용으로 바꾸세요',
+       '저장 후 함수 선택에서 setup ▶ 실행 (권한 허용). 룰은 "' + r.rule + '"로 정해져 있어요',
+       '배포 → 새 배포 → 유형: 웹 앱 → 실행: 나 · 액세스: 모든 사용자 → 배포 → 웹 앱 주소 복사',
+       '설정 탭 → 내 방 목록 → "+ 방 추가"에 그 주소와 새 방 비밀번호를 넣으면 끝 (새 멤버에게는 그 방의 초대 링크를 보내요)'].forEach(t => steps.append(el('li', '', t)));
+      o.append(steps);
+    }
+  } catch (e) { $('nrOut').textContent = '응답을 못 받았어요 (' + e.message + '). 구글 드라이브에 "TRPG Archive · ' + name + '" 파일이 생겼는지 확인해 주세요'; }
+  b.disabled = false; b.textContent = '새 방 만들기';
+};
 $('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '마스터 이름 저장됨' : r.error; refreshData(); };
 function drawMap(tabs, saved){
   const box = $('kMap'); box.innerHTML = '';
@@ -1817,7 +1946,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.2';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.4';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -1974,8 +2103,8 @@ function kvBoard(box){
     return;
   }
   const top = el('div', 'row'); const btn = el('button', 'pri', '현황 갱신 (AI 호출 1번)'); const msg = el('span', 'note');
-  top.append(btn, kCheck(K.boardFull, '진상 전체도 AI에 보내기', v => { K.boardFull = v; }), msg);
-  btn.onclick = async () => { const r = await kDo(btn, 'AI가 비교하는 중…', { action: 'kBoard', full: K.boardFull }, msg); if (r.ok) kLoad(); };
+  top.append(btn, kCheck(K.boardFull, '진상 전체도 AI에 보내기 (토큰이 많이 들어요 · 한 번 쓰면 다시 꺼져요)', v => { K.boardFull = v; }), msg);
+  btn.onclick = async () => { const r = await kDo(btn, 'AI가 비교하는 중…', { action: 'kBoard', full: K.boardFull }, msg); K.boardFull = false; if (r.ok) kLoad(); else kRender(); };
   box.append(top);
   const nNpc = kb.npcs.filter(n => n.secret || n.lies).length;
   box.append(el('div', 'ksent', 'AI에 보내는 자료: 단서 목록 ' + kb.clues.length + '개 · NPC의 비밀·거짓말 ' + nNpc + '명 · 공개 기록(누적 줄거리·플레이어 쪽 단서·최근 요약 8개). "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요. 끄면 "잘못 짚고 있는 것" 판단이 덜 정확할 수 있어요.'));
@@ -2041,9 +2170,10 @@ function kvNpc(box){
     kWrap('판정 결과 (선택)', kSelect(f.level, [['', '없음']].concat(LEVELS), v => { f.level = v; })));
   box.append(g);
   const row = el('div', 'row'); row.style.margin = '12px 0'; const btn = el('button', 'pri', '반응 제안 받기'); const msg = el('span', 'note');
-  row.append(btn, kCheck(f.full, '진상 전체도 AI에 주기 (기본은 이 NPC·장소와 관계있는 부분만)', v => { f.full = v; }), msg);
+  row.append(btn, kCheck(f.full, '진상 전체도 AI에 주기 (기본은 이 NPC·장소와 관계있는 부분만) (토큰이 많이 들어요 · 한 번 쓰면 다시 꺼져요)', v => { f.full = v; }), msg);
   btn.onclick = async () => {
     const r = await kDo(btn, 'AI가 생각하는 중… (10~30초)', { action: 'kNpc', npc: f.npc, place: f.place, situation: f.situation, skill: f.skill, level: f.level, full: f.full }, msg);
+    f.full = false; if (!r.ok) kRender();
     if (r.ok) { K.npcR = { name: f.npc, result: r.result, used: r.used }; await kLoad(); }
   };
   box.append(row, el('div', 'ksent', 'AI 호출 1번. 보내는 자료: 이 NPC의 비공개 설정 · 이름이 겹치는 관계 자료(장소·단서·판정·다른 NPC) · 공개 기록의 NPC 주장 · 방금 대화 30줄. "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요.'), cardBox); drawCard();
@@ -2078,9 +2208,9 @@ function kvRoll(box){
     kWrap('장소 (선택)', kInput(f.place, '예: 서재', v => { f.place = v.trim(); }, 'klPlace2')), kWrap('상황 메모 (선택, AI 제안에 쓰여요)', kInput(f.text, '예: 책장을 뒤진다', v => { f.text = v; })));
   box.append(g);
   const row = el('div', 'row'); row.style.margin = '12px 0 4px'; const b1 = el('button', 'pri', '시나리오에서 찾기 (AI 호출 0번)'); const b2 = el('button', '', 'AI 제안도 받기 (AI 호출 1번)'); const msg = el('span', 'note');
-  const run = async (btn, ai) => { const r = await kDo(btn, ai ? 'AI가 생각하는 중…' : '찾는 중…', { action: 'kRoll', skill: f.skill, level: f.level, place: f.place, text: f.text, ai, full: ai && f.full }, msg); if (r.ok) { K.rollR = Object.assign({ skill: f.skill, place: f.place }, r); kRender(); } };
+  const run = async (btn, ai) => { const r = await kDo(btn, ai ? 'AI가 생각하는 중…' : '찾는 중…', { action: 'kRoll', skill: f.skill, level: f.level, place: f.place, text: f.text, ai, full: ai && f.full }, msg); if (ai) f.full = false; if (r.ok) K.rollR = Object.assign({ skill: f.skill, place: f.place }, r); kRender(); };
   b1.onclick = () => run(b1, false); b2.onclick = () => run(b2, true);
-  const fullCk = kCheck(f.full, 'AI 제안에 진상 전체 포함', v => { f.full = v; }); fullCk.id = 'kRollFull';
+  const fullCk = kCheck(f.full, 'AI 제안에 진상 전체 포함 (토큰이 많이 들어요 · 한 번 쓰면 다시 꺼져요)', v => { f.full = v; }); fullCk.id = 'kRollFull';
   row.append(b1, b2, fullCk, msg); box.append(row);
   box.append(el('div', 'ksent', '"시나리오에서 찾기"는 정리본과 올린 원문에서 찾기만 하고 AI에는 아무것도 보내지 않아요. "AI 제안도 받기"는 찾은 판정·원문 대목, 장소와 이름이 겹치는 관계 자료, 방금 대화 20줄을 보내요. "사건의 진상" 글 전체는 위 칸을 켰을 때만 함께 보내요.'));
   const r = K.rollR; if (!r) { box.append(el('div', 'note', '먼저 시나리오에 적힌 내용을 확인하고, 시나리오에 없을 때만 AI 제안을 참고하세요.')); return; }
@@ -2665,9 +2795,9 @@ function kvAwards(box){
 function kvFeedback(box){
   const d = K.d, sess = K.sess, st = K.stats[sess], log = (d.feedbacks || []).find(l => l.session === sess && l.result), fb = log && log.result;
   const head = el('div', 'row'); const calc = el('button', '', st ? '숫자 다시 계산' : '숫자만 보기 (AI 호출 0번)'); const ai = el('button', 'pri', 'AI 피드백 받기 (AI 호출 1번)'); const msg = el('span', 'note');
-  head.append(kSessSel(), calc, ai, kCheck(K.fbFull, '진상 전체도 AI에 보내기', v => { K.fbFull = v; }), msg); box.append(head);
+  head.append(kSessSel(), calc, ai, kCheck(K.fbFull, '진상 전체도 AI에 보내기 (토큰이 많이 들어요 · 한 번 쓰면 다시 꺼져요)', v => { K.fbFull = v; }), msg); box.append(head);
   calc.onclick = () => kStatsLoad(calc, msg);
-  ai.onclick = async () => { const r = await kDo(ai, 'AI가 세션을 돌아보는 중…', { action: 'kFeedback', session: sess, full: K.fbFull }, msg); if (r.ok) { K.stats[sess] = r.stats; K.statsRv[sess] = r.rv; await kLoad(); } };
+  ai.onclick = async () => { const r = await kDo(ai, 'AI가 세션을 돌아보는 중…', { action: 'kFeedback', session: sess, full: K.fbFull }, msg); K.fbFull = false; if (!r.ok) kRender(); if (r.ok) { K.stats[sess] = r.stats; K.statsRv[sess] = r.rv; await kLoad(); } };
   box.append(el('div', 'ksent', 'AI에 보내는 자료: 숫자 통계 · 이 세션의 요약 · 정리본의 핵심 단서 ' + d.kb.clues.filter(c => c.core).length + '개 · 장면 제목 ' + d.kb.scenes.length + '개. "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요.' +
     (fb ? ' · 지금 보이는 피드백을 만들 때: ' + (fb.sent ? '진상 전체 ' + (fb.sent.truth ? '포함' : '미포함') : '예전 버전에서 만든 것이라 진상 전체가 포함됐어요') : '')));
   box.append(el('div', 'note', '마스터만 보는 화면이에요. 받아쓰기 글자만 보고 하는 분석이라 목소리·분위기는 반영되지 않아요. 숫자는 정확하고, AI 의견은 📎 근거를 눌러 확인하면서 참고하세요.'));
