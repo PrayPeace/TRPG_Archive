@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.15';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.16';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -673,6 +673,8 @@ function doPost(e) {
       case 'sumSave':    return out(sumSave(b.id, b.text, b.rv));
       case 'storySave':  withLock(20000, () => { storyWrite(String(b.text || '').slice(0, 20000), storyDoc().k); bump('sumVer'); }); return out({ ok: true });
       case 'correct':    return out(correct(b.text, b.name));
+      case 'bookmark':   return out(bookmark(b));
+      case 'nextSteps':  return out(nextSteps(!!b.force));
       case 'portrait':   return out(savePortraitUpload(b.tab, b.data));
       case 'process':    return out(processNow(true));            // "지금 요약": 방 비밀번호만 있으면 누구나 (새 대화가 없으면 AI를 부르지 않는다)
       case 'klogin':     return out(keeperLogin(b.kpw));          // 마스터 비밀번호 → 12시간짜리 로그인 토큰
@@ -902,8 +904,68 @@ function allData() {
     story: storyText(), rule: ruleInfo(), roomTitle: roomTitle(), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
     charUrl: getConf('charUrl'), charMap: confJson('charMap', []), colors: confJson('colors', {}),
     corrections: confJson('corrections', []),
-    recap: confJson('recap', null), awards: confJson('awards', null)      // 마스터가 '공개'를 누른 것만 들어 있다
+    recap: confJson('recap', null), awards: confJson('awards', null),     // 마스터가 '공개'를 누른 것만 들어 있다
+    bookmarks: confJson('bookmarks', [])
   };
+}
+
+/* ───────────── 📌 북마크: 요약 타임라인의 한 줄을 누구나 표시 ─────────────
+ * {sid: 요약 줄 번호(시트 행), text: 그 줄 글자, by, at, session} 최대 200개. 요약을 고쳐 글이 바뀌면 화면의 "북마크 모음"에만 남는다. */
+function bookmark(b) {
+  const sid = Number(b.sid), text = String(b.text || '').trim().slice(0, 400);
+  if (!sid || !text) return { ok: false, error: '북마크할 줄을 찾지 못했어요' };
+  return withLock(20000, () => {
+    let list = confJson('bookmarks', []);
+    const i = list.findIndex(x => x && x.sid === sid && x.text === text);
+    if (b.on === false) { if (i >= 0) list.splice(i, 1); }
+    else if (i < 0) list.push({ sid, text, by: String(b.name || '').trim().slice(0, 40), at: now(), session: String(b.session || getConf('session') || '') });
+    list = list.slice(-200);
+    setJson('bookmarks', list); bump('sumVer');
+    return { ok: true, bookmarks: list };
+  });
+}
+
+/* ───────────── 🧭 다음 할 일: 지금까지의 공개 기록으로 "다음에 해 볼 만한 것"을 추천 ─────────────
+ * 요약·정리·북마크가 바뀌었을 때만 새로 만든다 (그대로면 저장된 것을 돌려줌). 마스터 자료는 보지 않는다(publicAi). */
+const NEXT_KINDS = ['장소', '인물', '단서', '행동', '준비'];
+function nextSteps(force) {
+  const key = [getConf('sumVer'), getConf('notesVer'), getConf('session'), getConf('resetVer')].join('.');
+  const cur = confJson('nextSteps', null);
+  if (cur && cur.key === key && !force) return { ok: true, next: cur, fresh: true };
+  if (cur && force && Date.now() - Number(cur.t || 0) < 60 * 1000) return { ok: true, next: cur, fresh: cur.key === key, wait: true };
+  const sums = sheet(SH.SUM);
+  const sess = String(getConf('session') || '1');
+  const rows = sums.getLastRow() >= 2 ? sums.getRange(2, 1, sums.getLastRow() - 1, 4).getValues() : [];
+  const recent = rows.filter(r => String(r[0]) === sess).map(r => decS(r[3])).filter(t => t && !/\(잡담 위주, 진행 없음\)/.test(t)).slice(-6);
+  const story = storyTail(2500);
+  if (!recent.length && !story.trim()) return { ok: true, next: null, empty: true };
+  const c = roomCache();
+  if (c.get('nextBusy')) return { ok: true, next: cur, busy: true };
+  c.put('nextBusy', '1', 150);
+  try {
+    const n = readNotes() || emptyNotes();
+    const nm = x => x.name || x.title || '';
+    const places = (n.places || []).map(x => '- ' + nm(x) + (x.desc ? ': ' + String(x.desc).slice(0, 80) : '') + (x.found ? ' / 발견: ' + String(x.found).slice(-160) : '')).join('\n');
+    const npcs = (n.npcs || []).map(x => '- ' + nm(x) + (x.affil ? ' (' + x.affil + ')' : '') + (x.relation ? ': ' + String(x.relation).slice(0, 80) : '')).join('\n');
+    const clues = (n.clues || []).filter(x => x.status !== '해결').slice(-40).map(x => '- [' + (x.kind || '확인') + '] ' + String(x.text || '').slice(0, 140)).join('\n');
+    const bms = confJson('bookmarks', []).filter(x => x.session === sess).slice(-15).map(x => '- ' + String(x.text).replace(/\s*\(#[^)]*\)/g, '')).join('\n');
+    const sys = 'TRPG 세션의 공개 기록(줄거리·요약·정리)을 읽고, 플레이어들이 다음에 해 볼 만한 것을 추천하는 조수다. ' +
+      '기록에 나온 사실만 근거로 삼고, 시나리오의 숨은 진실을 지어내거나 단정하지 마라. 이미 끝낸 일은 다시 권하지 마라. ' +
+      '플레이어가 북마크한 내용과 풀리지 않은 단서를 우선 고려하라. 짧고 구체적으로, 한국어로.';
+    const stable = '## 룰\n' + ruleInfo().name + '\n\n## 출력 형식 (JSON 하나만)\n' +
+      '{"items":[{"kind":"' + NEXT_KINDS.join('|') + '","title":"한 줄 제안 (예: 장미 정원의 분수대를 조사한다)","why":"그렇게 권하는 이유 한 문장 (기록 근거)","target":"관련 장소·인물 이름 (정리 목록의 이름 그대로, 없으면 빈칸)","prio":1}]}\n' +
+      '규칙: 5~8개. prio는 1(가장 중요)~3. kind 장소=가 볼 곳, 인물=만나거나 물어볼 사람, 단서=확인·대조할 단서, 행동=해 볼 행동·판정, 준비=챙길 것·조심할 것. 같은 내용을 겹치지 마라.';
+    const fresh = '## 누적 줄거리 (끝부분)\n' + (story || '(없음)') + '\n\n## 이번 세션 최근 요약\n' + (recent.join('\n\n') || '(없음)') +
+      '\n\n## 장소\n' + (places || '(없음)') + '\n\n## NPC\n' + (npcs || '(없음)') + '\n\n## 풀리지 않은 단서\n' + (clues || '(없음)') +
+      '\n\n## 플레이어가 북마크한 장면\n' + (bms || '(없음)');
+    const r = publicAi(() => parseJson(claude(sys, [stable, fresh], 2500)));
+    const items = (Array.isArray(r.items) ? r.items : []).filter(x => x && x.title).slice(0, 10).map(x => ({
+      kind: NEXT_KINDS.indexOf(String(x.kind)) >= 0 ? String(x.kind) : '행동', title: String(x.title).slice(0, 160), why: String(x.why || '').slice(0, 240),
+      target: String(x.target || '').slice(0, 60), prio: Math.min(3, Math.max(1, Number(x.prio) || 2)) })).sort((a, b) => a.prio - b.prio);
+    const o = { key, t: Date.now(), at: now(), items };
+    withLock(20000, () => setJson('nextSteps', o));
+    return { ok: true, next: o, fresh: true };
+  } finally { c.remove('nextBusy'); }
 }
 
 function saveColor(name, color) {
@@ -1012,7 +1074,7 @@ const AI_FEATURES = [
   ['compactStory', '줄거리 다듬기'], ['correct', 'AI 정정'], ['cardFor', '캐릭터시트 읽기'], ['addImage', '이미지 분석'],
   ['kOcr', '마스터: 자료 글자 읽기'], ['kDigestStep', '마스터: 시나리오 정리'], ['kTruthPolish', '마스터: 진상 다듬기'], ['kNpc', '마스터: NPC 대사'],
   ['kRoll', '마스터: 판정 도움'], ['kBoard', '마스터: 단서 보드'], ['kRecap', '마스터: 지난 회차'], ['kAwardsCompare', '마스터: 시상 비교'],
-  ['kAwards', '마스터: 시상'], ['kFeedback', '마스터: 피드백'], ['selfTestAi', '연결 확인']
+  ['kAwards', '마스터: 시상'], ['kFeedback', '마스터: 피드백'], ['selfTestAi', '연결 확인'], ['nextSteps', '다음 할 일']
 ];
 function aiFeature() {
   const st = String((new Error()).stack || '');
@@ -2127,7 +2189,7 @@ function clearLog(all) {
     wipe(SH.LINES); wipe(SH.SUM); stageSheet(); wipe(SH.STAGE);
     // 지운 회의록을 바탕으로 만든 것들도 함께 지운다: 마스터 기록(현황판·NPC 제안·시상식·피드백), 판정 로그, 캐릭터 수치 기록, 공개한 카드
     [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
-    setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}');
+    setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}'); setConf('bookmarks', ''); setConf('nextSteps', '');
     setConf('processedId', '0'); storyWrite('', []);
     setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setJson('pcAuto', null);
     if (all) {

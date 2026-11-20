@@ -1,0 +1,2 @@
+export/hwpx/ 의 HWPX 뼈대 파일은 python-hwpx (Copyright 2025-2026 airmang, Apache License 2.0)의 Skeleton.hwpx에서 가져왔습니다.
+바꾼 점: header.xml에 굵은 글자 모양 두 개(id 7·8)를 더함, content.hpf의 작성자 이름.

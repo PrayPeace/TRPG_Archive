@@ -163,8 +163,35 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .empty{color:var(--faint);font-size:13px;padding:10px 2px}
 
 /* 이름 링크 */
-.lk{color:inherit;border-bottom:1px dashed rgba(240,200,115,.7);cursor:pointer}
-.lk:hover{color:var(--gold2);border-bottom-style:solid}
+.lk{color:inherit;cursor:pointer;border-radius:4px;padding:0 2px;margin:0 -1px;-webkit-box-decoration-break:clone;box-decoration-break:clone;transition:background .15s}
+.lk.k-npcs{background:rgba(255,214,102,.20)}.lk.k-npcs:hover{background:rgba(255,214,102,.34)}
+.lk.k-places{background:rgba(110,170,255,.20)}.lk.k-places:hover{background:rgba(110,170,255,.34)}
+.lk.k-pcs{background:rgba(120,220,160,.18)}.lk.k-pcs:hover{background:rgba(120,220,160,.32)}
+.lk.k-handouts{background:rgba(200,150,255,.18)}.lk.k-handouts:hover{background:rgba(200,150,255,.32)}
+.lklegend{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:var(--faint);margin:2px 0 10px}
+.lklegend span{padding:1px 6px;border-radius:4px;color:var(--dim)}
+/* 📌 북마크 */
+.spl{position:relative;padding-left:22px!important;margin-left:-22px}
+.bmb{position:absolute;left:0;top:1px;width:20px;height:20px;border:0;background:transparent;padding:0;font-size:12px;cursor:pointer;opacity:0;filter:grayscale(1);transition:opacity .15s}
+.spl:hover .bmb,.bmb:focus{opacity:.55}
+.spl.bm{background:rgba(255,214,102,.08);border-radius:6px;box-shadow:inset 3px 0 0 #e8b84a}
+.spl.bm .bmb{opacity:1;filter:none}
+@media (hover:none){.bmb{opacity:.35}}
+.bmbox{margin:0 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg2)}
+.bmbox summary{cursor:pointer;font-weight:700;font-size:13px}
+.bmi{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.55;cursor:pointer}
+.bmi:first-of-type{border-top:0}
+.bmi .note{white-space:nowrap}
+.flash{animation:flash 1.6s ease}
+@keyframes flash{0%,40%{background:rgba(255,214,102,.35)}100%{background:transparent}}
+/* 🧭 다음 할 일 */
+.nx{display:grid;gap:10px}
+.nxi{display:flex;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+.nxi .nxk{flex:none;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;height:fit-content;white-space:nowrap}
+.nxi b{display:block;font-size:14.5px;line-height:1.5}
+.nxi .why{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.55}
+.nxi.p1{border-color:rgba(232,184,74,.55)}
+.nk-장소{background:rgba(110,170,255,.2);color:#a9c9ff}.nk-인물{background:rgba(255,214,102,.2);color:#ffd98a}.nk-단서{background:rgba(200,150,255,.2);color:#d9b8ff}.nk-행동{background:rgba(120,220,160,.18);color:#9fe3bd}.nk-준비{background:rgba(255,150,130,.18);color:#ffb7a8}
 /* 정리 검색·칩 */
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
 .filters input{max-width:320px}
@@ -473,6 +500,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
       <nav class="tabs" id="tabs">
         <button data-t="log" class="act">회의록</button>
         <button data-t="sum">요약<span class="tdot hide" id="sumDot"></span></button>
+        <button data-t="next">🧭 다음 할 일<span class="tdot hide" id="nextDot" style="background:var(--gold)"></span></button>
         <button data-t="notes">장소 · NPC · 탐사자 · 단서</button>
         <button data-t="chars">캐릭터</button>
         <button data-t="imgs">이미지</button>
@@ -496,9 +524,11 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
       </section>
 
       <section id="t-sum" class="panel hide">
-        <div class="ph"><h2>요약</h2><span class="note">5분마다 자동 정리 · 급하면 [지금 요약] · ✎로 직접 고칠 수 있어요</span><span class="grow"></span><button id="sumNow" class="pri">지금 요약</button><button id="copySum">전체 복사 (한글에 붙여넣기)</button></div>
+        <div class="ph"><h2>요약</h2><span class="note">5분마다 자동 정리 · 급하면 [지금 요약] · ✎로 직접 고칠 수 있어요</span><span class="grow"></span><button id="sumNow" class="pri">지금 요약</button><button id="copySum">전체 복사</button><button id="exportBtn">⬇ 내보내기</button></div>
         <div id="sumState" class="sumst">상태 확인 중…</div>
         <div id="pubCards"></div>
+        <div class="lklegend"><span class="lk k-places">장소</span><span class="lk k-npcs">NPC</span><span class="lk k-pcs" id="lgPc">탐사자</span><span class="lk k-handouts">핸드아웃</span><span>· 눌러서 열기 · 요약 줄 왼쪽 📌로 북마크</span></div>
+        <div id="bmBox"></div>
         <details class="story" open>
           <summary>누적 줄거리 <button class="icon" id="storyEdit" title="고치기">✎</button></summary>
           <div class="txt" id="story"></div>
@@ -511,6 +541,12 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
           <div class="row" style="margin-top:8px"><button class="pri" id="fixGo">정정 요청</button><span id="fixMsg" class="note"></span></div>
           <div id="memos" class="memo"></div>
         </div>
+      </section>
+
+      <section id="t-next" class="panel hide">
+        <div class="ph"><h2>🧭 다음 할 일</h2><span class="note">지금까지의 기록(줄거리·요약·단서·북마크)을 보고 AI가 추천해요. 마스터의 비밀 자료는 보지 않아요.</span><span class="grow"></span><button id="nextGo">다시 추천</button></div>
+        <div id="nextSt" class="note" style="margin-bottom:10px"></div>
+        <div id="nextBox" class="nx"></div>
       </section>
 
       <section id="t-notes" class="panel hide">
@@ -761,11 +797,12 @@ $('jGo').onclick = async () => {
 };
 
 /* ── 탭 ── */
-const TABS = ['log','sum','notes','chars','imgs','set','keeper'];
+const TABS = ['log','sum','next','notes','chars','imgs','set','keeper'];
 function showTab(t){
   [...$('tabs').children].forEach(x => x.classList.toggle('act', x.dataset.t === t));
   TABS.forEach(k => $('t-' + k).classList.toggle('hide', k !== t));
   if (t === 'keeper') kOpen();
+  if (t === 'next') nextOpen();
 }
 $('tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.t); };
 
@@ -910,25 +947,57 @@ $('copySess').onclick = async () => {
   b.disabled = false;
 };
 
-/* ── 이름 자동 링크 ── */
+/* ── 이름 자동 링크 (형광펜) ──
+ * 정리 목록의 이름뿐 아니라 흔한 변형도 잡는다: "이니드 캐링턴의 장미 정원" = "이니드 캐링턴 장미 정원" = "이니드캐링턴의장미정원",
+ * 장소는 뒤쪽 이름("장미 정원"), 인물은 이름 조각("캐링턴")도. 두 대상이 같은 조각을 가지면 그 조각은 쓰지 않는다. */
 let linkRe = null, linkMap = {};
+const LK_TITLES = new Set(['박사','교수','씨','부인','경','선생','선생님','신부','목사','경감','형사','의사','집사','양','군','님','미스','미스터','부장','사장','회장','교수님']);
+const lkKey = t => String(t).replace(/\s+|의/g, '');
+function lkAliases(sec, nm){
+  const out = new Set([nm]);
+  const w = nm.split(/\s+/).filter(Boolean);
+  if (sec === 'places' && w.length >= 2) {
+    for (let i = 1; i < w.length; i++) {
+      const tail = w.slice(i).join(' ').replace(/^.*의\s+/, '');
+      if (tail.split(' ').length >= 2 || tail.replace(/\s/g, '').length >= 4) out.add(tail);
+    }
+  }
+  if ((sec === 'npcs' || sec === 'pcs') && w.length >= 2) w.forEach(x => { x = x.replace(/의$/, ''); if (x.length >= 2 && !LK_TITLES.has(x)) out.add(x); });
+  return [...out];
+}
+function lkPattern(alias){
+  const w = alias.split(/\s+/).filter(Boolean).map((x, i, a) => (i < a.length - 1 ? x.replace(/의$/, '') : x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return w.join('(?:\\s*의)?\\s*');
+}
 function buildLinks(n){
   linkMap = {};
+  const full = {}, part = {};
   [['npcs','name'],['pcs','name'],['places','name'],['handouts','title']].forEach(([sec, k]) => (n && n[sec] || []).forEach(it => {
-    const nm = String(it[k] || '').trim();
-    if (nm.length >= 2 && !linkMap[nm]) linkMap[nm] = { sec, id: it.id };
+    const nm = String(it[k] || '').trim(); if (nm.length < 2) return;
+    const ref = { sec, id: it.id };
+    if (!full[lkKey(nm)]) full[lkKey(nm)] = { ref, alias: nm };
+    lkAliases(sec, nm).slice(1).forEach(a => { const key = lkKey(a); (part[key] = part[key] || []).push({ ref, alias: a }); });
   }));
-  const names = Object.keys(linkMap).sort((a, b) => b.length - a.length).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  linkRe = names.length ? new RegExp('(' + names.join('|') + ')', 'g') : null;
+  const pats = [];
+  Object.keys(full).forEach(key => { linkMap[key] = full[key].ref; pats.push(full[key].alias); });
+  Object.keys(part).forEach(key => {
+    if (full[key]) return;                                                       // 다른 대상의 정식 이름이면 그쪽이 이긴다
+    const ids = new Set(part[key].map(x => x.ref.sec + x.ref.id)); if (ids.size > 1) return;      // 두 대상이 같은 조각 → 애매해서 뺀다
+    linkMap[key] = part[key][0].ref; pats.push(part[key][0].alias);
+  });
+  const sorted = pats.sort((a, b) => lkKey(b).length - lkKey(a).length).map(lkPattern);
+  linkRe = sorted.length ? new RegExp('(' + sorted.join('|') + ')', 'g') : null;
 }
-// 글자 안의 NPC·장소 이름을 눌러서 열 수 있게 만든다
+// 글자 안의 NPC·장소 이름을 형광펜으로 칠하고 눌러서 열 수 있게 만든다 (장소 파랑, NPC 노랑, 탐사자 초록, 핸드아웃 보라)
 function linkify(text){
   const frag = document.createDocumentFragment(); text = String(text == null ? '' : text);
   if (!linkRe) { frag.append(text); return frag; }
   let last = 0; linkRe.lastIndex = 0; let m;
   while ((m = linkRe.exec(text))) {
+    const ref = linkMap[lkKey(m[0])];
+    if (!ref) continue;
     if (m.index > last) frag.append(text.slice(last, m.index));
-    const a = el('span', 'lk', m[0]); const ref = linkMap[m[0]];
+    const a = el('span', 'lk k-' + ref.sec, m[0]);
     a.onclick = e => { e.stopPropagation(); openDetail(ref.sec, ref.id); };
     frag.append(a); last = m.index + m[0].length;
   }
@@ -1378,18 +1447,95 @@ function sumText(text){
   return frag;
 }
 // 요약 한 덩어리를 장소 문단으로 보여 준다: 【장소】 줄은 문단 제목, 그 아래 줄들이 그 문단. (예전 요약처럼 제목이 없으면 줄만 나란히)
-function sumBlock(text){
+function sumBlock(text, sid){
   const frag = document.createDocumentFragment(); let para = null;
   String(text || '').split('\n').forEach(ln => {
     const mh = /^\s*【(.+?)】\s*$/.exec(ln);
-    if (mh) { para = el('div', 'sp'); para.append(el('div', 'sph', '📍 ' + mh[1])); frag.append(para); return; }
+    if (mh) { para = el('div', 'sp'); const h = el('div', 'sph', '📍 '); h.append(linkify(mh[1])); para.append(h); frag.append(para); return; }
     if (!ln.trim()) return;
-    const d = el('div', 'spl'); d.append(sumText(ln)); (para || frag).append(d);
+    const d = el('div', 'spl');
+    if (sid) bmLine(d, sid, ln.trim());
+    d.append(sumText(ln)); (para || frag).append(d);
   });
   return frag;
 }
+/* ── 📌 북마크: 요약 줄마다 누구나 표시. 모두에게 보이고, "다음 할 일" 추천에서 우선 고려된다 ── */
+let bmEls = new Map();
+const bmList = () => (data && data.bookmarks) || [];
+const bmFind = (sid, text) => bmList().find(x => Number(x.sid) === Number(sid) && x.text === text);
+function bmLine(d, sid, raw){
+  bmEls.set(sid + '\n' + raw, d);
+  const on = !!bmFind(sid, raw); if (on) d.classList.add('bm');
+  const b = el('button', 'bmb', '📌'); b.title = on ? '북마크 빼기' : '북마크 (중요한 장면 표시)';
+  b.onclick = e => { e.stopPropagation(); bmToggle(sid, raw); };
+  d.append(b);
+}
+async function bmToggle(sid, raw){
+  const on = !bmFind(sid, raw);
+  const d = bmEls.get(sid + '\n' + raw); if (d) d.classList.toggle('bm', on);
+  if (data) { data.bookmarks = on ? bmList().concat([{ sid, text: raw, by: cfg.name, at: '', session: '' }]) : bmList().filter(x => !(Number(x.sid) === Number(sid) && x.text === raw)); renderBm(); }
+  try {
+    const r = await post({ action: 'bookmark', sid, text: raw, on, name: cfg.name });
+    if (!r.ok) throw new Error(r.error);
+    if (data) { data.bookmarks = r.bookmarks; renderBm(); }
+    toast(on ? '📌 북마크했어요' : '북마크를 뺐어요');
+  } catch (e) { toast('북마크를 저장하지 못했어요: ' + e.message); refreshData(); }
+}
+function bmJump(x){
+  const d = bmEls.get(x.sid + '\n' + x.text);
+  if (!d) { toast('그 요약이 고쳐져서 원래 줄을 찾지 못했어요'); return; }
+  const dt = d.closest('details'); if (dt) dt.open = true;
+  d.scrollIntoView({ behavior: 'smooth', block: 'center' }); d.classList.remove('flash'); void d.offsetWidth; d.classList.add('flash');
+}
+function renderBm(){
+  const box = $('bmBox'); if (!box) return; box.innerHTML = '';
+  const list = bmList().slice().reverse(); if (!list.length) return;
+  const dt = document.createElement('details'); dt.className = 'bmbox'; dt.open = list.length <= 6 || box.dataset.open === '1';
+  dt.ontoggle = () => { box.dataset.open = dt.open ? '1' : ''; };
+  const sm = document.createElement('summary'); sm.textContent = '📌 북마크 ' + list.length + '개'; dt.append(sm);
+  list.forEach(x => {
+    const r = el('div', 'bmi'); const t = el('div', 'grow'); t.append(linkify(String(x.text).replace(/\s*\((#\d+(?:\s*[,，·]\s*#?\d+)*)\)/g, '')));
+    const meta = el('div', 'note', [x.session ? '세션 ' + x.session : '', x.by, String(x.at || '').slice(11, 16)].filter(Boolean).join(' · ')); t.append(meta);
+    const rm = el('button', 'icon', '✕'); rm.title = '북마크 빼기'; rm.onclick = e => { e.stopPropagation(); bmToggle(x.sid, x.text); };
+    r.append(el('span', '', '📌'), t, rm); r.onclick = () => bmJump(x); dt.append(r);
+  });
+  box.append(dt);
+}
+/* ── 🧭 다음 할 일 ── */
+let nextSt = { loading: false, data: null };
+async function nextOpen(force){
+  if (nextSt.loading) return;
+  const st = $('nextSt'), go = $('nextGo');
+  nextSt.loading = true; go.disabled = true;
+  st.textContent = nextSt.data && !force ? '새 기록이 있는지 확인하는 중…' : 'AI가 기록을 읽고 추천을 만드는 중… (10~30초)';
+  try {
+    const r = await post({ action: 'nextSteps', force: !!force });
+    if (!r.ok) throw new Error(r.error || '실패');
+    if (r.empty) { nextSt.data = null; nextDraw(null); st.textContent = ''; }
+    else {
+      if (r.next) { nextSt.data = r.next; nextDraw(r.next); }
+      st.textContent = r.busy ? '다른 사람이 새 추천을 만드는 중이에요. 잠시 뒤 [다시 추천]을 눌러 주세요' + (r.next ? ' (아래는 이전 추천)' : '')
+        : r.next ? String(r.next.at || '').slice(11, 16) + ' 기준 추천' + (r.wait ? ' · 방금 만들었어요 (1분 뒤 다시 받을 수 있어요)' : '') : '';
+    }
+  } catch (e) { st.textContent = '추천을 만들지 못했어요: ' + e.message; }
+  nextSt.loading = false; go.disabled = false;
+}
+function nextDraw(o){
+  const box = $('nextBox'); box.innerHTML = '';
+  if (!o || !(o.items || []).length) { box.append(el('div', 'empty', '아직 추천할 만큼 기록이 없어요. 세션이 진행되고 요약이 생기면 추천해 드려요.')); return; }
+  o.items.forEach(x => {
+    const it = el('div', 'nxi' + (x.prio === 1 ? ' p1' : ''));
+    const k = el('span', 'nxk nk-' + x.kind, x.kind);
+    const body = el('div', 'grow'); const b = el('b'); b.append(linkify(x.title)); body.append(b);
+    if (x.why) { const w = el('div', 'why'); w.append(linkify(x.why)); body.append(w); }
+    it.append(k, body); box.append(it);
+  });
+}
+$('nextGo').onclick = () => nextOpen(true);
 const sortSums = list => list.slice().sort((a, b) => (Number(a.session) - Number(b.session)) || (a.from < b.from ? -1 : a.from > b.from ? 1 : a.id - b.id));
 function renderSums(d){
+  bmEls = new Map();
+  if ($('lgPc')) $('lgPc').textContent = RULEUI.pc || '탐사자';
   $('story').innerHTML = ''; $('story').append(linkify(d.story || '(아직 없어요)'));
   const box = $('sums'); box.innerHTML = '';
   if (!d.summaries.length) { box.append(el('div', 'empty', '아직 정리된 요약이 없어요. 대화가 쌓이면 5분 안에 생겨요. 급하면 [지금 요약]을 눌러 주세요.')); }
@@ -1409,12 +1555,13 @@ function renderSums(d){
       const h = el('div', 'tl-h'); h.append(el('span', '', String(s.from).slice(11, 16) + ' ~ ' + String(s.to).slice(11, 16)));
       const eb = el('button', 'icon', '✎'); eb.title = '고치기';
       eb.onclick = () => openForm('요약 고치기', [{ key: 'text', label: '요약 (끝의 (#번호)는 근거 표시예요)', type: 'area', rows: 10 }], { text: s.text }, v => post({ action: 'sumSave', id: s.id, text: v.text, rv: d.v.resetVer }));
-      const tt = el('div', 'tl-t'); tt.append(sumBlock(s.text)); h.append(eb); it.append(h, tt); tl.append(it);
+      const tt = el('div', 'tl-t'); tt.append(sumBlock(s.text, s.id)); h.append(eb); it.append(h, tt); tl.append(it);
     });
     flush();
     if (last) { box.append(el('div', 'sess', '세션 ' + g.session), tl); }
     else { const dt = document.createElement('details'); dt.className = 'pastsess'; const sm = document.createElement('summary'); sm.className = 'sess'; sm.textContent = '세션 ' + g.session + ' (이전 세션 · ' + g.rows.filter(x => !isIdle(x.text)).length + '개 구간) — 눌러서 펼치기'; sm.style.cursor = 'pointer'; dt.append(sm, tl); box.append(dt); }
   });
+  renderBm();
   const m = $('memos'); m.innerHTML = '';
   if ((d.corrections || []).length) { m.append(el('div', '', '기억하고 있는 정정 메모')); d.corrections.slice(-8).forEach(c => m.append(el('div', '', '· ' + c.text))); }
 }
@@ -1536,6 +1683,142 @@ $('copySum').onclick = () => {
   let cur = null; const out = ['■ 누적 줄거리\n' + (data.story || '')];
   data.summaries.forEach(s => { if (s.session !== cur) { cur = s.session; out.push('\n■ 세션 ' + cur); } out.push('(' + String(s.from).slice(11,16) + '~' + String(s.to).slice(11,16) + ')\n' + s.text); });
   copyText($('copySum'), out.join('\n').trim());
+};
+/* ── ⬇ 내보내기: txt · 워드(.docx) · 한글(.hwpx) ──
+ * 파일은 이 브라우저 안에서 만든다 (서버를 거치지 않음). 한글 파일 뼈대는 export/hwpx/ (python-hwpx의 Skeleton.hwpx, Apache-2.0). */
+const xmlEsc = t => String(t).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const noEv = t => String(t || '').replace(/\s*\((#\d+(?:\s*[,，·]\s*#?\d+)*)\)/g, '');
+function crc32(u8){
+  let t = crc32.t; if (!t) { t = crc32.t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } }
+  let x = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) x = t[(x ^ u8[i]) & 255] ^ (x >>> 8); return (x ^ 0xFFFFFFFF) >>> 0;
+}
+// 압축하지 않는(STORE) ZIP. 첫 파일이 그대로 맨 앞에 온다 (한글 파일은 mimetype이 맨 앞·무압축이어야 함)
+function zipStore(files, type){
+  const te = new TextEncoder(), parts = [], cent = []; let off = 0;
+  files.forEach(f => {
+    const nm = te.encode(f.name), d = typeof f.data === 'string' ? te.encode(f.data) : new Uint8Array(f.data), crc = crc32(d);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(12, 0x21, true); h.setUint32(14, crc, true); h.setUint32(18, d.length, true); h.setUint32(22, d.length, true); h.setUint16(26, nm.length, true);
+    parts.push(new Uint8Array(h.buffer), nm, d);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(14, 0x21, true); c.setUint32(16, crc, true); c.setUint32(20, d.length, true); c.setUint32(24, d.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    cent.push(new Uint8Array(c.buffer), nm);
+    off += 30 + nm.length + d.length;
+  });
+  const cs = cent.reduce((a, b) => a + b.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cs, true); e.setUint32(16, off, true);
+  return new Blob(parts.concat(cent, [new Uint8Array(e.buffer)]), { type: type || 'application/zip' });
+}
+function saveBlob(blob, name){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+// 문서 = [{t:'h1'|'h2'|'h3'|'p', text}]
+function docToTxt(doc){
+  return doc.map(b => b.t === 'h1' ? '■ ' + b.text + '\n' + '='.repeat(30) : b.t === 'h2' ? '\n■ ' + b.text : b.t === 'h3' ? '\n[' + b.text + ']' : b.text).join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+function docToDocx(doc){
+  const F = '<w:rFonts w:ascii="Malgun Gothic" w:hAnsi="Malgun Gothic" w:eastAsia="맑은 고딕" w:cs="Malgun Gothic"/>';
+  const sz = { h1: 32, h2: 26, h3: 22, p: 21 }, after = { h1: 200, h2: 120, h3: 60, p: 60 }, before = { h1: 0, h2: 280, h3: 160, p: 0 };
+  const paras = doc.flatMap(b => String(b.text).split('\n').map(line => '<w:p><w:pPr><w:spacing w:before="' + before[b.t] + '" w:after="' + after[b.t] + '" w:line="300" w:lineRule="auto"/></w:pPr><w:r><w:rPr>' + F +
+    (b.t !== 'p' ? '<w:b/>' : '') + (b.t === 'h1' ? '<w:color w:val="2E4A7A"/>' : '') + '<w:sz w:val="' + sz[b.t] + '"/><w:szCs w:val="' + sz[b.t] + '"/></w:rPr><w:t xml:space="preserve">' + xmlEsc(line) + '</w:t></w:r></w:p>')).join('');
+  const docXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + paras +
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418" w:header="851" w:footer="992" w:gutter="0"/></w:sectPr></w:body></w:document>';
+  return zipStore([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>' },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+    { name: 'word/document.xml', data: docXml }
+  ], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+}
+const HWPX_FILES = ['mimetype', 'version.xml', 'Contents/header.xml', 'Contents/section0.xml', 'Contents/content.hpf', 'settings.xml', 'META-INF/container.xml', 'META-INF/container.rdf', 'META-INF/manifest.xml', 'Preview/PrvImage.png'];
+async function docToHwpx(doc, title){
+  const base = new URL('export/hwpx/', location.href).href;
+  const got = {};
+  await Promise.all(HWPX_FILES.map(async f => { const r = await fetch(base + f); if (!r.ok) throw new Error('한글 파일 뼈대(' + f + ')를 받지 못했어요'); got[f] = await r.arrayBuffer(); }));
+  const td = new TextDecoder();
+  let sec = td.decode(got['Contents/section0.xml']);
+  const cp = { h1: 7, h2: 8, h3: 6, p: 0 };
+  const lines = doc.flatMap(b => String(b.text).split('\n').map(line => ({ cp: cp[b.t], line })));
+  const first = lines.shift() || { cp: 0, line: '' };
+  const run = l => '<hp:run charPrIDRef="' + l.cp + '">' + (l.line ? '<hp:t>' + xmlEsc(l.line) + '</hp:t>' : '<hp:t/>') + '</hp:run>';
+  // 첫 문단(쪽 설정이 들어 있음)의 빈 글자 칸에 첫 줄을 넣고, 나머지는 문단으로 덧붙인다
+  sec = sec.replace('<hp:run charPrIDRef="0"><hp:t/></hp:run>', run(first)).replace(/<hp:linesegarray>.*?<\/hp:linesegarray>/, '');
+  let id = 1;
+  sec = sec.replace('</hs:sec>', lines.map(l => '<hp:p id="' + (id++) + '" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">' + run(l) + '</hp:p>').join('') + '</hs:sec>');
+  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+  const hpf = td.decode(got['Contents/content.hpf']).replace('<opf:title/>', '<opf:title>' + xmlEsc(title) + '</opf:title>').replace(/(name="(?:CreatedDate|ModifiedDate)" content="text">)[^<]*/g, '$1' + now);
+  const prv = doc.map(b => b.text).join('\r\n').slice(0, 1000);
+  const files = HWPX_FILES.map(f => ({ name: f, data: f === 'Contents/section0.xml' ? sec : f === 'Contents/content.hpf' ? hpf : got[f] }));
+  files.splice(files.length - 1, 0, { name: 'Preview/PrvText.txt', data: prv });
+  return zipStore(files, 'application/hwp+zip');
+}
+async function buildExport(o){
+  const d = data; const doc = [];
+  const title = (d.roomTitle || $('roomName').textContent || 'TRPG') + ' 기록';
+  doc.push({ t: 'h1', text: title }, { t: 'p', text: (RULEUI.name || '') + ' · 내보낸 때 ' + new Date().toLocaleString('ko-KR') });
+  const sessOk = s => o.sess === 'all' || String(s) === String(o.sess);
+  if (o.story && d.story) { doc.push({ t: 'h2', text: '누적 줄거리' }); String(d.story).split('\n').filter(x => x.trim()).forEach(x => doc.push({ t: 'p', text: x })); }
+  if (o.sums) {
+    let cur = null;
+    sortSums(d.summaries).filter(s => sessOk(s.session) && !/^\s*-?\s*\(잡담 위주, 진행 없음\)\s*$/.test(s.text)).forEach(s => {
+      if (s.session !== cur) { cur = s.session; doc.push({ t: 'h2', text: '세션 ' + cur + ' 요약' }); }
+      doc.push({ t: 'h3', text: String(s.from).slice(11, 16) + ' ~ ' + String(s.to).slice(11, 16) });
+      String(s.text).split('\n').forEach(ln => { const mh = /^\s*【(.+?)】\s*$/.exec(ln); if (mh) doc.push({ t: 'p', text: '📍 ' + mh[1] }); else if (ln.trim()) doc.push({ t: 'p', text: noEv(ln) }); });
+    });
+  }
+  if (o.bm) { const b = bmList().filter(x => !x.session || sessOk(x.session)); if (b.length) { doc.push({ t: 'h2', text: '📌 북마크' }); b.forEach(x => doc.push({ t: 'p', text: '· ' + noEv(x.text) + (x.by ? ' (' + x.by + ')' : '') })); } }
+  if (o.next && nextSt.data && (nextSt.data.items || []).length) { doc.push({ t: 'h2', text: '🧭 다음 할 일' }); nextSt.data.items.forEach(x => doc.push({ t: 'p', text: '[' + x.kind + '] ' + x.title + (x.why ? ' — ' + x.why : '') })); }
+  if (o.notes) {
+    const n = d.notes || {};
+    const sec = (h, list, f) => { if ((list || []).length) { doc.push({ t: 'h2', text: h }); list.forEach(x => doc.push({ t: 'p', text: f(x) })); } };
+    sec('장소', n.places, x => '· ' + x.name + (x.desc ? ': ' + x.desc : '') + (x.found ? ' / ' + x.found : ''));
+    sec('NPC', n.npcs, x => '· ' + x.name + (x.affil ? ' (' + x.affil + ')' : '') + (x.traits ? ': ' + x.traits : '') + (x.relation ? ' / ' + x.relation : ''));
+    sec(RULEUI.pc || '탐사자', n.pcs, x => '· ' + x.name + (x.player ? ' (' + x.player + ')' : '') + (x.traits ? ': ' + x.traits : ''));
+    sec('단서', n.clues, x => '· [' + (x.status || '미해결') + '] ' + x.text);
+  }
+  if (o.log) {
+    const list = o.sess === 'all' ? ((await api('sessions')).sessions || []).map(x => x.session) : [o.sess];
+    for (const ss of list) {
+      const r = await api('sessionLines', { session: ss }); if (!r.ok) throw new Error(r.error || '회의록을 받지 못했어요');
+      doc.push({ t: 'h2', text: '세션 ' + ss + ' 회의록 (' + r.lines.length + '줄)' });
+      linesToText(r.lines).replace(/^■ 세션 \d+\n/, '').split('\n').filter(x => x.trim()).forEach(x => doc.push({ t: 'p', text: x }));
+    }
+  }
+  return { doc, title };
+}
+$('exportBtn').onclick = async () => {
+  if (!data) return;
+  let sessions = [];
+  try { const r = await api('sessions'); sessions = (r.sessions || []).map(x => x.session); } catch (_) {}
+  if (!sessions.length) sessions = [...new Set((data.summaries || []).map(s => s.session))];
+  const m = $('modalBody'); m.innerHTML = '';
+  m.append(el('h3', '', '⬇ 내보내기'), el('div', 'note', '고른 내용을 파일로 받아요. 이 기기에 바로 저장돼요.'));
+  m.append(el('label', '', '세션'));
+  const ss = el('select'); [['all', '모든 세션']].concat(sessions.slice().reverse().map(x => [x, '세션 ' + x])).forEach(([v, t]) => { const op = el('option', '', t); op.value = v; ss.append(op); });
+  if (sessions.length) ss.value = String(sessions[sessions.length - 1]); m.append(ss);
+  m.append(el('label', '', '넣을 내용'));
+  const ck = (k, t, on) => { const l = el('label'); l.style.cssText = 'display:flex;gap:8px;align-items:center;font-weight:500;margin:4px 0'; const i = el('input'); i.type = 'checkbox'; i.checked = on; i.style.width = 'auto'; i.dataset.k = k; l.append(i, t); m.append(l); return i; };
+  const boxes = [ck('story', '누적 줄거리', true), ck('sums', '요약 (장소별 문단)', true), ck('bm', '📌 북마크', true), ck('next', '🧭 다음 할 일 (받아 둔 추천)', !!nextSt.data), ck('notes', '장소 · NPC · 탐사자 · 단서 정리', false), ck('log', '회의록 전문 (길어요)', false)];
+  m.append(el('label', '', '파일 형식'));
+  const row = el('div', 'row'); row.style.flexWrap = 'wrap'; m.append(row);
+  const msg = el('div', 'note'); msg.style.marginTop = '8px'; m.append(msg);
+  const go = async (fmt, b) => {
+    const o = { sess: ss.value }; boxes.forEach(i => o[i.dataset.k] = i.checked);
+    if (!boxes.some(i => i.checked)) { msg.textContent = '넣을 내용을 하나 이상 골라 주세요'; return; }
+    [...row.children].forEach(x => x.disabled = true); msg.textContent = '파일을 만드는 중…';
+    try {
+      const { doc, title } = await buildExport(o);
+      const fname = (title + (o.sess === 'all' ? '' : ' 세션' + o.sess)).replace(/[\\/:*?"<>|]/g, '_');
+      if (fmt === 'txt') saveBlob(new Blob(['﻿' + docToTxt(doc)], { type: 'text/plain;charset=utf-8' }), fname + '.txt');
+      else if (fmt === 'docx') saveBlob(docToDocx(doc), fname + '.docx');
+      else saveBlob(await docToHwpx(doc, title), fname + '.hwpx');
+      msg.textContent = '✔ 받았어요 (' + fname + '.' + fmt + ')';
+    } catch (e) { msg.textContent = '만들지 못했어요: ' + (e.message || e); }
+    [...row.children].forEach(x => x.disabled = false);
+  };
+  [['txt', '텍스트 (.txt)'], ['docx', '워드 (.docx)'], ['hwpx', '한글 (.hwpx)']].forEach(([f, t]) => { const b = el('button', f === 'hwpx' ? 'pri' : '', t); b.onclick = () => go(f, b); row.append(b); });
+  const x = el('button', '', '닫기'); x.onclick = closeModal; x.style.marginTop = '12px'; m.append(x);
+  $('modal').classList.remove('hide');
 };
 $('fixGo').onclick = async () => {
   const t = $('fixTxt').value.trim(); if (!t) { $('fixMsg').textContent = '정정할 내용을 적어 주세요'; return; }
@@ -2052,7 +2335,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.15';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.16';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
