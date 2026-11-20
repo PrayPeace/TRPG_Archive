@@ -49,7 +49,9 @@ function bareRoomName(full) {
 function fixRoomName() {
   try {
     const ss = SpreadsheetApp.getActive(), cur = String(ss.getName() || '');
-    const want = roomFileName(ruleKey(), bareRoomName(cur) || cur);
+    const bare = bareRoomName(cur) || cur;
+    // 로비 전용 시트(이름이 "로비"로 시작)는 룰 약자 없이 "🎲TRPG Archive · 로비"
+    const want = /^로비/.test(bare) ? '🎲TRPG Archive · ' + bare : roomFileName(ruleKey(), bare);
     if (want !== cur) { ss.rename(want); Logger.log('방 이름을 바꿨어요: ' + cur + ' → ' + want); }
   } catch (e) { Logger.log('방 이름 바꾸기 실패: ' + e); }
 }
@@ -64,7 +66,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.12';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.13';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
