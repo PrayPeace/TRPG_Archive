@@ -42,13 +42,16 @@ function ruleInfo() { const r = R(); return { key: ruleKey(), name: r.name, pc: 
 function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).replace(/탐사자/g, pc); }     // 프롬프트의 "탐사자"를 룰에 맞는 말로 (대화 원문에는 쓰지 않는다)
 
 const MODEL = 'claude-sonnet-5-5';
-const CODE_VER = '2026-11-20.2';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+// NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
+const MODEL_LIGHT = 'claude-haiku-5-5';
+const CODE_VER = '2026-11-20.4';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
   CONF: '설정', LINES: '대화', SUM: '요약', NOTES: '정리', CHAR: '캐릭터', IMG: '이미지', STAGE: '요약대기', CSNAP: '캐릭터기록',
   // 아래 넷은 마스터 전용: 플레이어에게 가는 응답과 공개 기록용 AI(요약·정정·이미지 분석)는 절대 읽지 않는다
-  KB: '키퍼자료', KSRC: '키퍼원문', KLOG: '키퍼기록', ROLLS: '판정기록'
+  KB: '키퍼자료', KSRC: '키퍼원문', KLOG: '키퍼기록', ROLLS: '판정기록',
+  TOK: '토큰기록'
 };
 const SECTIONS = ['places', 'npcs', 'pcs', 'clues', 'handouts'];
 
@@ -333,7 +336,8 @@ function writeNotes(n) { blobWrite(SH.NOTES, 'notesSlot', n); }
 function notesForAiLite(n, transcript) {
   const t = String(transcript || '');
   const hit = x => [x.name, x.player, x.title].some(v => { v = String(v || '').trim(); return v.length >= 2 && t.indexOf(v) >= 0; });
-  const strip = x => { const y = Object.assign({}, x); delete y.src; delete y.img; delete y.editedAt; if (!y.locked) delete y.locked; return y; };
+  const cut = (v, n) => { v = String(v || ''); return v.length > n ? '…' + v.slice(-n) : v; };
+  const strip = x => { const y = Object.assign({}, x); delete y.src; delete y.img; delete y.editedAt; if (!y.locked) delete y.locked; ['found', 'desc', 'text', 'said', 'relation'].forEach(k => { if (y[k]) y[k] = cut(y[k], k === 'text' ? 600 : 300); }); return y; };
   const o = {};
   ['places', 'npcs', 'pcs', 'handouts'].forEach(sec => { o[sec] = (n[sec] || []).map(x => hit(x) ? strip(x) : (sec === 'handouts' ? { id: x.id, title: x.title } : { id: x.id, name: x.name, locked: x.locked ? true : undefined })); });
   o.clues = (n.clues || []).slice(-40).map(x => ({ id: x.id, text: String(x.text || '').slice(0, 70), status: x.status, locked: x.locked ? true : undefined }));
@@ -368,16 +372,19 @@ function mergeNotes(base, ai, human) {
     aiArr.forEach(x => {
       if (!x || typeof x !== 'object') return;
       x = Object.assign({}, x); delete x.locked; delete x.img; delete x.editedAt;
+      const fadd = String(x.found_add || '').trim(); delete x.found_add;
       const k = itemKey(sec, x);
       let i = (x.id && byId[x.id] != null) ? byId[x.id] : (k && byKey[k] != null ? byKey[k] : -1);
       if (i >= 0) {
         if (res[i].locked && !human) return;             // 사람이 고친 항목은 그대로 (정정 요청일 때만 바꿈)
         const src = unionSrc(res[i].src, x.src);
         res[i] = Object.assign({}, res[i], x, { id: res[i].id, locked: !!(human && res[i].locked), src });
+        if (fadd && String(res[i].found || '').indexOf(fadd) < 0) res[i].found = (String(res[i].found || '').trim() ? String(res[i].found).trim() + '\n' : '') + fadd;
         return;
       }
       if (!k || dead.has(k)) return;                      // 이름 없음, 또는 사람이 지운 대상
       const item = Object.assign({}, x, { id: newId(), locked: false, src: unionSrc([], x.src) });
+      if (fadd) item.found = (String(item.found || '').trim() ? String(item.found).trim() + '\n' : '') + fadd;
       res.push(item); byId[item.id] = res.length - 1; byKey[k] = res.length - 1;
     });
     outN[sec] = res;
@@ -577,7 +584,7 @@ function doGet(e) {
       case 'sessionLines':return out(sessionLines(String(p.session || '')));
       case 'sessions':    return out(sessionList());
       case 'evidence':    return out(evidence(csv(p.uids), csv(p.ids).map(Number), String(p.rv || ''), Number(p.ctx || 2), p.session));
-      case 'ping':  return out({ ok: true });
+      case 'ping':  return out({ ok: true, title: roomTitle(), rule: ruleKey() });
     }
     return out({ ok: false, error: '알 수 없는 요청' });
   } catch (err) { return out({ ok: false, error: String(err && err.message || err) }); }
@@ -616,6 +623,8 @@ function doPost(e) {
     switch (b.action) {
       case 'kping':      return out({ ok: true, keeper: true });
       case 'setRule':    return out(setRule(b.rule));
+      case 'tokenUsage': return out(Object.assign({ ok: true }, tokenUsage()));
+      case 'newRoom':    return out(newRoom(b.name, b.rule));
       case 'newSession': return out(newSession());
       case 'tabs':       return out(listTabs(b.url));
       case 'chars':      return out(saveCharConfig(b.url, b.map));
@@ -688,6 +697,22 @@ function readLines(sinceId, maxRows) {
 }
 function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 
+function roomTitle() { try { return String(SpreadsheetApp.getActive().getName() || '').replace(/^TRPG Archive\s*[·\-]\s*/, '').slice(0, 40); } catch (e) { return ''; } }
+/* 새 방: 이 스프레드시트를 복사한다 (붙어 있는 Apps Script도 같이 복사됨). 복사본에서 앱 기록 탭을 모두 비우고 룰만 정해 둔다.
+ * 지금 방의 기록은 그대로 남는다. 복사본은 주인이 한 번 열어서 setup 실행 → 웹 앱 배포를 해야 쓸 수 있다 (구글 정책상 자동으로는 못 함). */
+function newRoom(name, rule) {
+  name = String(name || '').trim().slice(0, 40);
+  if (!name) return { ok: false, error: '새 방 이름을 적어 주세요' };
+  rule = RULES[rule] ? rule : ruleKey();
+  const ss = SpreadsheetApp.getActive();
+  const f = DriveApp.getFileById(ss.getId()).makeCopy('TRPG Archive · ' + name);
+  const c = SpreadsheetApp.openById(f.getId());
+  Object.keys(SH).forEach(k => { const sh = c.getSheetByName(SH[k]); if (sh) sh.clear(); });     // 대화·요약·정리·마스터 자료·토큰기록 등 앱 탭은 모두 비운다
+  const cs = c.getSheetByName(SH.CONF);
+  if (cs) cs.getRange(1, 1, 3, 2).setNumberFormat('@').setValues([['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]]);
+  return { ok: true, url: c.getUrl(), name, rule: RULES[rule].name,
+    message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
+}
 function setRule(k) {
   k = String(k || '');
   if (!RULES[k]) return { ok: false, error: '알 수 없는 룰이에요' };
@@ -775,7 +800,7 @@ function allData() {
     .map(r => { let a = {}; try { a = JSON.parse(decS(r[4]) || '{}'); } catch (e) {} return { time: String(r[0]), session: String(r[1]), url: decS(r[3]), title: a.title || '', text: a.text || '', description: a.description || '' }; });
   return {
     ok: true, v: versions(), summaries: sums, notes: readNotes() || emptyNotes(), characters: chars, images: imgs,
-    story: storyText(), rule: ruleInfo(), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
+    story: storyText(), rule: ruleInfo(), roomTitle: roomTitle(), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
     charUrl: getConf('charUrl'), charMap: confJson('charMap', []), colors: confJson('colors', {}),
     corrections: confJson('corrections', []),
     recap: confJson('recap', null), awards: confJson('awards', null)      // 마스터가 '공개'를 누른 것만 들어 있다
@@ -830,13 +855,13 @@ function deepgramToken() {
  *  auth: 키·권한 문제(401·403) / bad: 요청이 거부됨(400·413 등)
  * 답이 길어질수록 지연·잘림이 늘어나므로 호출마다 max_tokens를 작게 잡는다. */
 function aiErr(kind, msg) { const e = new Error(msg); e.kind = kind; return e; }
-function claude(system, content, maxTokens) {
-  let r;
+function claude(system, content, maxTokens, model) {
+  let r; model = model || MODEL;
   try {
     r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post', contentType: 'application/json',
       headers: { 'x-api-key': CLAUDE_KEY, 'anthropic-version': '2023-06-01' },
-      payload: JSON.stringify({ model: MODEL, max_tokens: maxTokens || 4000, system, messages: [{ role: 'user', content }] }),
+      payload: JSON.stringify({ model, max_tokens: maxTokens || 4000, system, messages: [{ role: 'user', content }] }),
       muteHttpExceptions: true
     });
   } catch (e) {
@@ -851,8 +876,52 @@ function claude(system, content, maxTokens) {
     throw aiErr('bad', 'Claude가 요청을 받지 않았어요 (' + code + '). 보낸 내용이 너무 길거나 형식이 맞지 않을 수 있어요 · ' + body);
   }
   const j = JSON.parse(r.getContentText());
+  logTokens(model, j.usage, j.stop_reason);
   if (j.stop_reason === 'max_tokens') throw aiErr('truncated', 'AI 답이 정해 둔 길이를 넘어 중간에 끊겼어요. 한 번에 보내는 양(구간·조각)을 줄이면 해결돼요');
   return j.content.filter(c => c.type === 'text').map(c => c.text).join('');
+}
+/* ── 토큰 기록: 호출마다 어느 기능이 얼마를 썼는지 '토큰기록' 시트에 한 줄 (실패해도 본 작업에는 영향 없음) */
+const AI_FEATURES = [
+  ['summarizeGroup', '요약'], ['extractNotes', 'NPC·장소·단서 정리'], ['refineItem', 'AI에게 다시 맡기기'], ['buildPc', '특징 만들기'],
+  ['compactStory', '줄거리 다듬기'], ['correct', 'AI 정정'], ['cardFor', '캐릭터시트 읽기'], ['addImage', '이미지 분석'],
+  ['kOcr', '마스터: 자료 글자 읽기'], ['kDigestStep', '마스터: 시나리오 정리'], ['kTruthPolish', '마스터: 진상 다듬기'], ['kNpc', '마스터: NPC 대사'],
+  ['kRoll', '마스터: 판정 도움'], ['kBoard', '마스터: 단서 보드'], ['kRecap', '마스터: 지난 회차'], ['kAwardsCompare', '마스터: 시상 비교'],
+  ['kAwards', '마스터: 시상'], ['kFeedback', '마스터: 피드백'], ['selfTestAi', '연결 확인']
+];
+function aiFeature() {
+  const st = String((new Error()).stack || '');
+  let best = null, at = 1e9;
+  AI_FEATURES.forEach(([fn, lb]) => { const m = st.search(new RegExp('\\b' + fn + '\\b')); if (m >= 0 && m < at) { at = m; best = lb; } });
+  return best || '기타';
+}
+function logTokens(model, u, stop) {
+  try {
+    if (!u) return;
+    const ss = SpreadsheetApp.getActive();
+    let sh = ss.getSheetByName(SH.TOK);
+    if (!sh) sh = ss.insertSheet(SH.TOK);
+    if (sh.getLastRow() === 0) { sh.getRange(1, 1, 1, 7).setValues([['시각', '세션', '기능', '모델', '입력 토큰', '출력 토큰', '비고']]); try { sh.setFrozenRows(1); } catch (e) {} }
+    sh.appendRow([now(), String(getConf('session') || ''), aiFeature(), String(model).replace('claude-', ''), Number(u.input_tokens || 0), Number(u.output_tokens || 0), stop === 'max_tokens' ? '길이 초과로 끊김' : '']);
+    if (sh.getLastRow() > 6000) sh.deleteRows(2, 1000);               // 아주 오래된 기록은 지운다
+  } catch (e) {}
+}
+// 마스터 탭: 기능별 사용량 (이번 세션 / 최근 24시간)
+function tokenUsage() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SH.TOK);
+  const out = { session: String(getConf('session') || ''), rows: 0, byS: [], byD: [], tot: { s: [0, 0, 0], d: [0, 0, 0] } };
+  if (!sh || sh.getLastRow() < 2) return out;
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+  const since = Date.now() - 24 * 3600 * 1000;
+  const agg = {}, aggD = {};
+  rows.forEach(r => {
+    const t = new Date(String(r[0]).replace(' ', 'T')).getTime();
+    const add = (o, tt) => { const k = String(r[2]) + ' · ' + String(r[3]); o[k] = o[k] || [0, 0, 0]; o[k][0]++; o[k][1] += Number(r[4]) || 0; o[k][2] += Number(r[5]) || 0; tt[0]++; tt[1] += Number(r[4]) || 0; tt[2] += Number(r[5]) || 0; };
+    if (String(r[1]) === out.session) add(agg, out.tot.s);
+    if (!isNaN(t) && t >= since) add(aggD, out.tot.d);
+  });
+  const list = o => Object.keys(o).map(k => ({ k, n: o[k][0], i: o[k][1], o: o[k][2] })).sort((a, b) => (b.i + b.o * 5) - (a.i + a.o * 5));
+  out.byS = list(agg); out.byD = list(aggD); out.rows = rows.length;
+  return out;
 }
 /* 공개 기록용 AI 작업(요약·정정·이미지 분석·캐릭터 읽기)은 이 안에서만 돌린다.
  * 이 안에서는 마스터 자료를 읽는 함수가 모두 오류를 내므로, 실수로라도 비밀이 요약에 섞일 수 없다. */
@@ -884,16 +953,16 @@ function tickMore() {
 }
 
 const NOTES_RULE =
-  '정리(notes) 규칙: places=[{id,name,desc,found,src}] 장소와 거기서 일어난 일·발견한 것, ' +
+  '정리(notes) 규칙: places=[{id,name,desc,found_add,src}] 장소와 거기서 일어난 일·발견한 것. 기존 장소의 found(지금까지 적힌 내용)는 다시 쓰지 말고, 이번 대화에서 새로 일어난 일·발견한 것만 found_add에 한두 문장으로 적어라(덧붙여 저장된다). desc는 바뀔 때만 적어라. ' +
   'npcs=[{id,name,affil,age,traits,said,relation,src}] NPC의 소속·직업(affil), 나이(age, 언급됐을 때만), 캐릭터성(성격·말투·행동 습관을 쉼표로 구분한 짧은 말들. 대화에서 드러난 것만), 가장 인상적인 대사 한두 개(said), 탐사자들과의 관계, ' +
   'pcs=[{id,name,player,traits,said,relation,src}] 탐사자(플레이어 캐릭터)의 특징. name은 "플레이어 = 캐릭터" 목록의 캐릭터 이름(목록에 없으면 플레이어 이름), player는 플레이어 이름, ' +
-  'traits는 그 플레이어 본인의 발언·결정에서 드러난 성격·말투·행동 습관·판단 성향을 쉼표로 구분한 짧은 말들(최대 8개), said는 가장 인상적인 발언 1~2개, relation은 동료·NPC와의 관계. ' +
+  'traits는 그 플레이어 본인의 발언·결정(캐릭터로서 한 말과 행동, 선택)에서 드러난 성격·말투·행동 습관·판단 성향을 쉼표로 구분한 짧은 말들(최대 8개), said는 가장 인상적인 발언 1~2개, relation은 동료·NPC와의 관계. ' +
   '마스터의 묘사나 판정 요구만으로는 탐사자의 특징을 적지 마라. 이번 대화에서 새로 드러난 특징이 있을 때만 출력하고, 출력할 때는 기존 특징과 합쳐 전체를 다시 써라. ' +
   'clues=[{id,text,status,kind,src}] 얻은 정보와 단서. status는 "미해결" 또는 "해결". ' +
   'kind는 "확인"(마스터 묘사나 판정 결과로 확인된 사실), "주장"(NPC가 한 말이라 사실인지 모름. text에 "OO는 ~라고 주장함"처럼 누가 말했는지 적는다), "추측"(탐사자의 추리·의심) 중 하나. ' +
   'handouts=[{id,title,text,src}] 핸드아웃 내용. ' +
   'src는 그 내용의 근거가 된 발언 번호 배열(예: [12,15], 1~5개, 대화에 #번호로 표시됨). 대화가 아니라 이미지에서 나온 내용이면 src는 비운다. ' +
-  '기존 항목은 id를 그대로 유지하고, 새 항목은 id를 비워라. 바뀐 항목과 새 항목만 출력하면 되고, 바뀌지 않은 항목은 출력하지 않아도 남는다. 같은 대상을 새 항목으로 또 만들지 말고 기존 id에 보강하라. ' +
+  '기존 항목은 id를 그대로 유지하고, 새 항목은 id를 비워라. 바뀐 항목과 새 항목만 출력하고, 바뀐 항목은 id와 바뀐 칸만 적어라(적지 않은 칸은 그대로 남는다). 바뀌지 않은 항목은 출력하지 마라. 같은 대상을 새 항목으로 또 만들지 말고 기존 id에 보강하라. ' +
   '"locked":true 인 항목은 사람이 직접 확정한 내용이니 출력하지 말고 건드리지 마라. ' +
   'deleted 목록에 있는 대상은 사람이 지운 것이니 다시 만들지 마라.';
 
@@ -913,6 +982,51 @@ function correctionsText() {
   const c = confJson('corrections', []);
   return c.length ? c.map(x => '- ' + x.text).join('\n') : '(없음)';
 }
+// 캐릭터시트에 연결된 "플레이어 = 캐릭터" 짝
+function charPairs() {
+  try {
+    return sheet(SH.CHAR).getDataRange().getValues().slice(1).map(r => { let c = {}; try { c = JSON.parse(decS(r[2]) || '{}'); } catch (e) {} return { player: String(decS(r[1]) || '').trim(), name: String(c.name || decS(r[0]) || '').trim() }; }).filter(x => x.player || x.name);
+  } catch (e) { return []; }
+}
+// 카드의 이름(캐릭터 이름일 수도, 플레이어 이름일 수도)으로 실제로 말한 사람(플레이어 이름)을 찾는다
+function pcPlayerOf(x) {
+  x = String(x || '').trim(); if (!x) return '';
+  const pairs = charPairs();
+  if (pairs.some(p => p.player === x)) return x;
+  const hit = pairs.find(p => p.name && (p.name === x || p.name.split(/\s+/)[0] === x || x.split(/\s+/)[0] === p.name.split(/\s+/)[0]));
+  return hit && hit.player ? hit.player : x;
+}
+// 세션마다 플레이어별로 자동으로 탐사자 특징을 만든다: 이 세션에서 25줄 넘게 말하면 1번, 150줄을 넘기면 1번 더 (플레이어마다 세션당 최대 2번)
+const PC_AUTO = [25, 150];
+function autoPcQueue() {
+  const s = sheet(SH.LINES), last = s.getLastRow();
+  if (last < 2) return;
+  const sess = String(getConf('session') || '1'), keeper = String(getConf('keeperName') || '').trim();
+  const from = Math.max(2, last - 2000 + 1);
+  const cnt = {};
+  s.getRange(from, 3, last - from + 1, 3).getValues().forEach(r => {
+    if (String(r[0]) !== sess) return;
+    const nm = String(decS(r[1]) || '').trim(), t = String(decS(r[2]) || '').trim();
+    if (!nm || nm === keeper || t.length < 4) return;
+    cnt[nm] = (cnt[nm] || 0) + 1;
+  });
+  // 마스터가 누구인지 모르면 마스터 말을 탐사자로 착각할 수 있다: 캐릭터시트에 연결된 플레이어만, 그것도 없으면 건너뛴다
+  const pl = charPairs().map(p => p.player).filter(Boolean);
+  let names = Object.keys(cnt);
+  if (pl.length && names.some(n => pl.indexOf(n) >= 0)) names = names.filter(n => pl.indexOf(n) >= 0);
+  else if (!keeper) return;
+  withLock(20000, () => {
+    let st = confJson('pcAuto', null);
+    if (!st || st.s !== sess) st = { s: sess, d: {} };
+    let changed = false;
+    names.sort((a, b) => cnt[b] - cnt[a]).slice(0, 8).forEach(nm => {
+      const stage = PC_AUTO.filter(n => cnt[nm] >= n).length;
+      if (stage > (st.d[nm] || 0)) { queueNotes({ pc: 1, player: nm }); st.d[nm] = stage; changed = true; }
+    });
+    if (changed) setJson('pcAuto', st);
+  });
+}
+function pcNameOf(player) { const p = charPairs().find(x => x.player === player); return p && p.name ? p.name : ''; }
 function charsText() {
   return sheet(SH.CHAR).getDataRange().getValues().slice(1)
     .map(r => { try { const c = JSON.parse(decS(r[2]) || '{}'); return (decS(r[1]) || '?') + ' = ' + (c.name || decS(r[0])); } catch (e) { return ''; } })
@@ -1006,6 +1120,7 @@ function processNow(manual) {
   } catch (e) { err = String(e && e.message || e); }
   // ② NPC·장소·단서 정리 (요약이 막혔어도 따로 진행. 여기서 실패해도 요약 결과에는 영향이 없다)
   if (!stale && Date.now() - t0 < budget) {
+    try { autoPcQueue(); } catch (e) { Logger.log('탐사자 자동 정리 예약 실패: ' + e); }
     try {
       const nr = processNotesQueue(job, t0, budget);
       if (nr.stale) stale = true; else { nDone = nr.done; nWarn = nr.warn || ''; }
@@ -1169,32 +1284,47 @@ function queueNotes(task) {
   if (!q.some(x => taskSame(x, task))) q.push(task);
   notesQSet(q.slice(-NOTES_Q_MAX));
 }
-function notesCall(sys2, user2, maxTok) {
+function notesCall(sys2, user2, maxTok, model) {
   const system =
     '너는 한국어 TRPG(' + R().name + ') 세션의 기록 담당이다. 음성 받아쓰기라서 단어가 잘못 적혀 있을 수 있다. ' +
     '용어집·캐릭터 이름·앞뒤 맥락으로 잘못 들린 고유명사를 바로잡아라. 없는 일을 지어내지 마라. ' + rl(FACT_RULES) + keeperRules() +
     '정정 메모는 사람이 바로잡아 준 사실이니 반드시 따르라. ' + sys2 + ' 반드시 JSON 하나만 출력하라.';
-  return parseJson(claude(system, user2, maxTok));
+  return parseJson(claude(system, user2, maxTok, model));
 }
 function notesCommon() {
   return '## 용어집\n' + getConf('glossary') + '\n\n## 플레이어 = 캐릭터\n' + (charsText() || '(아직 없음)') + '\n\n## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n';
 }
 const LINE_FMT = l => '#' + l.id + ' [' + String(l.time).slice(11) + '] ' + l.name + ': ' + l.text;
+// 뜻이 없는 짧은 추임새 줄 (받아쓰기에 많이 섞인다). AI에 보내지 않는다 (기록에는 그대로 남는다).
+const FILLER = /^(음+|어+|아+|오+|에+|네+|예+|응+|엉+|흠+|헐+|와+|우와|ㅋ+|ㅎ+|하+|허+|으+|그+|저+|넹|넵|웅|오케이|ok|okay|yes|no)$/i;
+function isFiller(t) { const x = String(t || '').replace(/[\s.,!?~…·'"()\-]/g, ''); return x.length <= 1 || FILLER.test(x); }
+// AI에 보낼 대화 글: 추임새 줄을 빼고, 시각은 [HH:MM] 줄로 분이 바뀔 때만 적는다 (줄마다 시각을 붙이면 글자 수가 크게 는다)
+function aiLines(rows, keepAll) {
+  let lastT = '', out = [];
+  rows.forEach(l => {
+    if (!keepAll && isFiller(l.text)) return;
+    const t = String(l.time).slice(11, 16);
+    if (t && t !== lastT) { out.push('[' + t + ']'); lastT = t; }
+    out.push('#' + l.id + ' ' + l.name + ': ' + String(l.text).trim());
+  });
+  return out.join('\n');
+}
 // 대화 구간에서 NPC·장소·단서·핸드아웃을 뽑는다
 function extractNotes(g, sess) {
-  const transcriptText = g.map(LINE_FMT).join('\n');
+  const transcriptText = aiLines(g);
+  if (!transcriptText.replace(/\[\d\d:\d\d\]/g, '').trim()) return { notes: {} };
   return publicAi(() => notesCall('이 대화에서 장소·NPC·' + R().pc + '·단서·핸드아웃만 정리한다.',
     notesCommon() + '## 현재 정리(notes) (이름이 나온 항목만 자세히, 나머지는 이름표만. 이름표 항목을 고치려면 id를 그대로 쓰고 바뀐 칸을 모두 적어라)\n' + notesForAiLite(readNotes() || emptyNotes(), transcriptText) + '\n\n' +
     '## 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcriptText + '\n\n' +
     '## 출력 형식\n{"notes":{"places":[],"npcs":[],"pcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) +
-    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.', 5000));
+    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.', 5000, MODEL_LIGHT));
 }
 // 마스터가 "AI에게 다시 맡기기"한 항목 하나를, 그 이름이 나온 대화 전체를 다시 읽고 새로 정리한다
 function refineItem(sec, id) {
   const n = readNotes() || emptyNotes();
   const it = (n[sec] || []).find(x => x.id === id);
   if (!it) return { skip: '항목이 이미 지워졌어요' };
-  if (sec === 'pcs') return buildPc(it.player || it.name);
+  if (sec === 'pcs') return buildPc(it.player || it.name, it.name);
   const nm = String(it.name || it.title || '').trim();
   const s = sheet(SH.LINES), last = s.getLastRow();
   if (last < 2) return { skip: '대화 기록이 없어요' };
@@ -1216,9 +1346,9 @@ function refineItem(sec, id) {
   const cur = notesForAi({ [sec]: [it], deleted: n.deleted });
   const res = publicAi(() => notesCall('아래 항목 하나를 대화 전체를 근거로 다시 정리한다. 마스터가 이 항목을 AI에게 다시 맡겼다.',
     notesCommon() + '## 지금 저장된 항목 (' + sec + ')\n' + JSON.stringify(it && (function(o){ const y = Object.assign({}, o); delete y.img; delete y.editedAt; delete y.src; return y; })(it)) + '\n\n' +
-    '## 이 항목과 관련된 대화 (각 줄 앞 #번호는 발언 번호)\n' + lines.map(LINE_FMT).join('\n') + '\n\n' +
+    '## 이 항목과 관련된 대화 (각 줄 앞 #번호는 발언 번호, [시:분]은 시각)\n' + aiLines(lines) + '\n\n' +
     '## 출력 형식\n{"notes":{"' + sec + '":[{"id":"' + id + '", ...이 항목의 칸들}]}}\n' + rl(NOTES_RULE) +
-    '\n이 항목 하나만 출력하라. id는 그대로 두고, 대화에서 확인되는 내용으로 칸을 새로 채워라. 대화에 없는 내용은 기존 칸을 지우지 말고 그대로 두어라.', 3000));
+    '\n이 항목 하나만 출력하라. id는 그대로 두고, 대화에서 확인되는 내용으로 칸을 새로 채워라. 대화에 없는 내용은 기존 칸을 지우지 말고 그대로 두어라.' + (sec === 'places' ? ' 이번에는 found_add를 쓰지 말고 found 전체를 새로 써라.' : ''), 3000, MODEL_LIGHT));
   const out = res && res.notes && Array.isArray(res.notes[sec]) ? res.notes[sec].filter(x => x && typeof x === 'object') : [];
   const mine = out.filter(x => String(x.id || '') === id)[0] || out[0];
   if (!mine) return { skip: 'AI가 새로 정리할 내용을 찾지 못했어요' };
@@ -1227,8 +1357,8 @@ function refineItem(sec, id) {
   return { notes: o };
 }
 // 탐사자 한 명의 특징을 그 플레이어 본인의 발언으로 (NPC 카드처럼) 만든다. 이미 카드가 있으면 거기에 합쳐 다시 쓴다.
-function buildPc(player) {
-  const nm = String(player || '').trim();
+function buildPc(player, cardName) {
+  const nm = pcPlayerOf(player);
   if (!nm) return { skip: '플레이어 이름이 없어요' };
   if (nm === String(getConf('keeperName') || '').trim()) return { skip: '마스터는 플레이어 캐릭터(' + R().pc + ')가 아니라서 특징을 만들지 않아요' };
   const s = sheet(SH.LINES), last = s.getLastRow();
@@ -1236,25 +1366,26 @@ function buildPc(player) {
   const from = Math.max(2, last - 3000 + 1);
   const all = s.getRange(from, 1, last - from + 1, 6).getValues().map(rowToLine);
   const mine = all.filter(l => l.name === nm && String(l.text).trim().length >= 4);
-  if (mine.length < 3) return { skip: '"' + nm + '"님의 발언이 아직 너무 적어요 (' + mine.length + '줄)' };
+  if (mine.length < 3) return { skip: all.some(l => l.name === nm) ? '"' + nm + '"님의 발언이 아직 너무 적어요 (' + mine.length + '줄)' : '"' + nm + '"(이)라는 이름으로 말한 기록이 없어요. 카드의 플레이어 칸에 이 캐릭터를 하는 사람의 접속 이름을 적어 주세요 (캐릭터시트를 연결하면 자동으로 찾아요)' };
   const byId = {}; all.forEach(l => { byId[l.id] = l; });
   const pick = mine.slice(-90), seen = new Set(pick.map(l => l.id)), lines = pick.slice();
   pick.forEach(l => { const pv = byId[l.id - 1]; if (pv && pv.name !== nm && !seen.has(pv.id)) { seen.add(pv.id); lines.push(pv); } });   // 바로 앞 줄(마스터의 물음 등)은 맥락으로만
   lines.sort((a, b) => a.id - b.id);
   const n = readNotes() || emptyNotes();
-  const ex = (n.pcs || []).find(x => String(x.player || '').trim() === nm || String(x.name || '').trim() === nm);
+  const cn = pcNameOf(nm), want = String(cardName || '').trim();
+  const ex = (n.pcs || []).find(x => want && String(x.name || '').trim() === want) || (n.pcs || []).find(x => String(x.player || '').trim() === nm || String(x.name || '').trim() === nm || (cn && String(x.name || '').trim() === cn));
   const idMap = {}; lines.forEach(l => { idMap[l.id] = l.uid || ('id:' + l.id); });
   const exJson = ex ? JSON.stringify((function (o) { const y = Object.assign({}, o); delete y.img; delete y.editedAt; delete y.src; return y; })(ex)) : '(아직 없음)';
   const res = publicAi(() => notesCall(rl('탐사자 한 명의 특징을 그 플레이어의 발언으로 정리한다.'),
-    notesCommon() + '## 정리할 플레이어\n' + nm + '\n\n## 지금 저장된 이 ' + R().pc + ' 항목\n' + exJson + '\n\n' +
-    '## 대화 (' + nm + '님의 발언과, 이해를 돕는 바로 앞 줄. 각 줄 앞 #번호는 발언 번호)\n' + lines.map(LINE_FMT).join('\n') + '\n\n' +
+    notesCommon() + '## 정리할 플레이어\n' + nm + (cn ? ' (캐릭터: ' + cn + ')' : '') + '\n\n## 지금 저장된 이 ' + R().pc + ' 항목\n' + exJson + '\n\n' +
+    '## 대화 (' + nm + '님의 발언과, 이해를 돕는 바로 앞 줄. 각 줄 앞 #번호는 발언 번호)\n' + aiLines(lines) + '\n\n' +
     '## 출력 형식\n{"notes":{"pcs":[{"id":"' + (ex ? ex.id : '') + '","name":"캐릭터 이름","player":"' + nm + '","traits":"","said":"","relation":"","src":[]}]}}\n' + rl(NOTES_RULE) +
     '\n이 ' + R().pc + ' 항목 하나만 출력하라. ' + (ex ? 'id는 그대로 두고, 기존 특징과 새로 드러난 특징을 합쳐 전체를 다시 써라. 직접 적어 둔 내용은 지우지 마라.' : 'id는 비워라.') + ' ' + nm + '님 본인의 말에서 드러난 것만 쓰고, 대화에 없는 성격은 지어내지 마라.', 2500));
   const out = res && res.notes && Array.isArray(res.notes.pcs) ? res.notes.pcs.filter(x => x && typeof x === 'object') : [];
   const mineItem = out[0];
   if (!mineItem || !(mineItem.traits || mineItem.said || mineItem.relation)) return { skip: 'AI가 정리할 만한 특징을 찾지 못했어요' };
   mineItem.player = nm; mineItem.id = ex ? ex.id : '';
-  if (!mineItem.name) mineItem.name = (ex && ex.name) || nm;
+  mineItem.name = (ex && ex.name) || cn || mineItem.name || nm;     // 카드 이름은 바꾸지 않는다 (캐릭터 이름이 있으면 그것으로)
   return { notes: { pcs: [srcToUids({ pcs: [mineItem] }, idMap).pcs[0]] } };
 }
 function readLinesWindow(f, t, sess) {
@@ -1315,7 +1446,8 @@ function processNotesQueue(job, t0, budget) {
 
 function summarizeGroup(g, sess) {
   return publicAi(() => {
-    const transcript = g.map(l => '#' + l.id + ' [' + String(l.time).slice(11) + '] ' + l.name + ': ' + l.text).join('\n');
+    const transcript = aiLines(g);
+    if (!transcript.replace(/\[\d\d:\d\d\]/g, '').trim()) return { summary: '- (잡담 위주, 진행 없음)', storyAdd: '' };
     const card = recapText(sess);
     const system =
       '너는 한국어 TRPG(' + R().name + ') 세션의 기록 담당이다. 음성 받아쓰기라서 단어가 잘못 적혀 있을 수 있다. ' +
@@ -1330,7 +1462,7 @@ function summarizeGroup(g, sess) {
       '## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n' +
       '## 지금까지의 누적 줄거리 중 최근 부분 (참고용, 다시 쓰지 않는다)\n' + (storyTail(STORY_REF) || '(처음)') + '\n\n' +
       (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
-      '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcript + '\n\n' +
+      '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호, [시:분] 줄은 그 뒤 발언들의 시각)\n' + transcript + '\n\n' +
       '## 출력 형식\n' +
       '{"summary":"이 대화 구간의 요약. 읽기 쉽게 장소(장면) 기준으로 문단을 나눠라: 문단은 \\"【장소 이름】\\" 한 줄로 시작하고, 이어서 그 장소에서 일어난 일을 시간순으로 \\"- HH:MM 내용\\" 줄들(HH:MM은 그 일이 나온 대화의 시각)로 쓴다. 문단 사이는 빈 줄 하나. ' +
       '장소가 바뀌면 새 문단이고, 같은 장소로 돌아오면 그 장소 문단에 이어 써도 된다. 장소를 알 수 없으면 \\"【장소 미상】\\". ' +
@@ -1819,7 +1951,7 @@ function clearLog(all) {
     [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
     setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}');
     setConf('processedId', '0'); storyWrite('', []);
-    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null);
+    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setJson('pcAuto', null);
     if (all) {
       wipe(SH.IMG);
       writeNotes(emptyNotes());
@@ -2926,6 +3058,10 @@ function selfTestAi() {
   const t0 = Date.now();
   try { const a = claude('시키는 말만 그대로 출력하라.', '"확인"이라고만 답하라.', 20); log.push('PASS · Claude 연결 (' + MODEL + ') · ' + (Date.now() - t0) + 'ms · 답 길이 ' + String(a).length + '자'); }
   catch (e) { log.push('FAIL · Claude 연결 · ' + String(e && e.message || e)); }
+  if (MODEL_LIGHT !== MODEL) {
+    try { claude('시키는 말만 그대로 출력하라.', '"확인"이라고만 답하라.', 20, MODEL_LIGHT); log.push('PASS · 정리용 모델 연결 (' + MODEL_LIGHT + ')'); }
+    catch (e) { log.push('FAIL · 정리용 모델 연결 (' + MODEL_LIGHT + ') · ' + String(e && e.message || e) + ' · Code.gs의 MODEL_LIGHT 줄을 MODEL 과 같게 바꾸면 소네트로 정리해요'); }
+  }
   try { const d = deepgramToken(); log.push((d.ok ? 'PASS' : 'FAIL') + ' · Deepgram 임시 토큰 발급' + (d.ok ? '' : ' · ' + d.error)); }
   catch (e) { log.push('FAIL · Deepgram 연결 · ' + String(e && e.message || e)); }
   Logger.log(log.join('\n'));
