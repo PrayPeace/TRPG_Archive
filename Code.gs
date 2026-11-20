@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.1';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.2';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -812,7 +812,7 @@ function hubClean(list) {
     .filter(x => x.url || x.sheet)
     .filter((x, i, a) => a.findIndex(y => (x.url && y.url === x.url) || (!x.url && x.sheet && y.sheet === x.sheet)) === i).slice(0, 30);
 }
-function hubList() { return { ok: true, title: roomTitle(), rule: ruleKey(), rooms: hubClean(confJson('hubRooms', [])).filter(x => x.url).map(x => ({ name: x.name, rule: x.rule, url: x.url })), rules: Object.keys(RULES).map(k => ({ key: k, abbr: RULES[k].abbr, name: RULES[k].name })) }; }
+function hubList() { return { ok: true, title: roomTitle(), rule: ruleKey(), bat: credPct(), rooms: hubClean(confJson('hubRooms', [])).filter(x => x.url).map(x => ({ name: x.name, rule: x.rule, url: x.url })), rules: Object.keys(RULES).map(k => ({ key: k, abbr: RULES[k].abbr, name: RULES[k].name })) }; }
 // 로비에서 방 개설: 이 시트를 복사해 새 방을 만들고(newRoom), 방 비밀번호를 새 시트의 설정에 넣고, 로비 목록에 "배포 대기"로 올린다
 function hubNewRoom(name, rule, pw) {
   pw = String(pw || '').trim();
@@ -1142,6 +1142,11 @@ function credits(force) {
   } else o.claude = { ok: false, unset: true, spent };
   o.deepgram = dgBalance(force);
   return o;
+}
+// 로비 맨 위 배터리용: 누구나 보는 화면이라 금액은 빼고 퍼센트만 (모르면 null)
+function credPct() {
+  const pct = d => d && d.ok && d.top > 0 ? Math.max(0, Math.min(100, Math.round(d.left / d.top * 100))) : null;
+  try { const c = credits(false); return { c: pct(c.claude), d: pct(c.deepgram) }; } catch (e) { return { c: null, d: null }; }
 }
 function creditsSet(b) {
   const num = v => (v === '' || v == null) ? null : Number(String(v).replace(/[$,\s]/g, ''));
