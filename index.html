@@ -277,6 +277,20 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .kgrp{font-size:13px;font-weight:700;color:var(--gold2);margin:12px 0 6px;padding-bottom:3px;border-bottom:1px dashed var(--line2)}
 .kgrp span{color:var(--faint);font-weight:500;margin-left:6px}
 .kcard mark{background:#5a4210;color:#ffe9b0;border-radius:3px;padding:0 1px}
+.kcard{position:relative}
+.kdrag{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:var(--faint);cursor:grab;touch-action:none;user-select:none;font-size:16px;background:transparent;border:1px solid transparent}
+.kdrag:hover{color:var(--gold2);border-color:var(--line2);background:var(--bg2)}
+.kcard.has-drag b.ttl{padding-right:30px;display:inline-block}
+.kcard.dragging{opacity:.55;outline:2px dashed var(--gold);cursor:grabbing}
+.kplaces{display:flex;flex-direction:column;gap:10px}
+.kplace{padding:14px 16px}
+.kplace .pname{font-size:16px;font-weight:700}
+.kplace .phid{white-space:pre-wrap;margin:6px 0 4px;font-size:14px;line-height:1.6}
+.kplace .plk{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line2);font-size:13px}
+.kplace .plk .k{font-weight:700;color:var(--gold2);margin-right:6px}
+.kplace .plk .li{display:block;padding:3px 6px;border-radius:6px;cursor:pointer}
+.kplace .plk .li:hover{background:var(--bg2)}
+.kplace .plk .chip2{display:inline-block;padding:2px 9px;border-radius:999px;background:var(--bg2);border:1px solid var(--line2);margin:2px 4px 2px 0;cursor:pointer}
 .kk{color:var(--faint);font-size:11.5px;font-weight:700;letter-spacing:.03em;margin-top:6px}
 .kv2{white-space:pre-wrap}
 .kline{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
@@ -1954,7 +1968,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.5';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.7';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -2544,6 +2558,15 @@ function kbPlaceOf(kb, txt){
   (kb.places || []).forEach(p => { const n = String(p.name || '').trim(); if (n.length >= 2 && txt.indexOf(n) >= 0 && n.length > best.length) best = n; });
   return best;
 }
+function kbPeopleOf(kb, txt){
+  txt = String(txt || ''); const out = [];
+  (kb.npcs || []).forEach(n => {
+    const full = String(n.name || '').trim(); if (full.length < 2) return;
+    const first = full.split(/\s+/)[0];
+    if (txt.indexOf(full) >= 0 || (first.length >= 2 && txt.indexOf(first) >= 0)) out.push(full);
+  });
+  return out;
+}
 function kbSkillOf(kb, how){
   how = String(how || '').trim(); if (!how) return '방법 미상';
   let best = '';
@@ -2575,27 +2598,87 @@ function kbList(cont){
     }
     if (sec === 'clues' && st.clue !== 'order') {
       if (st.clue === 'name') arr2 = arr2.slice().sort((a, b) => nm(a).localeCompare(nm(b), 'ko'));
+      else if (st.clue === 'time') arr2 = arr2.slice().sort((a, b) => (Number(a.seq) || 1e9) - (Number(b.seq) || 1e9));
+      else if (st.clue === 'person') {                                    // 단서에 나오는 NPC마다 (두 사람이 나오면 두 곳에 다 보임)
+        groups = [];
+        arr2.forEach(x => { const ps = kbPeopleOf(kb, [x.text, x.where, x.how].join(' ')); (ps.length ? ps : ['인물 없음']).forEach(p => groups.push([p, x])); });
+      }
       else groups = arr2.map(x => [st.clue === 'place' ? (kbPlaceOf(kb, x.where) || String(x.where || '').trim() || '장소 미상') : kbSkillOf(kb, x.how), x]);
     }
-    if (sec !== 'npcs' && sec !== 'clues' && st.npc === 'name') arr2 = arr2.slice().sort((a, b) => nm(a).localeCompare(nm(b), 'ko'));
+    const dragOn = !words.length && !groups && st.sec !== 'core' && !(sec === 'npcs' && st.npc !== 'order') && !(sec === 'clues' && st.clue !== 'order') && arr2.length > 1;
     const card = it => {
-      const c = el('div', 'kcard pick'); c.style.marginBottom = '0';
+      if (sec === 'places') return placeCard(kb, it, words, dragOn);
+      const c = el('div', 'kcard pick'); c.style.marginBottom = '0'; c.dataset.id = it.id;
+      if (dragOn) addDrag(c, sec);
       const t = el('b', 'ttl'); t.append((it.locked ? '🔒 ' : ''), hlK(sec === 'rolls' ? (it.where ? it.where + ' · ' : '') + (it.skill || '') : it[def.key] || '', words)); c.append(t);
       if (sec === 'clues' && it.core) c.append(el('span', 'tag', '핵심'));
+      if (sec === 'clues' && st.clue === 'time' && it.seq) c.prepend(el('span', 'tag', '#' + it.seq));
       const sub = def.sub(it); if (sub) { const sv = el('div', 'note'); sv.append(hlK(sub, words)); sv.style.cssText = 'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden'; c.append(sv); }
       c.onclick = () => kbEdit(sec, it); return c;
     };
     if (groups) {
       const by = {}; groups.forEach(([g, x]) => { (by[g] = by[g] || []).push(x); });
-      const miss = /미상$/;
+      const miss = /(미상|없음)$/;
       Object.keys(by).sort((a, b) => (miss.test(a) - miss.test(b)) || a.localeCompare(b, 'ko')).forEach(g => {
         const gh = el('div', 'kgrp', g); gh.append(el('span', '', by[g].length + '개')); cont.append(gh);
         const grid = el('div', 'grid'); by[g].forEach(x => grid.append(card(x))); cont.append(grid);
       });
-    } else { const grid = el('div', 'grid'); arr2.forEach(x => grid.append(card(x))); cont.append(grid); }
+    } else { const grid = el('div', sec === 'places' ? 'kplaces' : 'grid'); grid.dataset.sec = sec; arr2.forEach(x => grid.append(card(x))); cont.append(grid); }
+    if (arr2.length > 1 && !dragOn && !words.length && st.sec !== 'core') cont.append(el('div', 'note', '카드를 끌어서 순서를 바꾸려면 정렬을 "내가 정한 순서"로 두세요'));
     shown += arr2.length;
   });
   if (words.length && !shown && st.sec === 'all') cont.append(kEmpty('"' + st.q + '"이(가) 들어간 자료가 없어요'));
+}
+// 장소 카드: 숨은 정보 전체 + 이 장소의 단서·판정·NPC를 한 카드에
+function placeCard(kb, it, words, dragOn){
+  const name = String(it.name || '').trim();
+  const c = el('div', 'kcard pick kplace'); c.dataset.id = it.id; c.onclick = () => kbEdit('places', it);
+  if (dragOn) addDrag(c, 'places');
+  const t = el('div', 'pname'); t.append((it.locked ? '🔒 ' : '') + '📍 ', hlK(name, words)); c.append(t);
+  const hd = el('div', 'phid'); hd.append(hlK(it.hidden || '(숨은 정보 없음)', words)); c.append(hd);
+  const inPlace = v => name.length >= 2 && String(v || '').indexOf(name) >= 0;
+  const clues = (kb.clues || []).filter(x => inPlace(x.where) || kbPlaceOf(kb, x.where) === name);
+  const rolls = (kb.rolls || []).filter(x => inPlace(x.where));
+  const npcs = (kb.npcs || []).filter(x => [x.role, x.knows, x.secret, x.attitude, x.motive].some(inPlace));
+  if (clues.length || rolls.length || npcs.length) {
+    const lk = el('div', 'plk');
+    const open = (sec, x) => ev => { ev.stopPropagation(); kbEdit(sec, x); };
+    if (clues.length) { lk.append(el('span', 'k', '🔎 단서 ' + clues.length)); clues.slice().sort((a, b) => (!!b.core) - (!!a.core)).forEach(x => { const li = el('span', 'li', (x.core ? '⭐ ' : '· ') + x.text + (x.how ? '  (' + x.how + ')' : '')); li.onclick = open('clues', x); lk.append(li); }); }
+    if (rolls.length) { const h = el('div'); h.style.marginTop = '6px'; h.append(el('span', 'k', '🎲 판정 ' + rolls.length)); lk.append(h); rolls.forEach(x => { const li = el('span', 'li', '· ' + (x.skill || '') + (x.success ? ' → ' + x.success : '')); li.onclick = open('rolls', x); lk.append(li); }); }
+    if (npcs.length) { const h = el('div'); h.style.marginTop = '6px'; h.append(el('span', 'k', '👤 관련 NPC')); npcs.forEach(x => { const ch = el('span', 'chip2', x.name + (x.role ? ' · ' + x.role : '')); ch.onclick = open('npcs', x); h.append(ch); }); lk.append(h); }
+    c.append(lk);
+  }
+  return c;
+}
+// 카드 끌어서 순서 바꾸기 (마우스·터치 모두). 손을 떼면 서버에 순서를 저장한다
+function addDrag(card, sec){
+  card.classList.add('has-drag');
+  const hd = el('span', 'kdrag', '⠿'); hd.title = '끌어서 순서 바꾸기';
+  hd.onclick = e => e.stopPropagation();
+  hd.onpointerdown = e => {
+    e.preventDefault(); e.stopPropagation();
+    const grid = card.parentElement, before = [...grid.children].map(x => x.dataset.id).join(',');
+    card.classList.add('dragging'); document.body.style.userSelect = 'none';      // 카드를 옮기면 손잡이의 포인터 붙잡기가 풀리므로 창 전체에서 듣는다
+    const idx = n => [...grid.children].indexOf(n);
+    const move = ev => {
+      if (ev.clientY < 70) window.scrollBy(0, -14); else if (ev.clientY > innerHeight - 50) window.scrollBy(0, 14);
+      const tgt = document.elementFromPoint(ev.clientX, ev.clientY), over = tgt && tgt.closest('.kcard');
+      if (!over || over === card || over.parentElement !== grid) return;
+      grid.insertBefore(card, idx(over) > idx(card) ? over.nextSibling : over);
+    };
+    const up = async () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      card.classList.remove('dragging'); document.body.style.userSelect = '';
+      const ids = [...grid.children].map(x => x.dataset.id).filter(Boolean);
+      if (ids.join(',') === before) return;
+      const arr = K.d.kb[sec] || [], pos = {}; ids.forEach((id, i) => { pos[id] = i; });
+      K.d.kb[sec] = arr.filter(x => pos[x.id] != null).sort((a, b) => pos[a.id] - pos[b.id]).concat(arr.filter(x => pos[x.id] == null));
+      try { const r = await kpost({ action: 'kKbOrder', sec, ids, gen: K.gen }); toast(r.ok ? '순서를 저장했어요' : (r.error || '순서를 저장하지 못했어요')); if (!r.ok) kLoad(); }
+      catch (err) { toast('순서를 저장하지 못했어요 (' + err.message + ')'); }
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  };
+  card.append(hd);
 }
 function hlK(text, words){
   const f = document.createDocumentFragment(); const t = String(text || '');
@@ -2621,8 +2704,8 @@ function kbFind(box){
   wrap.append(r2);
   const r3 = el('div', 'row'); r3.style.marginTop = '6px';
   const sel = (id, label, opts, val, on) => { const sl = el('select'); sl.id = id; opts.forEach(([v, t]) => { const o = el('option', '', t); o.value = v; sl.append(o); }); sl.value = val; sl.onchange = () => { on(sl.value); kbList(list); }; r3.append(el('span', 'lbl', label), sl); };
-  sel('kbNpcSort', 'NPC 정렬', [['order', '정리된 순서'], ['name', '가나다'], ['place', '장소별'], ['role', '직업·역할별']], st.npc, v => { st.npc = v; });
-  sel('kbClueSort', '단서 정렬', [['order', '정리된 순서'], ['name', '가나다'], ['place', '장소별'], ['skill', '기능(판정)별']], st.clue, v => { st.clue = v; });
+  sel('kbNpcSort', 'NPC 정렬', [['order', '내가 정한 순서 (끌어서 바꾸기)'], ['name', '가나다'], ['place', '장소별'], ['role', '직업·역할별']], st.npc, v => { st.npc = v; });
+  sel('kbClueSort', '단서 정렬', [['order', '내가 정한 순서 (끌어서 바꾸기)'], ['time', '시간순 (원문에 나온 순서)'], ['name', '가나다'], ['place', '장소별'], ['person', '인물별'], ['skill', '기능(판정)별']], st.clue, v => { st.clue = v; });
   wrap.append(r3);
   const area = el('div'); area.append(wrap, list); box.append(area); kbList(list);      // 검색 막대는 목록을 보는 동안에만 위에 붙어 있다
 }
