@@ -996,8 +996,22 @@ function lkAliases(sec, raw, aka){
     if (w.length >= 2 && LK_PLACE_END.has(w[w.length - 1])) { const head = w.slice(0, -1).join(' ').replace(/의$/, ''); if (head.replace(/\s/g, '').length >= 2) out.add(head); }
   }
   if ((sec === 'npcs' || sec === 'pcs') && w.length >= 2) w.forEach(x => { x = x.replace(/의$/, ''); if (x.length >= 2 && !LK_TITLES.has(x)) out.add(x); });
-  String(aka || '').split(/[,，、\n]+/).map(x => x.trim()).filter(x => x.length >= 2 && x.length <= 30).forEach(x => out.add(x));
+  String(aka || '').split(/[,，、\n]+/).map(x => x.trim()).filter(x => x.length >= 2 && x.length <= 30).forEach(x => {
+    out.add(x);
+    if (sec === 'npcs' || sec === 'pcs') x.split(/\s+/).forEach(y => { y = y.replace(/의$/, ''); if (y.length >= 2 && !LK_TITLES.has(y)) out.add(y); });     // 다른 이름이 "루시 프레이저"면 "루시", "프레이저"도
+  });
   return { name: nm, list: [...out] };
+}
+// 캐릭터 탭(캐릭터시트)의 탐사자 이름도 탐사자로 잇는다: 정리의 탐사자 항목과 플레이어·이름이 맞으면 그 항목의 다른 이름으로, 없으면 캐릭터 카드로
+function withChars(n, chars){
+  const pcs = ((n && n.pcs) || []).map(x => Object.assign({}, x));
+  (chars || []).forEach(ch => {
+    const nm = String(ch.name || '').trim(); if (nm.length < 2) return;
+    const hit = pcs.find(x => (ch.player && (x.player === ch.player || x.name === ch.player)) || lkKey(x.name || '') === lkKey(nm));
+    if (hit) { if (lkKey(hit.name || '') !== lkKey(nm)) hit.aka = [hit.aka, nm].filter(Boolean).join(', '); }
+    else pcs.push({ id: 'char:' + (ch.tab || nm), name: nm });
+  });
+  return Object.assign({}, n || {}, { pcs });
 }
 function buildLinks(n){
   linkMap = {}; linkRooms = {};
@@ -1035,7 +1049,8 @@ function linkify(text){
     if (!ref) continue;
     if (m.index > last) frag.append(text.slice(last, m.index));
     const a = el('span', 'lk k-' + ref.sec, m[0]);
-    if (ref.id) a.onclick = e => { e.stopPropagation(); openDetail(ref.sec, ref.id); };
+    if (ref.id && String(ref.id).indexOf('char:') === 0) a.onclick = e => { e.stopPropagation(); showTab('chars'); };
+    else if (ref.id) a.onclick = e => { e.stopPropagation(); openDetail(ref.sec, ref.id); };
     else { a.style.cursor = 'default'; a.title = '장소 목록에 아직 없는 방이에요'; }
     frag.append(a); last = m.index + m[0].length;
   }
@@ -1683,7 +1698,7 @@ function renderAll(d){
   if (d.roomTitle != null) { const nm0 = (roomsGet().find(x => scriptUrl(x.url) === cfg.url) || {}); $('roomName').textContent = nm0.named ? nm0.name : (d.roomTitle || nm0.name || '방'); if (!nm0.url) roomRemember(d.roomTitle); else if (!nm0.named && d.roomTitle && nm0.name !== d.roomTitle) roomRemember(d.roomTitle); }
   renderRooms();
   $('sessPill').textContent = '세션 ' + d.v.session;
-  const oldRe = linkRe ? linkRe.source : ''; buildLinks(d.notes);
+  const oldRe = linkRe ? linkRe.source : ''; buildLinks(withChars(d.notes, d.characters));
   if ((linkRe ? linkRe.source : '') !== oldRe) redrawLog();
   renderSums(d); renderPubCards(d); renderSumState(d.v); renderNotes(d.notes); renderChars(d.characters || []); renderImgs(d.images || []);
   if (document.activeElement !== $('gloss')) $('gloss').value = d.glossary || '';
