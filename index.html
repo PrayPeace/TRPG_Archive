@@ -2502,7 +2502,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.12';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.13';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -4052,9 +4052,8 @@ function lobbyBg(){
 }
 function unlock(){
   const lk = $('lLock'); if (lk.classList.contains('lb-up') || $('lFx')) return;
-  let reduce = false; try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) {}
-  if (reduce) { lk.classList.add('lb-up'); lobbyBg(); return; }
-  const fx = el('div'); fx.id = 'lFx'; const timers = [];
+  // 휴대폰 '애니메이션 줄이기' 설정이어도 재생한다(깜빡임 없는 연출이라서)
+  const fx = el('div'); fx.id = 'lFx'; const timers = [], born = Date.now();
   ['ta_swirl.jpg?v=1', 'ta_logo.png?v=1', 'ta_agent.webp?v=1'].forEach(u => { const i = new Image(); i.src = u; });     // 감염 장면 동안 미리 받아 둔다
   const later = (f, ms) => timers.push(setTimeout(f, ms));
   // 1) 감염: 잠금 화면이 천천히 붉게 어두워지고 경고 창이 뜬다 (광과민 배려: 깜빡임·빠른 떨림 없음)
@@ -4080,7 +4079,8 @@ function unlock(){
   }, T0);
   const done = () => { lk.classList.remove('fx-hack'); lk.classList.add('lb-up'); lobbyBg(); };
   later(done, T0 + 5750); later(() => fx.remove(), T0 + 6700);
-  fx.onclick = e => { e.stopPropagation(); timers.forEach(clearTimeout); clearInterval(iv); done(); fx.classList.add('fx-skip'); setTimeout(() => fx.remove(), 300); };
+  fx.onclick = e => { e.stopPropagation(); if (Date.now() - born < 1000) return;   // 휴대폰은 잠금을 푼 그 손가락의 click이 바로 컷인에 떨어지므로 처음 1초는 무시
+    timers.forEach(clearTimeout); clearInterval(iv); done(); fx.classList.add('fx-skip'); setTimeout(() => fx.remove(), 300); };
 }
 (function(){
   const lk = $('lLock'); let y0 = null;
