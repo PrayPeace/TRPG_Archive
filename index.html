@@ -339,6 +339,60 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 /* 입장 */
 .join{max-width:440px;margin:10vh auto;padding:26px;background:var(--panel);border:1px solid var(--line);border-radius:16px}
 .join h1{margin:0 0 6px;font-size:22px}
+/* ── 로비 (폰 화면) ── */
+#lobby{position:fixed;inset:0;z-index:60;background:radial-gradient(1200px 700px at 50% 20%,#151a26,#07090d);display:flex;align-items:center;justify-content:center;padding:24px 16px;overflow:auto}
+.lb-phone{position:relative;width:360px;height:740px;max-height:calc(100vh - 48px);border-radius:46px;background:#1a1c22;padding:11px;box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 0 0 2px #2b2e36;flex:none}
+.lb-screen{position:relative;width:100%;height:100%;border-radius:36px;overflow:hidden;background:linear-gradient(165deg,#2c3a6e 0%,#3f3a6b 28%,#1f2440 58%,#163640 82%,#0f1c26 100%);color:#fff;user-select:none}
+.lb-notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:128px;height:26px;background:#000;border-radius:0 0 16px 16px;z-index:5}
+.lb-sbar{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;justify-content:space-between;padding:6px 26px 0;font-size:12.5px;font-weight:700;z-index:4}
+.lb-sbar .lb-ic{display:flex;gap:6px;align-items:center;opacity:.9}
+.lb-lock{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .45s;z-index:3;background:inherit}
+.lb-lock.lb-up{transform:translateY(-100%);opacity:0;pointer-events:none}
+.lb-lock .lb-clk{margin-top:104px;font-size:76px;font-weight:300;letter-spacing:-1px;line-height:1}
+.lb-lock .lb-dt{margin-top:10px;font-size:15px;font-weight:600;opacity:.85}
+.lb-lock .lb-hub{margin-top:18px;font-size:13px;opacity:.65}
+.lb-lock .lb-swipe{margin-top:auto;margin-bottom:44px;font-size:13px;opacity:.7;text-align:center;animation:lbob 2.2s ease-in-out infinite}
+@keyframes lbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.lb-home{position:absolute;inset:0;padding:58px 18px 30px;display:flex;flex-direction:column}
+.lb-home .lb-ttl{font-size:13px;font-weight:700;opacity:.75;margin:0 6px 14px;display:flex;align-items:center;gap:8px}
+.lb-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 6px;align-content:start;overflow:auto;flex:1;padding-top:4px}
+.lb-app{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;background:none;border:0;padding:0;color:#fff;white-space:normal}
+.lb-app:hover{border:0}
+.lb-app .lb-ico{width:58px;height:58px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 6px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.25);position:relative;transition:transform .15s}
+.lb-app:active .lb-ico{transform:scale(.92)}
+.lb-app .lb-ico .lb-ab{position:absolute;bottom:3px;right:4px;font-size:9.5px;font-weight:800;letter-spacing:.02em;opacity:.9;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.lb-app .lb-lb{font-size:11.5px;line-height:1.25;text-align:center;max-width:76px;word-break:keep-all;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.lb-app .lb-cur{position:absolute;top:-4px;left:6px;width:10px;height:10px;border-radius:50%;background:#3fb57a;border:2px solid #1f2440}
+.lb-app .lb-x{position:absolute;top:-6px;right:4px;width:22px;height:22px;border-radius:50%;background:#e0605a;color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.lb-grid.lb-edit .lb-app .lb-ico{animation:ljig .3s ease-in-out infinite alternate}
+@keyframes ljig{from{transform:rotate(-2deg)}to{transform:rotate(2deg)}}
+.lb-dock{margin-top:12px;padding:10px 12px;border-radius:22px;background:rgba(255,255,255,.12);backdrop-filter:blur(10px);display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.lb-dock button{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:12px;padding:7px 11px;border-radius:12px}
+.lb-dock button:hover{border-color:#f0c873}
+.lb-hbar{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:120px;height:5px;border-radius:3px;background:rgba(255,255,255,.55)}
+.lb-sheet{position:absolute;left:0;right:0;bottom:0;z-index:8;background:rgba(20,22,30,.97);border-radius:24px 24px 0 0;padding:20px 20px 30px;transform:translateY(105%);transition:transform .3s cubic-bezier(.2,.8,.2,1);box-shadow:0 -10px 40px rgba(0,0,0,.5);max-height:86%;overflow:auto}
+.lb-sheet.lb-on{transform:none}
+.lb-sheet h3{margin:0 0 4px;font-size:18px;display:flex;align-items:center;gap:10px}
+.lb-sheet h3 .lb-ico{width:36px;height:36px;border-radius:10px;font-size:19px}
+.lb-sheet .note{color:#b8bfcc}
+.lb-sheet label{color:#b8bfcc}
+.lb-sheet input,.lb-sheet select{background:#0f1218;border-color:#343a48;color:#fff}
+.lb-shade{position:absolute;inset:0;z-index:7;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .3s}
+.lb-shade.lb-on{opacity:1;pointer-events:auto}
+.lb-lmsg{min-height:18px;margin-top:8px;font-size:12.5px;color:#ffb3ae}
+.lb-lmsg.lb-ok{color:#8fe0b4}
+.lbr-coc{background:linear-gradient(145deg,#1f6f63,#0f3b3a)}
+.lbr-triangle{background:linear-gradient(145deg,#c2453c,#6e1f24)}
+.lbr-unlimited{background:linear-gradient(145deg,#3d74d6,#1d3570)}
+.lbr-shinobi{background:linear-gradient(145deg,#6e4bb8,#2c1f55)}
+.lbr-etc{background:linear-gradient(145deg,#d6a84e,#7a5a1e)}
+.lb-app.lb-add .lb-ico{background:rgba(255,255,255,.14);border:2px dashed rgba(255,255,255,.45);box-shadow:none;font-size:26px}
+@media (max-width:560px){
+  #lobby{padding:0;align-items:stretch}
+  .lb-phone{width:100%;height:100%;max-height:none;border-radius:0;padding:0;box-shadow:none}
+  .lb-screen{border-radius:0}
+  .lb-notch,.lb-hbar{display:none}
+}
 </style>
 </head>
 <body>
@@ -358,12 +412,34 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
   <div id="jRooms" class="row" style="margin-top:12px;flex-wrap:wrap"></div>
 </div>
 
+<!-- 로비 (폰 화면): 방 아이콘을 눌러 들어간다 -->
+<div id="lobby" class="hide">
+  <div class="lb-phone"><div class="lb-screen" id="lScreen">
+    <div class="lb-notch"></div>
+    <div class="lb-sbar"><span id="lTime1">00:00</span><span class="lb-ic">🎲 <span id="lHubName"></span></span></div>
+    <div class="lb-home">
+      <div class="lb-ttl"><span>🎲 TRPG Archive</span><span class="grow"></span><span id="lHomeNote" style="font-weight:500;opacity:.8"></span></div>
+      <div class="lb-grid" id="lGrid"></div>
+      <div class="lb-dock" id="lDock"></div>
+    </div>
+    <div class="lb-lock" id="lLock">
+      <div class="lb-clk" id="lClock">00:00</div>
+      <div class="lb-dt" id="lDate"></div>
+      <div class="lb-hub" id="lHubLine"></div>
+      <div class="lb-swipe">↑<br>밀어서 잠금 해제</div>
+    </div>
+    <div class="lb-shade" id="lShade"></div>
+    <div class="lb-sheet" id="lSheet"></div>
+    <div class="lb-hbar"></div>
+  </div></div>
+</div>
+
 <!-- 본 화면 -->
 <div id="app" class="hide">
   <div class="top">
     <div class="top-in">
       <div class="brand"><i>✦</i><span class="bt">TRPG Archive</span></div>
-      <span class="chip" id="roomPill" title="방 바꾸기·추가 (설정 탭)" style="cursor:pointer">🏠 <span id="roomName">방</span> ▾</span>
+      <span class="chip" id="roomPill" title="방 바꾸기 (폰 화면 로비)" style="cursor:pointer">🏠 <span id="roomName">방</span> ▾</span>
       <span class="chip" id="sessPill">세션 -</span>
       <span class="chip net" id="netPill" title="5초마다 새 대화를 받아 오는 연결"><span class="dot"></span><span>연결 중</span></span>
       <span class="chip net hide" id="sendPill" title="내 말이 시트에 저장됐는지"><span class="dot"></span><span></span></span>
@@ -1844,10 +1920,10 @@ $('kRuleSave').onclick = async () => { const r = await kpost({ action: 'setRule'
 function tokTable(title, list, tot){
   const w = el('div'); w.append(el('div', 'k', title));
   if (!list.length) { w.append(el('div', 'note', '아직 기록이 없어요')); return w; }
-  const t = el('table', 'toktb'); const h = el('tr'); ['기능 · 모델', '횟수', '입력', '출력'].forEach(x => h.append(el('th', '', x))); t.append(h);
+  const t = el('table', 'toktb'); const h = el('tr'); ['기능 · 모델', '횟수', '입력', '출력', '캐시 읽기'].forEach(x => h.append(el('th', '', x))); t.append(h);
   const f = n => Number(n || 0).toLocaleString();
-  list.forEach(r => { const tr = el('tr'); [r.k, f(r.n), f(r.i), f(r.o)].forEach(x => tr.append(el('td', '', x))); t.append(tr); });
-  const tr = el('tr', 'sum'); ['합계', f(tot[0]), f(tot[1]), f(tot[2])].forEach(x => tr.append(el('td', '', x))); t.append(tr);
+  list.forEach(r => { const tr = el('tr'); [r.k, f(r.n), f(r.i), f(r.o), f(r.c)].forEach(x => tr.append(el('td', '', x))); t.append(tr); });
+  const tr = el('tr', 'sum'); ['합계', f(tot[0]), f(tot[1]), f(tot[2]), f(tot[3])].forEach(x => tr.append(el('td', '', x))); t.append(tr);
   w.append(t); return w;
 }
 $('kTok').onclick = async () => {
@@ -1856,11 +1932,11 @@ $('kTok').onclick = async () => {
     const r = await kpost({ action: 'tokenUsage' });
     box.innerHTML = '';
     if (!r.ok) box.append(el('div', 'note', r.error || '불러오지 못했어요'));
-    else { box.append(tokTable('이번 세션 (세션 ' + r.session + ')', r.byS, r.tot.s), tokTable('최근 24시간', r.byD, r.tot.d)); box.append(el('div', 'note', '출력 토큰은 입력보다 값이 몇 배 비싸요. 금액은 Anthropic 콘솔의 Usage·Cost 화면이 정확해요.')); }
+    else { box.append(tokTable('이번 세션 (세션 ' + r.session + ')', r.byS, r.tot.s), tokTable('최근 24시간', r.byD, r.tot.d)); box.append(el('div', 'note', '출력 토큰은 입력보다 값이 몇 배 비싸요. 캐시 읽기는 입력값의 1/10~1/20만 내요. 금액은 Anthropic 콘솔의 Usage·Cost 화면이 정확해요.')); }
   } catch (e) { box.textContent = '불러오지 못했어요 (' + e.message + ')'; }
   b.disabled = false; b.textContent = '불러오기';
 };
-$('roomPill').onclick = () => { showTab('set'); setTimeout(() => { const x = $('roomsSec'); if (x) x.scrollIntoView({ block: 'center' }); }, 50); };
+$('roomPill').onclick = () => lobbyShow(true);
 $('raGo').onclick = async () => {
   let raw = $('raUrl').value.trim(), pw = $('raPw').value.trim(), name = $('raName').value.trim();
   const m = raw.match(/#(.*)$/); if (m) { const h = new URLSearchParams(m[1]); if (h.get('s')) raw = h.get('s'); if (h.get('p') && !pw) pw = h.get('p'); }      // 초대 링크를 그대로 붙여 넣어도 된다
@@ -1894,7 +1970,7 @@ $('nrGo').onclick = async () => {
        '설정 탭 → 내 방 목록 → "+ 방 추가"에 그 주소와 새 방 비밀번호를 넣으면 끝 (새 멤버에게는 그 방의 초대 링크를 보내요)'].forEach(t => steps.append(el('li', '', t)));
       o.append(steps);
     }
-  } catch (e) { $('nrOut').textContent = '응답을 못 받았어요 (' + e.message + '). 구글 드라이브에 "TRPG Archive · ' + name + '" 파일이 생겼는지 확인해 주세요'; }
+  } catch (e) { $('nrOut').textContent = '응답을 못 받았어요 (' + e.message + '). 구글 드라이브에 "🎲TRPG Archive · ' + name + '" 같은 이름의 파일이 생겼는지 확인해 주세요'; }
   b.disabled = false; b.textContent = '새 방 만들기';
 };
 $('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '마스터 이름 저장됨' : r.error; refreshData(); };
@@ -1968,7 +2044,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.7';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.11';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -3077,6 +3153,160 @@ function renderPubCards(d){
   }
 }
 
+
+/* ── 로비 (폰 화면) ──
+ * 로비 링크: 사이트주소#hub=스크립트ID. 그 방(로비 방)에 적어 둔 방 목록을 비밀번호 없이 읽어 아이콘으로 보여 준다.
+ * 아이콘을 누르면 이름과 그 방 비밀번호를 넣고 들어간다. 로비 링크가 없으면 이 기기에 저장된 방들을 보여 준다.
+ * 방 추가·빼기는 로비 방에 마스터로 로그인한 상태에서만 (서버가 마스터 토큰을 확인한다). */
+const RULE_ICON = { coc: '🐙', triangle: '🔺', unlimited: '🌐', shinobi: '🥷', etc: '🎲' };
+const RULE_AB = { coc: 'CoC', triangle: 'TA', unlimited: 'UW', shinobi: 'SG', etc: 'ETC' };
+const RULE_NM = { coc: '크툴루의 부름', triangle: '트라이앵글 에이전시', unlimited: '언리미티드 월드', shinobi: '시노비가미', etc: '기타 TRPG' };
+if (hp.get('hub')) { S.set('t_hub', hp.get('hub')); history.replaceState(null, '', location.pathname + location.search); }
+const L = { hub: scriptUrl(S.get('t_hub') || ''), rooms: [], title: '', edit: false, open: false, timer: 0, fromApp: false };
+function scriptId(u){ const m = String(u || '').match(/\/macros\/s\/([A-Za-z0-9_\-]+)/); return m ? m[1] : ''; }
+function lobbyLink(){ return location.origin + location.pathname + '#hub=' + scriptId(L.hub); }
+function isHubKeeper(){ return !!(L.hub && cfg.kt && cfg.url === L.hub); }
+function lTick(){
+  const d = new Date(), hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  $('lClock').textContent = hm; $('lTime1').textContent = hm;
+  $('lDate').textContent = (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + '일월화수목금토'[d.getDay()] + ')';
+}
+function ruleIco(rule, size){
+  const k = RULE_ICON[rule] ? rule : 'etc';
+  const i = el('div', 'lb-ico lbr-' + k); i.append(RULE_ICON[k]);
+  if (size !== 'sm') { const ab = el('span', 'lb-ab', RULE_AB[k]); i.append(ab); }
+  return i;
+}
+async function lobbyLoad(){
+  $('lHomeNote').textContent = '';
+  if (L.hub) {
+    $('lHomeNote').textContent = '불러오는 중…';
+    try {
+      const r = await (await fetch(L.hub + '?action=hub')).json();
+      if (!r.ok || !Array.isArray(r.rooms)) throw new Error(r.error || '');
+      L.rooms = r.rooms; L.title = r.title || '';
+      $('lHomeNote').textContent = '';
+    } catch (e) { L.rooms = []; $('lHomeNote').textContent = '로비 목록을 못 불러왔어요'; }
+  } else {
+    L.title = '';
+    L.rooms = roomsGet().map(x => ({ name: x.name, rule: x.rule || 'etc', url: scriptUrl(x.url), pw: x.pw, local: true }));
+  }
+  $('lHubName').textContent = L.title; $('lHubLine').textContent = L.title ? '🎲 ' + L.title + ' 로비' : '';
+  lobbyDraw();
+}
+function lobbyDraw(){
+  const g = $('lGrid'); g.innerHTML = ''; g.classList.toggle('lb-edit', L.edit);
+  L.rooms.forEach((r, i) => {
+    const b = el('button', 'lb-app'); b.title = (RULE_NM[r.rule] || '') + ' · ' + r.name;
+    b.append(ruleIco(r.rule), el('div', 'lb-lb', r.name));
+    if (cfg.url && scriptUrl(r.url) === cfg.url && cfg.pw) b.append(el('span', 'lb-cur'));
+    if (L.edit) { const x = el('span', 'lb-x', '✕'); b.append(x); }
+    b.onclick = () => L.edit ? lobbyRemove(i) : lobbyEnter(r);
+    g.append(b);
+  });
+  if (isHubKeeper()) { const a = el('button', 'lb-app lb-add'); const ic = el('div', 'lb-ico', '＋'); a.append(ic, el('div', 'lb-lb', '방 추가')); a.onclick = lobbyAddForm; g.append(a); }
+  if (!L.rooms.length && !isHubKeeper()) {
+    const n = el('div', 'note'); n.style.cssText = 'grid-column:1/-1;color:#c9cfdb;text-align:center;margin-top:30px;line-height:1.7';
+    n.textContent = L.hub ? '아직 이 로비에 등록된 방이 없어요. 마스터에게 물어봐 주세요.' : '마스터가 보내 준 로비 링크로 들어오면 방들이 여기에 보여요.';
+    g.append(n);
+  }
+  const d = $('lDock'); d.innerHTML = '';
+  const btn = (t, f) => { const b = el('button', '', t); b.onclick = f; d.append(b); };
+  if (L.fromApp) btn('← 지금 방으로', lobbyClose);
+  if (isHubKeeper()) {
+    btn(L.edit ? '완료' : '✎ 편집', () => { L.edit = !L.edit; lobbyDraw(); });
+    btn('🔗 로비 링크 복사', async () => { try { await navigator.clipboard.writeText(lobbyLink()); toast('로비 링크를 복사했어요. 플레이어들에게 보내 주세요'); } catch (_) { prompt('이 링크를 복사해 보내 주세요', lobbyLink()); } });
+  } else if (cfg.kt && cfg.url && !L.hub) {
+    btn('🏠 이 방을 로비로 쓰기', () => { L.hub = cfg.url; S.set('t_hub', scriptId(cfg.url)); lobbyLoad(); toast('이 방을 로비로 정했어요. "＋ 방 추가"로 방을 넣어 주세요'); });
+  }
+  btn('주소로 직접 입장', () => { lobbyHide(); showJoin(); });
+}
+function sheetOpen(build){
+  const s = $('lSheet'); s.innerHTML = ''; build(s);
+  $('lShade').classList.add('lb-on'); s.classList.add('lb-on');
+  const f = s.querySelector('input:not([value]), input'); if (f) setTimeout(() => f.focus(), 280);
+}
+function sheetClose(){ $('lShade').classList.remove('lb-on'); $('lSheet').classList.remove('lb-on'); }
+$('lShade').onclick = sheetClose;
+function lobbyEnter(r){
+  const url = scriptUrl(r.url);
+  if (cfg.url === url && cfg.pw && cfg.name && L.fromApp) { lobbyClose(); return; }      // 지금 방이면 그대로 돌아간다
+  const saved = roomsGet().find(x => scriptUrl(x.url) === url);
+  sheetOpen(s => {
+    const h = el('h3'); h.append(ruleIco(r.rule, 'sm'), el('span', '', r.name)); s.append(h);
+    s.append(el('div', 'note', (RULE_NM[r.rule] || '') + ' · 방 비밀번호를 넣고 들어가요'));
+    s.append(el('label', '', '내 이름 (회의록에 붙는 이름)')); const nm = el('input'); nm.value = cfg.name || S.get('t_name') || ''; nm.placeholder = '예: 프레이피스'; s.append(nm);
+    s.append(el('label', '', '방 비밀번호')); const pw = el('input'); pw.type = 'password'; pw.value = (r.pw || (saved && saved.pw) || ''); s.append(pw);
+    const msg = el('div', 'lb-lmsg'); const go = el('button', 'pri', '입장'); go.style.cssText = 'width:100%;margin-top:14px;padding:12px';
+    const run = async () => {
+      const name = nm.value.trim(), p = pw.value.trim();
+      if (!name || !p) { msg.textContent = '이름과 비밀번호를 넣어 주세요'; return; }
+      go.disabled = true; msg.className = 'lb-lmsg lb-ok'; msg.textContent = '확인 중…';
+      try {
+        const res = await (await fetch(url + '?' + new URLSearchParams({ action: 'ping', pw: p }))).json();
+        if (!res.ok) { msg.className = 'lb-lmsg'; msg.textContent = res.error || '비밀번호를 확인해 주세요'; go.disabled = false; return; }
+        const a = roomsGet().filter(x => scriptUrl(x.url) !== url); a.unshift({ name: r.name, rule: res.rule || r.rule, url, pw: p }); roomsSet(a);
+        S.set('t_name', name);
+        if (cfg.url && cfg.url !== url) { await switchRoom({ url, pw: p }); return; }        // 다른 방에서 넘어온 경우: 정리하고 새로고침
+        S.set('t_url', url); S.set('t_pw', p); location.reload();
+      } catch (e) { msg.className = 'lb-lmsg'; msg.textContent = '방에 연결하지 못했어요. 잠시 뒤 다시 해 주세요'; go.disabled = false; }
+    };
+    go.onclick = run; [nm, pw].forEach(i => i.onkeydown = e => { if (e.key === 'Enter') run(); });
+    s.append(go, msg);
+  });
+}
+function lobbyAddForm(){
+  sheetOpen(s => {
+    s.append(el('h3', '', '방 추가'));
+    s.append(el('div', 'note', '방의 웹 앱 주소(또는 초대 링크)와 그 방 비밀번호를 넣으면, 방 이름과 룰을 읽어 아이콘으로 넣어요. 비밀번호는 로비에 저장하지 않아요.'));
+    s.append(el('label', '', '방 주소')); const u = el('input'); u.placeholder = 'https://script.google.com/macros/s/…/exec'; s.append(u);
+    s.append(el('label', '', '그 방 비밀번호')); const pw = el('input'); pw.type = 'password'; s.append(pw);
+    s.append(el('label', '', '아이콘 이름 (비우면 방 이름)')); const nm = el('input'); s.append(nm);
+    const msg = el('div', 'lb-lmsg'); const go = el('button', 'pri', '추가'); go.style.cssText = 'width:100%;margin-top:14px;padding:12px';
+    go.onclick = async () => {
+      let raw = u.value.trim(), p = pw.value.trim();
+      const m = raw.match(/#(.*)$/); if (m) { const hh = new URLSearchParams(m[1]); if (hh.get('s')) raw = hh.get('s'); if (hh.get('p') && !p) p = hh.get('p'); }
+      const url = scriptUrl(raw);
+      if (!url || !p) { msg.textContent = '방 주소와 비밀번호를 넣어 주세요'; return; }
+      go.disabled = true; msg.className = 'lb-lmsg lb-ok'; msg.textContent = '방을 확인하는 중…';
+      try {
+        const res = await (await fetch(url + '?' + new URLSearchParams({ action: 'ping', pw: p }))).json();
+        if (!res.ok) throw new Error(res.error || '비밀번호를 확인해 주세요');
+        const list = L.rooms.filter(x => scriptUrl(x.url) !== url).map(x => ({ name: x.name, rule: x.rule, url: x.url }));
+        list.push({ name: nm.value.trim() || res.title || '새 방', rule: res.rule || 'etc', url });
+        const r = await kpost({ action: 'hubSave', rooms: list });
+        if (!r.ok) throw new Error(r.error || '저장하지 못했어요');
+        L.rooms = r.rooms; lobbyDraw(); sheetClose(); toast('방을 추가했어요');
+      } catch (e) { msg.className = 'lb-lmsg'; msg.textContent = String(e.message || e).includes('fetch') ? '방 주소에 연결하지 못했어요. 웹 앱으로 배포했는지 확인해 주세요' : String(e.message || e); go.disabled = false; }
+    };
+    s.append(go, msg);
+  });
+}
+async function lobbyRemove(i){
+  const r = L.rooms[i]; if (!r) return;
+  if (!confirm('"' + r.name + '"을 로비에서 뺄까요? (방과 기록은 지워지지 않아요)')) return;
+  const list = L.rooms.filter((_, j) => j !== i).map(x => ({ name: x.name, rule: x.rule, url: x.url }));
+  const res = await kpost({ action: 'hubSave', rooms: list });
+  if (!res.ok) { toast(res.error || '빼지 못했어요'); return; }
+  L.rooms = res.rooms; lobbyDraw();
+}
+function unlock(){ $('lLock').classList.add('lb-up'); }
+(function(){
+  const lk = $('lLock'); let y0 = null;
+  lk.addEventListener('pointerdown', e => { y0 = e.clientY; });
+  lk.addEventListener('pointerup', e => { if (y0 == null || y0 - e.clientY > 30 || Math.abs(y0 - e.clientY) < 8) unlock(); y0 = null; });
+  document.addEventListener('keydown', e => { if (!$('lobby').classList.contains('hide') && !lk.classList.contains('lb-up') && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowUp')) unlock(); });
+})();
+function lobbyShow(fromApp){
+  L.fromApp = !!fromApp; L.edit = false; sheetClose();
+  $('lobby').classList.remove('hide'); $('join').classList.add('hide');
+  $('lLock').classList.toggle('lb-up', !!fromApp);          // 앱 안에서 열면 잠금 화면은 건너뛴다
+  lTick(); clearInterval(L.timer); L.timer = setInterval(lTick, 10000);
+  lobbyLoad();
+}
+function lobbyHide(){ $('lobby').classList.add('hide'); clearInterval(L.timer); }
+function lobbyClose(){ lobbyHide(); }
+
 /* ── 시작 ── */
 function start(){
   $('join').classList.add('hide'); $('app').classList.remove('hide');
@@ -3087,7 +3317,10 @@ function start(){
   pollOnce();
   keeperResume();
 }
-if (cfg.url && cfg.pw && cfg.name) start(); else showJoin();
+if (hp.get('hub')) lobbyShow(false);                                      // 로비 링크로 들어오면 항상 폰 화면부터
+else if (cfg.url && cfg.pw && cfg.name) start();
+else if (L.hub || roomsGet().length) lobbyShow(false);
+else showJoin();
 })();
 </script>
 </body>

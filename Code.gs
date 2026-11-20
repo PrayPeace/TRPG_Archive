@@ -23,28 +23,48 @@ const KEEPER_PW    = '키퍼비밀번호';    // 마스터만 아는 비밀번�
 // 새 방을 만들 때 어떤 룰로 진행할지 고른다 (아래 RULES의 이름 중 하나). 이미 만든 방은 마스터 탭에서 바꿀 수 있다.
 const RULE = 'coc';
 const RULES = {
-  coc:       { name: '크툴루의 부름', pc: '탐사자', en: 'INVESTIGATOR', hint: '',
+  coc:       { abbr: 'CoC', name: '크툴루의 부름', pc: '탐사자', en: 'INVESTIGATOR', hint: '',
                gloss: '요그소토스, 틴달로스의 사냥개, 크툴루, 니알라토텝, 아자토스, 슈브니구라스, 네크로노미콘, 이성 판정' },
-  triangle:  { name: '트라이앵글 에이전시', pc: '요원', en: 'AGENT',
+  triangle:  { abbr: 'TA', name: '트라이앵글 에이전시', pc: '요원', en: 'AGENT',
                hint: '이 세션은 트라이앵글 에이전시 룰이다. 플레이어 캐릭터는 "요원"이라 부른다. 룰 용어와 설정은 대화에 나온 것만 적고, 알고 있다고 짐작해서 보태지 마라. ',
                gloss: '트라이앵글 에이전시, 요원, 이상 현상' },
-  unlimited: { name: '언리미티드 월드', pc: '캐릭터', en: 'CHARACTER',
+  unlimited: { abbr: 'UW', name: '언리미티드 월드', pc: '캐릭터', en: 'CHARACTER',
                hint: '이 세션은 언리미티드 월드 룰이다. 룰 용어와 설정은 대화에 나온 것만 적고, 짐작해서 보태지 마라. ',
                gloss: '언리미티드 월드' },
-  shinobi:   { name: '시노비가미', pc: '닌자', en: 'SHINOBI',
+  shinobi:   { abbr: 'SG', name: '시노비가미', pc: '닌자', en: 'SHINOBI',
                hint: '이 세션은 시노비가미 룰이다. 플레이어 캐릭터는 "닌자"라 부른다. 비밀·사명·인연·감정·유파·닌법 같은 룰 용어는 대화에 나온 그대로 적고, 나오지 않은 설정은 보태지 마라. ',
                gloss: '시노비가미, 닌법, 유파, 비밀, 사명, 인연' },
-  etc:       { name: '기타 TRPG', pc: '캐릭터', en: 'CHARACTER', hint: '', gloss: '' }
+  etc:       { abbr: 'ETC', name: '기타 TRPG', pc: '캐릭터', en: 'CHARACTER', hint: '', gloss: '' }
 };
 function ruleKey() { const k = String(getConf('rule') || RULE); return RULES[k] ? k : 'coc'; }
 function R() { return RULES[ruleKey()]; }
 function ruleInfo() { const r = R(); return { key: ruleKey(), name: r.name, pc: r.pc, en: r.en, list: Object.keys(RULES).map(k => ({ key: k, name: RULES[k].name })) }; }
+// 스프레드시트(방) 이름 규칙: "🎲TRPG Archive · 룰약자 방이름" (예: 🎲TRPG Archive · CoC 질긴 결속)
+function roomFileName(rule, name) { return '🎲TRPG Archive · ' + (RULES[rule] || RULES.coc).abbr + ' ' + String(name || '').trim(); }
+function bareRoomName(full) {
+  const ab = Object.keys(RULES).map(k => RULES[k].abbr).join('|');
+  return String(full || '').replace(/^\s*(?:🎲)?\s*TRPG Archive\s*[·\-]\s*/, '').replace(new RegExp('^(?:' + ab + ')\\s+'), '').trim();
+}
+// 지금 방의 이름을 규칙에 맞게 고친다 (setup·룰 바꾸기 때). 방 이름은 그대로, 앞부분과 룰 약자만 맞춘다
+function fixRoomName() {
+  try {
+    const ss = SpreadsheetApp.getActive(), cur = String(ss.getName() || '');
+    const want = roomFileName(ruleKey(), bareRoomName(cur) || cur);
+    if (want !== cur) { ss.rename(want); Logger.log('방 이름을 바꿨어요: ' + cur + ' → ' + want); }
+  } catch (e) { Logger.log('방 이름 바꾸기 실패: ' + e); }
+}
 function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).replace(/탐사자/g, pc); }     // 프롬프트의 "탐사자"를 룰에 맞는 말로 (대화 원문에는 쓰지 않는다)
 
 const MODEL = 'claude-sonnet-5-5';
 // NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
 const MODEL_LIGHT = 'claude-haiku-5-5';
-const CODE_VER = '2026-11-20.7';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+// AI가 답하기 전에 속으로 생각하는 양. 생각한 글자도 출력 토큰으로 값을 낸다. 요약·정리·정정 같은 공개 기록 작업은 'medium'으로 둔다 (low는 요약 품질이 떨어져서 쓰지 않음. 마스터 도구는 적용 안 함).
+// 더 아끼려면 'low', 예전처럼 하려면 '' (빈칸이면 보내지 않는다)
+const AI_EFFORT = 'medium';
+// 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
+const SUM_MIN_CHARS = 1500;
+const SUM_MAX_WAIT = 9 * 60 * 1000;
+const CODE_VER = '2026-11-20.11';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -124,6 +144,7 @@ function setup() {
     return s;
   };
   make(SH.CONF, ['키', '값']);
+  fixRoomName();                                   // 방 이름을 "🎲TRPG Archive · 룰약자 방이름"으로 맞춘다
   const L = make(SH.LINES, ['번호', '시각', '세션', '이름', '말', '발언ID']);
   const M = make(SH.SUM, ['세션', '시작', '끝', '요약', '만든 시각', '구간키']);
   make(SH.NOTES, ['정리 JSON (자동, 칸 A)', '정리 JSON (자동, 칸 B)']);
@@ -572,6 +593,8 @@ function roleOf(pw, kt) {
 function doGet(e) {
   const p = e.parameter || {};
   try {
+    // 로비(폰 화면)의 방 목록은 비밀번호 없이 읽는다: 방 이름·룰·주소만 있고, 들어가려면 그 방의 비밀번호가 필요하다
+    if (p.action === 'hub') return out(hubList());
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
     if (!roleOf(p.pw, null)) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
     switch (p.action) {
@@ -624,6 +647,7 @@ function doPost(e) {
       case 'kping':      return out({ ok: true, keeper: true });
       case 'setRule':    return out(setRule(b.rule));
       case 'tokenUsage': return out(Object.assign({ ok: true }, tokenUsage()));
+      case 'hubSave':    return out(hubSave(b.rooms));
       case 'newRoom':    return out(newRoom(b.name, b.rule));
       case 'newSession': return out(newSession());
       case 'tabs':       return out(listTabs(b.url));
@@ -697,7 +721,7 @@ function readLines(sinceId, maxRows) {
 }
 function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 
-function roomTitle() { try { return String(SpreadsheetApp.getActive().getName() || '').replace(/^TRPG Archive\s*[·\-]\s*/, '').slice(0, 40); } catch (e) { return ''; } }
+function roomTitle() { try { return bareRoomName(SpreadsheetApp.getActive().getName()).slice(0, 40); } catch (e) { return ''; } }
 /* 새 방: 이 스프레드시트를 복사한다 (붙어 있는 Apps Script도 같이 복사됨). 복사본에서 앱 기록 탭을 모두 비우고 룰만 정해 둔다.
  * 지금 방의 기록은 그대로 남는다. 복사본은 주인이 한 번 열어서 setup 실행 → 웹 앱 배포를 해야 쓸 수 있다 (구글 정책상 자동으로는 못 함). */
 function newRoom(name, rule) {
@@ -705,19 +729,34 @@ function newRoom(name, rule) {
   if (!name) return { ok: false, error: '새 방 이름을 적어 주세요' };
   rule = RULES[rule] ? rule : ruleKey();
   const ss = SpreadsheetApp.getActive();
-  const f = DriveApp.getFileById(ss.getId()).makeCopy('TRPG Archive · ' + name);
+  const f = DriveApp.getFileById(ss.getId()).makeCopy(roomFileName(rule, name));
   const c = SpreadsheetApp.openById(f.getId());
   Object.keys(SH).forEach(k => { const sh = c.getSheetByName(SH[k]); if (sh) sh.clear(); });     // 대화·요약·정리·마스터 자료·토큰기록 등 앱 탭은 모두 비운다
   const cs = c.getSheetByName(SH.CONF);
   if (cs) cs.getRange(1, 1, 3, 2).setNumberFormat('@').setValues([['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]]);
-  return { ok: true, url: c.getUrl(), name, rule: RULES[rule].name,
+  return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name,
     message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
 }
 function setRule(k) {
   k = String(k || '');
   if (!RULES[k]) return { ok: false, error: '알 수 없는 룰이에요' };
   withLock(20000, () => { setConf('rule', k); bump('notesVer'); bump('charVer'); });
+  fixRoomName();                                   // 방 이름 앞의 룰 약자도 맞춘다
   return { ok: true, rule: ruleInfo(), message: RULES[k].name + '로 바꿨어요. 이미 쌓인 용어집·기록은 그대로예요 (용어집은 직접 고쳐 주세요)' };
+}
+/* ───────────── 로비: 이 방을 "로비"로 쓰면, 여기에 다른 방 목록을 적어 둔다 ─────────────
+ * [{name, rule, url}] 최대 30개. 방 비밀번호는 적지 않는다 (들어갈 때 각자 입력). */
+const HUB_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec$/;
+function hubClean(list) {
+  return (Array.isArray(list) ? list : []).filter(x => x && typeof x === 'object' && HUB_URL_RE.test(String(x.url || '')))
+    .map(x => ({ name: String(x.name || '').trim().slice(0, 40) || '이름 없는 방', rule: RULES[x.rule] ? x.rule : 'etc', url: String(x.url) }))
+    .filter((x, i, a) => a.findIndex(y => y.url === x.url) === i).slice(0, 30);
+}
+function hubList() { return { ok: true, title: roomTitle(), rooms: hubClean(confJson('hubRooms', [])), rules: Object.keys(RULES).map(k => ({ key: k, abbr: RULES[k].abbr, name: RULES[k].name })) }; }
+function hubSave(list) {
+  const rooms = hubClean(list);
+  withLock(20000, () => setJson('hubRooms', rooms));
+  return { ok: true, rooms };
 }
 function versions() {
   const job = liveJob();
@@ -855,15 +894,42 @@ function deepgramToken() {
  *  auth: 키·권한 문제(401·403) / bad: 요청이 거부됨(400·413 등)
  * 답이 길어질수록 지연·잘림이 늘어나므로 호출마다 max_tokens를 작게 잡는다. */
 function aiErr(kind, msg) { const e = new Error(msg); e.kind = kind; return e; }
+/* 프롬프트 캐싱: 지시문(system)은 늘 캐시 표시를 붙인다. content를 [바뀌지 않는 앞부분, 매번 바뀌는 뒷부분] 배열로 주면
+ * 앞부분까지 캐시한다. 같은 앞부분으로 5분 안에 다시 부르면 그 부분 입력비가 크게 줄어든다 (짧으면 저절로 캐시되지 않을 뿐 오류는 없다). */
+function cacheBlocks(parts) {
+  const b = parts.filter(x => x != null && String(x) !== '').map(x => ({ type: 'text', text: String(x) }));
+  if (b.length) b[b.length - 1].cache_control = { type: 'ephemeral' };
+  return b;
+}
+function aiBody(model, maxTokens, sys, msg, effort) {
+  const b = { model, max_tokens: maxTokens || 4000, system: sys.length ? sys : undefined, messages: [{ role: 'user', content: msg }] };
+  if (effort && AI_EFFORT && aiFeature().indexOf('마스터') !== 0) b.output_config = { effort: AI_EFFORT };      // 마스터 도구(시나리오 정리·NPC 대사 등)는 기본값 그대로
+  return b;
+}
 function claude(system, content, maxTokens, model) {
   let r; model = model || MODEL;
+  const sys = cacheBlocks([system]);
+  let msg;
+  if (Array.isArray(content) && content.length && typeof content[0] === 'string') {      // 글자 배열만 [앞부분, 뒷부분]으로 본다 (이미지 블록 배열은 그대로 보낸다)
+    const head = cacheBlocks([content[0]]), tail = content.slice(1).filter(x => x != null && String(x) !== '').map(x => ({ type: 'text', text: String(x) }));
+    msg = tail.length ? head.concat(tail) : head;
+  } else msg = content;
   try {
     r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post', contentType: 'application/json',
       headers: { 'x-api-key': CLAUDE_KEY, 'anthropic-version': '2023-06-01' },
-      payload: JSON.stringify({ model, max_tokens: maxTokens || 4000, system, messages: [{ role: 'user', content }] }),
+      payload: JSON.stringify(aiBody(model, maxTokens, sys, msg, true)),
       muteHttpExceptions: true
     });
+    // 생각 양 설정을 이 모델이 받지 않으면 (400) 설정 없이 한 번 더 보낸다
+    if (r.getResponseCode() === 400 && AI_EFFORT && /effort|output_config/i.test(r.getContentText())) {
+      r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+        method: 'post', contentType: 'application/json',
+        headers: { 'x-api-key': CLAUDE_KEY, 'anthropic-version': '2023-06-01' },
+        payload: JSON.stringify(aiBody(model, maxTokens, sys, msg, false)),
+        muteHttpExceptions: true
+      });
+    }
   } catch (e) {
     throw aiErr('fetch', 'AI 서버 응답을 받지 못했어요 (연결이 끊겼거나 응답이 너무 늦었어요). 잠시 뒤 다시 시도하고, 되풀이되면 한 번에 보내는 양을 줄여 주세요 · ' + String(e && e.message || e).slice(0, 120));
   }
@@ -901,25 +967,30 @@ function logTokens(model, u, stop) {
     let sh = ss.getSheetByName(SH.TOK);
     if (!sh) sh = ss.insertSheet(SH.TOK);
     if (sh.getLastRow() === 0) { sh.getRange(1, 1, 1, 7).setValues([['시각', '세션', '기능', '모델', '입력 토큰', '출력 토큰', '비고']]); try { sh.setFrozenRows(1); } catch (e) {} }
-    sh.appendRow([now(), String(getConf('session') || ''), aiFeature(), String(model).replace('claude-', ''), Number(u.input_tokens || 0), Number(u.output_tokens || 0), stop === 'max_tokens' ? '길이 초과로 끊김' : '']);
+    if (sh.getMaxColumns() < 9 || !sh.getRange(1, 8).getValue()) { if (sh.getMaxColumns() < 9) sh.insertColumnsAfter(sh.getMaxColumns(), 9 - sh.getMaxColumns()); sh.getRange(1, 8, 1, 2).setValues([['캐시 읽기', '캐시 쓰기']]); }
+    // 입력 토큰 = 캐시 없이 읽은 양 + 캐시에 새로 쓴 양 (둘 다 제값 이상을 낸다). 캐시 읽기는 입력값의 약 1/10~1/20
+    const cw = Number(u.cache_creation_input_tokens || 0), cr = Number(u.cache_read_input_tokens || 0);
+    sh.appendRow([now(), String(getConf('session') || ''), aiFeature(), String(model).replace('claude-', ''), Number(u.input_tokens || 0) + cw, Number(u.output_tokens || 0), stop === 'max_tokens' ? '길이 초과로 끊김' : '', cr, cw]);
     if (sh.getLastRow() > 6000) sh.deleteRows(2, 1000);               // 아주 오래된 기록은 지운다
   } catch (e) {}
 }
 // 마스터 탭: 기능별 사용량 (이번 세션 / 최근 24시간)
 function tokenUsage() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SH.TOK);
-  const out = { session: String(getConf('session') || ''), rows: 0, byS: [], byD: [], tot: { s: [0, 0, 0], d: [0, 0, 0] } };
+  const out = { session: String(getConf('session') || ''), rows: 0, byS: [], byD: [], tot: { s: [0, 0, 0, 0], d: [0, 0, 0, 0] } };
   if (!sh || sh.getLastRow() < 2) return out;
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+  const nc = Math.min(8, sh.getLastColumn());
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, nc).getValues();
   const since = Date.now() - 24 * 3600 * 1000;
   const agg = {}, aggD = {};
   rows.forEach(r => {
     const t = new Date(String(r[0]).replace(' ', 'T')).getTime();
-    const add = (o, tt) => { const k = String(r[2]) + ' · ' + String(r[3]); o[k] = o[k] || [0, 0, 0]; o[k][0]++; o[k][1] += Number(r[4]) || 0; o[k][2] += Number(r[5]) || 0; tt[0]++; tt[1] += Number(r[4]) || 0; tt[2] += Number(r[5]) || 0; };
+    const cr = Number(r[7]) || 0;
+    const add = (o, tt) => { const k = String(r[2]) + ' · ' + String(r[3]); o[k] = o[k] || [0, 0, 0, 0]; o[k][0]++; o[k][1] += Number(r[4]) || 0; o[k][2] += Number(r[5]) || 0; o[k][3] += cr; tt[0]++; tt[1] += Number(r[4]) || 0; tt[2] += Number(r[5]) || 0; tt[3] += cr; };
     if (String(r[1]) === out.session) add(agg, out.tot.s);
     if (!isNaN(t) && t >= since) add(aggD, out.tot.d);
   });
-  const list = o => Object.keys(o).map(k => ({ k, n: o[k][0], i: o[k][1], o: o[k][2] })).sort((a, b) => (b.i + b.o * 5) - (a.i + a.o * 5));
+  const list = o => Object.keys(o).map(k => ({ k, n: o[k][0], i: o[k][1], o: o[k][2], c: o[k][3] })).sort((a, b) => (b.i + b.o * 5 + b.c / 10) - (a.i + a.o * 5 + a.c / 10));
   out.byS = list(agg); out.byD = list(aggD); out.rows = rows.length;
   return out;
 }
@@ -936,8 +1007,30 @@ function parseJson(text) {
 
 /* ───────────── 5분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
 function tick() {
-  try { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); } catch (e) { Logger.log(e); }
+  try {
+    if (!quietSkip()) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); }
+  } catch (e) { Logger.log(e); }
   try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); }
+}
+
+/* 자동 요약을 이번엔 쉴지: 새 대화가 조금뿐이거나(SUM_MIN_CHARS 미만) 마스터 발언이 없으면 쉰다.
+ * 그래도 마지막 자동 요약에서 SUM_MAX_WAIT가 지났거나, 새 대화가 아예 없거나(AI를 부르지 않음), 정리 대기가 있으면 평소처럼 돈다.
+ * 손으로 누르는 "지금 요약"과 밀린 것을 잇는 tickMore는 이 검사를 거치지 않는다. */
+function quietSkip() {
+  const c = CacheService.getScriptCache();
+  const last = Number(c.get('lastAutoSum') || 0);
+  const go = () => { c.put('lastAutoSum', String(Date.now()), 21600); return false; };
+  if (!last || Date.now() - last >= SUM_MAX_WAIT) return go();
+  if (notesQ().length) return go();
+  const processed = Number(getConf('processedId') || 0), total = totalLines();
+  if (total <= processed) return go();
+  const rows = readLines(processed, Math.min(total - processed, 400));
+  const chars = rows.reduce((n, l) => n + (isFiller(l.text) ? 0 : String(l.text).replace(/\s+/g, '').length), 0);      // 추임새를 뺀 실제 발언 글자 수
+  const keeper = String(getConf('keeperName') || '').trim();
+  const keeperSpoke = !keeper || rows.some(l => l.name === keeper);
+  if (chars >= SUM_MIN_CHARS && keeperSpoke) return go();
+  if (total - processed >= WINDOW_LINES) return go();            // 줄 수가 이미 한 구간만큼 쌓였으면 기다리지 않는다
+  return true;
 }
 
 // 밀렸을 때: 다음 5분 정각을 기다리지 않고 1분 뒤에 이어서 정리한다 (진전이 있을 때만 이어 예약 → 계속 실패하면 반복하지 않는다)
@@ -1326,11 +1419,12 @@ function aiLines(rows, keepAll) {
 function extractNotes(g, sess) {
   const transcriptText = aiLines(g);
   if (!transcriptText.replace(/\[\d\d:\d\d\]/g, '').trim()) return { notes: {} };
-  return publicAi(() => notesCall('이 대화에서 장소·NPC·' + R().pc + '·단서·핸드아웃만 정리한다.',
-    notesCommon() + '## 현재 정리(notes) (이름이 나온 항목만 자세히, 나머지는 이름표만. 이름표 항목을 고치려면 id를 그대로 쓰고 바뀐 칸을 모두 적어라)\n' + notesForAiLite(readNotes() || emptyNotes(), transcriptText) + '\n\n' +
-    '## 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcriptText + '\n\n' +
-    '## 출력 형식\n{"notes":{"places":[],"npcs":[],"pcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) +
-    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.', 5000, MODEL_LIGHT));
+  // 캐시를 위해 바뀌지 않는 부분(용어집·캐릭터·정정 메모·출력 형식)을 앞에, 매번 바뀌는 부분(현재 정리·대화)을 뒤에 둔다
+  return publicAi(() => notesCall('이 대화에서 장소·NPC·' + R().pc + '·단서·핸드아웃만 정리한다.', [
+    notesCommon() + '## 출력 형식 (아래 "대화"를 정리한다)\n{"notes":{"places":[],"npcs":[],"pcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) +
+    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.\n\n',
+    '## 현재 정리(notes) (이름이 나온 항목만 자세히, 나머지는 이름표만. 이름표 항목을 고치려면 id를 그대로 쓰고 바뀐 칸을 모두 적어라)\n' + notesForAiLite(readNotes() || emptyNotes(), transcriptText) + '\n\n' +
+    '## 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcriptText + '\n\n위 출력 형식대로 JSON 하나만 출력하라.'], 5000, MODEL_LIGHT));
 }
 // 마스터가 "AI에게 다시 맡기기"한 항목 하나를, 그 이름이 나온 대화 전체를 다시 읽고 새로 정리한다
 function refineItem(sec, id) {
@@ -1468,15 +1562,13 @@ function summarizeGroup(g, sess) {
       '플레이어 잡담(규칙 질문, 농담, 현실 이야기)과 캐릭터로서의 행동·대사를 구분해서, 요약은 이야기 안의 일을 중심으로 캐릭터 이름으로 써라. ' +
       '없는 일을 지어내지 마라. ' + rl(FACT_RULES) + keeperRules() +
       '정정 메모는 사람이 바로잡아 준 사실이니 반드시 따르라. 반드시 JSON 하나만 출력하라.';
-    const user =
+    // 캐시를 위해 바뀌지 않는 부분(마스터 이름·용어집·캐릭터·정정 메모·출력 형식)을 앞에, 매번 바뀌는 부분(줄거리·대화)을 뒤에 둔다
+    const stable =
       '## 마스터 이름\n' + (getConf('keeperName') || '(미지정: 상황 묘사와 NPC 대사를 하는 사람이 마스터다)') + '\n\n' +
       '## 용어집\n' + getConf('glossary') + '\n\n' +
       '## 플레이어 = 캐릭터\n' + (charsText() || '(아직 없음)') + '\n\n' +
       '## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n' +
-      '## 지금까지의 누적 줄거리 중 최근 부분 (참고용, 다시 쓰지 않는다)\n' + (storyTail(STORY_REF) || '(처음)') + '\n\n' +
-      (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
-      '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호, [시:분] 줄은 그 뒤 발언들의 시각)\n' + transcript + '\n\n' +
-      '## 출력 형식\n' +
+      '## 출력 형식 (아래 "새로 들어온 대화"를 요약한다)\n' +
       '{"summary":"이 대화 구간의 요약. 읽기 쉽게 장소(장면) 기준으로 문단을 나눠라: 문단은 \\"【장소 이름】\\" 한 줄로 시작하고, 이어서 그 장소에서 일어난 일을 시간순으로 \\"- HH:MM 내용\\" 줄들(HH:MM은 그 일이 나온 대화의 시각)로 쓴다. 문단 사이는 빈 줄 하나. ' +
       '장소가 바뀌면 새 문단이고, 같은 장소로 돌아오면 그 장소 문단에 이어 써도 된다. 장소를 알 수 없으면 \\"【장소 미상】\\". ' +
       '길이: 구간 전체 12줄 안팎(최대 16줄), 문단마다 2~5줄. 한 줄은 한두 문장으로 핵심만 쓴다. ' +
@@ -1484,8 +1576,13 @@ function summarizeGroup(g, sess) {
       '줄마다 끝에 근거 발언 번호를 (#12, #15)처럼 붙여라",' +
       '"storyAdd":"이 구간에서 누적 줄거리 뒤에 덧붙일 내용. 중요한 사건·결정·알아낸 사실만 2~4문장(250자 이내)으로. 누적 줄거리를 다시 쓰지 말고 새로 더할 부분만 써라. 이야기 진행이 없으면 빈칸"}\n' +
       '(NPC·장소·단서 정리는 따로 처리하니 여기서는 출력하지 마라.)\n' +
-      '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸으로 하라.';
-    return parseJson(claude(system, user, 6500));
+      '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸으로 하라.' + '\n';
+    const fresh =
+      '## 지금까지의 누적 줄거리 중 최근 부분 (참고용, 다시 쓰지 않는다)\n' + (storyTail(STORY_REF) || '(처음)') + '\n\n' +
+      (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
+      '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호, [시:분] 줄은 그 뒤 발언들의 시각)\n' + transcript + '\n\n' +
+      '위 출력 형식대로 JSON 하나만 출력하라.';
+    return parseJson(claude(system, [stable, fresh], 6500));
   });
 }
 /* 누적 줄거리 저장소 (설정 시트의 story 칸 하나)
@@ -1824,9 +1921,17 @@ function storePortrait(blob, name) {
   try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
   return 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w600';
 }
+// 구글 계정 토큰을 붙여도 되는 주소인지: https + 구글 드라이브·문서 주소만. (시트에 적힌 아무 주소에나 마스터 토큰을 보내면 그 서버가 마스터 드라이브에 접근할 수 있다)
+function googleHost(src) {
+  const m = /^https:\/\/([^\/?#:@]+)(?:[\/?#]|$)/i.exec(String(src || ''));
+  if (!m) return false;
+  const h = m[1].toLowerCase();
+  return h === 'drive.google.com' || h === 'docs.google.com' || h === 'lh3.googleusercontent.com' || h === 'drive.usercontent.google.com';
+}
 function fetchPortrait(src, tab) {
+  if (!/^https?:\/\//i.test(String(src || ''))) return '';
   let r = UrlFetchApp.fetch(src, { muteHttpExceptions: true, followRedirects: true });
-  if (r.getResponseCode() !== 200) {
+  if (r.getResponseCode() !== 200 && googleHost(src)) {
     r = UrlFetchApp.fetch(src, { muteHttpExceptions: true, followRedirects: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } });
   }
   if (r.getResponseCode() !== 200) return '';
