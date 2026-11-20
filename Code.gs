@@ -64,7 +64,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.10';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.11';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -593,6 +593,8 @@ function roleOf(pw, kt) {
 function doGet(e) {
   const p = e.parameter || {};
   try {
+    // 로비(폰 화면)의 방 목록은 비밀번호 없이 읽는다: 방 이름·룰·주소만 있고, 들어가려면 그 방의 비밀번호가 필요하다
+    if (p.action === 'hub') return out(hubList());
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
     if (!roleOf(p.pw, null)) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
     switch (p.action) {
@@ -645,6 +647,7 @@ function doPost(e) {
       case 'kping':      return out({ ok: true, keeper: true });
       case 'setRule':    return out(setRule(b.rule));
       case 'tokenUsage': return out(Object.assign({ ok: true }, tokenUsage()));
+      case 'hubSave':    return out(hubSave(b.rooms));
       case 'newRoom':    return out(newRoom(b.name, b.rule));
       case 'newSession': return out(newSession());
       case 'tabs':       return out(listTabs(b.url));
@@ -740,6 +743,20 @@ function setRule(k) {
   withLock(20000, () => { setConf('rule', k); bump('notesVer'); bump('charVer'); });
   fixRoomName();                                   // 방 이름 앞의 룰 약자도 맞춘다
   return { ok: true, rule: ruleInfo(), message: RULES[k].name + '로 바꿨어요. 이미 쌓인 용어집·기록은 그대로예요 (용어집은 직접 고쳐 주세요)' };
+}
+/* ───────────── 로비: 이 방을 "로비"로 쓰면, 여기에 다른 방 목록을 적어 둔다 ─────────────
+ * [{name, rule, url}] 최대 30개. 방 비밀번호는 적지 않는다 (들어갈 때 각자 입력). */
+const HUB_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec$/;
+function hubClean(list) {
+  return (Array.isArray(list) ? list : []).filter(x => x && typeof x === 'object' && HUB_URL_RE.test(String(x.url || '')))
+    .map(x => ({ name: String(x.name || '').trim().slice(0, 40) || '이름 없는 방', rule: RULES[x.rule] ? x.rule : 'etc', url: String(x.url) }))
+    .filter((x, i, a) => a.findIndex(y => y.url === x.url) === i).slice(0, 30);
+}
+function hubList() { return { ok: true, title: roomTitle(), rooms: hubClean(confJson('hubRooms', [])), rules: Object.keys(RULES).map(k => ({ key: k, abbr: RULES[k].abbr, name: RULES[k].name })) }; }
+function hubSave(list) {
+  const rooms = hubClean(list);
+  withLock(20000, () => setJson('hubRooms', rooms));
+  return { ok: true, rooms };
 }
 function versions() {
   const job = liveJob();
