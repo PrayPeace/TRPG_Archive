@@ -416,6 +416,16 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .lb-sheet input,.lb-sheet select{background:#0f1218;border-color:#343a48;color:#fff}
 .lb-shade{position:absolute;inset:0;z-index:7;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .3s}
 .lb-shade.lb-on{opacity:1;pointer-events:auto}
+.lb-wid{margin:0 4px 16px;padding:11px 13px;border-radius:18px;background:rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;flex:none}
+.lb-wid .lw-h{display:flex;font-size:11.5px;font-weight:700;opacity:.75;margin-bottom:6px}
+.lb-wid .lw-r{margin-top:7px}
+.lb-wid .lw-t{display:flex;align-items:baseline;gap:6px;font-size:12.5px}
+.lb-wid .lw-t b{font-size:13.5px}
+.lb-wid .lw-t .lw-p{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums}
+.lb-wid .lw-bar{height:7px;border-radius:4px;background:rgba(255,255,255,.16);margin-top:4px;overflow:hidden}
+.lb-wid .lw-bar i{display:block;height:100%;border-radius:4px;background:#5fd39a;transition:width .5s}
+.lb-wid .lw-bar i.lw-mid{background:#f2c14e}.lb-wid .lw-bar i.lw-low{background:#ff7a70}
+.lb-wid .lw-s{font-size:10.5px;opacity:.6;margin-top:3px}
 .lb-lmsg{min-height:18px;margin-top:8px;font-size:12.5px;color:#ffb3ae}
 .lb-lmsg.lb-ok{color:#8fe0b4}
 .lbr-coc{background:linear-gradient(145deg,#1f6f63,#0f3b3a)}
@@ -464,6 +474,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
     <div class="lb-sbar"><span id="lTime1">00:00</span><span class="lb-ic">🎲 <span id="lHubName"></span></span></div>
     <div class="lb-home">
       <div class="lb-ttl"><span>🎲 TRPG Archive</span><span class="grow"></span><span id="lHomeNote" style="font-weight:500;opacity:.8"></span></div>
+      <div class="lb-wid hide" id="lCred"></div>
       <div class="lb-grid" id="lGrid"></div>
       <div class="lb-dock" id="lDock"></div>
     </div>
@@ -2410,7 +2421,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.17';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.1';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -3574,6 +3585,60 @@ async function lobbyLoad(){
   }
   $('lHubName').textContent = L.title; $('lHubLine').textContent = L.title ? '🎲 ' + L.title : '';
   lobbyDraw();
+  credLoad(false);
+}
+/* 남은 잔액 위젯 (마스터 로그인했을 때만): 딥그램은 실제 잔액, 클로드는 적어 둔 잔액 − 이 프로그램이 쓴 만큼 */
+async function credLoad(force){
+  const w = $('lCred');
+  if (!isHubKeeper()) { w.classList.add('hide'); L.cred = null; return; }
+  if (!L.cred) { w.classList.remove('hide'); w.innerHTML = ''; w.append(el('div', 'lw-h', '💳 남은 잔액 · 불러오는 중…')); }
+  try {
+    const r = await hubPost({ action: 'credits', force: !!force });
+    if (!r || !r.ok) { if (!L.kt) { w.classList.add('hide'); return; } throw new Error(r && r.error || ''); }
+    L.cred = r; credDraw();
+  } catch (e) { w.innerHTML = ''; w.append(el('div', 'lw-h', '💳 잔액을 불러오지 못했어요 (엔진 Code.gs가 최신 판인지 확인)')); }
+}
+const usd = v => '$' + (Math.round(Number(v) * 100) / 100).toFixed(2);
+function credRow(name, d, sub){
+  const r = el('div', 'lw-r'), t = el('div', 'lw-t'); t.append(el('b', '', name));
+  if (!d || !d.ok) { t.append(el('span', '', d && d.unset ? '잔액을 한 번 적어 주세요 (눌러서)' : '확인 안 됨')); r.append(t); if (d && d.error) r.append(el('div', 'lw-s', d.error)); return r; }
+  const pct = d.top > 0 ? Math.max(0, Math.min(100, d.left / d.top * 100)) : 0;
+  t.append(el('span', '', usd(d.left) + ' / ' + usd(d.top)), el('span', 'lw-p', Math.round(pct) + '%'));
+  const bar = el('div', 'lw-bar'), i = el('i', pct < 20 ? 'lw-low' : pct < 50 ? 'lw-mid' : ''); i.style.width = pct.toFixed(1) + '%'; bar.append(i);
+  r.append(t, bar); if (sub) r.append(el('div', 'lw-s', sub)); return r;
+}
+function credDraw(){
+  const w = $('lCred'), c = L.cred; if (!c) return;
+  w.innerHTML = ''; w.classList.remove('hide');
+  const h = el('div', 'lw-h'); h.append(el('span', '', '💳 남은 잔액'), el('span', 'grow'), el('span', '', '눌러서 설정 ›')); w.append(h);
+  const cl = c.claude || {};
+  w.append(credRow('Claude', cl, cl.ok ? (String(cl.at).slice(5, 16).replace('-', '/') + '에 ' + usd(cl.base) + ' 적은 뒤 ' + usd(cl.spent) + ' 사용 (추정)') : ''));
+  const dg = c.deepgram || {};
+  w.append(credRow('Deepgram', dg, dg.ok ? '딥그램 실제 잔액 · 10분마다 새로 읽음' : ''));
+  w.onclick = credForm;
+}
+function credForm(){
+  const c = L.cred || {}, cl = c.claude || {}, dg = c.deepgram || {};
+  sheetOpen(s => {
+    s.append(el('h3', '', '💳 잔액 설정'));
+    s.append(el('div', 'note', 'Claude는 API로 잔액을 알려 주지 않아요. console.anthropic.com → Billing에 보이는 잔액(Credit balance)을 적으면, 그 뒤로 이 프로그램이 쓴 만큼 빼서 보여 줘요. 다른 곳에서도 같은 키를 쓰면 어긋나니 가끔 다시 적어 주세요.'));
+    const a = field(s, 'Claude 지금 잔액 ($)', 'text', '', cl.ok ? '지금 추정 ' + usd(cl.left) : '예: 23.40'); a.inputMode = 'decimal';
+    const b = field(s, 'Claude 게이지 100% 기준 ($, 비우면 위 잔액)', 'text', cl.ok && cl.top !== cl.base ? cl.top : '', '예: 충전한 금액 50'); b.inputMode = 'decimal';
+    s.append(el('div', 'note', 'Deepgram 잔액은 자동으로 읽어요. 100% 기준을 비우면 지금까지 본 가장 큰 잔액을 써요 (무료 크레딧이면 200).'));
+    const d = field(s, 'Deepgram 게이지 100% 기준 ($)', 'text', dg.ok && !dg.auto ? dg.top : '', dg.ok ? '자동: ' + usd(dg.top) : '예: 200'); d.inputMode = 'decimal';
+    const go = bigBtn(s, '저장하고 새로 읽기'), msg = lmsg(s);
+    go.onclick = async () => {
+      go.disabled = true; msg.ok('저장 중…');
+      try {
+        const body = { action: 'creditsSet', dgTop: d.value.trim() };
+        if (a.value.trim()) { body.claude = a.value.trim(); body.claudeTop = b.value.trim(); }
+        else if (b.value.trim()) body.claudeTop = b.value.trim();
+        const r = await hubPost(body);
+        if (!r.ok) { msg.err(r.error || '저장하지 못했어요'); go.disabled = false; return; }
+        L.cred = r; credDraw(); sheetClose(); toast('잔액을 새로 읽었어요');
+      } catch (e) { msg.err('로비 방에 연결하지 못했어요'); go.disabled = false; }
+    };
+  });
 }
 function lobbyDraw(){
   const g = $('lGrid'); g.innerHTML = '';
@@ -3690,8 +3755,9 @@ function settingsPanel(){
     const b2 = el('button', '', '기존 방 추가'); b2.onclick = () => connectForm(-1);
     const b3 = el('button', '', '🔗 로비 링크 복사'); b3.onclick = async () => { try { await navigator.clipboard.writeText(lobbyLink()); toast('로비 링크를 복사했어요'); } catch (_) { prompt('이 링크를 복사해 보내 주세요', lobbyLink()); } };
     const b5 = el('button', '', '🔑 마스터 비밀번호'); b5.onclick = keeperPwForm;
+    const b6 = el('button', '', '💳 잔액'); b6.onclick = credForm;
     const b4 = el('button', '', '로그아웃'); b4.onclick = () => { L.kt = ''; SS.del('t_hubkt'); sheetClose(); lobbyLoad(); };
-    row.append(b1, b2, b3, b5, b4); s.append(row);
+    row.append(b1, b2, b3, b5, b6, b4); s.append(row);
     const list = el('div'); list.style.marginTop = '14px'; s.append(list);
     if (!L.rooms.length) list.append(el('div', 'note', '아직 방이 없어요. "＋ 방 개설"로 만들어 보세요.'));
     L.rooms.forEach((r, i) => {

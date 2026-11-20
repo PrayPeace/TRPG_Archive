@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.17';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.1';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -699,6 +699,8 @@ function doPost(e) {
       case 'hubSave':    return out(hubSave(b.rooms));
       case 'hubGet':     return out({ ok: true, rooms: hubClean(confJson('hubRooms', [])), title: roomTitle(), self: ScriptApp.getService().getUrl() || '' });
       case 'hubNewRoom': return out(hubNewRoom(b.name, b.rule, b.pw));
+      case 'credits':    return out(credits(!!b.force));
+      case 'creditsSet': return out(creditsSet(b));
       case 'setPw':      return out(setPw(b));
       case 'newRoom':    return out(newRoom(b.name, b.rule));
       case 'newSession': return out(newSession());
@@ -1073,6 +1075,7 @@ function claude(system, content, maxTokens, model) {
   }
   const j = JSON.parse(r.getContentText());
   logTokens(model, j.usage, j.stop_reason);
+  try { if (j.usage) credSpend(costUsd(model, j.usage)); } catch (e) {}
   if (j.stop_reason === 'max_tokens') throw aiErr('truncated', 'AI 답이 정해 둔 길이를 넘어 중간에 끊겼어요. 한 번에 보내는 양(구간·조각)을 줄이면 해결돼요');
   return j.content.filter(c => c.type === 'text').map(c => c.text).join('');
 }
@@ -1103,6 +1106,79 @@ function logTokens(model, u, stop) {
     sh.appendRow([now(), String(getConf('session') || ''), aiFeature(), String(model).replace('claude-', ''), Number(u.input_tokens || 0) + cw, Number(u.output_tokens || 0), stop === 'max_tokens' ? '길이 초과로 끊김' : '', cr, cw]);
     if (sh.getLastRow() > 6000) sh.deleteRows(2, 1000);               // 아주 오래된 기록은 지운다
   } catch (e) {}
+}
+/* ── 남은 잔액 (로비 화면 위젯, 마스터만) ──
+ * 딥그램: 잔액 API(/v1/projects/{id}/balances)로 실제 잔액을 읽는다 (10분 캐시).
+ * 클로드: 일반 API 키로는 잔액을 읽을 수 없어서, 마스터가 콘솔(Billing)에서 본 잔액을 한 번 적으면
+ *   그 뒤 이 프로그램이 부른 만큼(토큰 × 단가)을 빼서 보여 준다. 다른 곳에서 같은 키를 쓰면 그만큼 어긋나니 가끔 다시 적는다.
+ * 라이브러리 방식이면 스크립트 속성·캐시가 엔진 하나라서 모든 방의 사용량이 한곳에 모인다. */
+const PRICE = {                          // 100만 토큰당 달러: [입력, 출력, 캐시 읽기]. 캐시 쓰기는 입력의 1.25배
+  'claude-sonnet-5-5': [2, 10, 0.10],
+  'claude-haiku-5-5':  [0.10, 0.50, 0.01],   // 입력 10만 토큰 이하. 넘으면 아래에서 [0.5, 2.5, 0.05]
+  'claude-opus-5-5':   [10, 50, 0.50]
+};
+function costUsd(model, u) {
+  const m = String(model || '');
+  const inp = Number(u.input_tokens || 0), out = Number(u.output_tokens || 0);
+  const cw = Number(u.cache_creation_input_tokens || 0), cr = Number(u.cache_read_input_tokens || 0);
+  let p = PRICE[m] || (/haiku/.test(m) ? PRICE['claude-haiku-5-5'] : /opus/.test(m) ? PRICE['claude-opus-5-5'] : PRICE['claude-sonnet-5-5']);
+  if (/haiku-5-5/.test(m) && inp + cw + cr > 100000) p = [0.5, 2.5, 0.05];
+  return (inp * p[0] + cw * p[0] * 1.25 + cr * p[2] + out * p[1]) / 1e6;
+}
+function credGet() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('credits') || '{}') || {}; } catch (e) { return {}; } }
+function credEdit(fn) {
+  const l = LockService.getScriptLock(); let got = false;
+  try { got = l.tryLock(3000); } catch (e) {}
+  try { const c = credGet(); fn(c); PropertiesService.getScriptProperties().setProperty('credits', JSON.stringify(c)); return c; }
+  finally { if (got) try { l.releaseLock(); } catch (e) {} }
+}
+function credSpend(usd) { if (usd > 0) credEdit(c => { c.spent = (Number(c.spent) || 0) + usd; }); }
+function credits(force) {
+  const c = credGet(), spent = Number(c.spent) || 0;
+  const o = { ok: true };
+  if (c.base != null && c.base !== '') {
+    const base = Number(c.base) || 0;
+    o.claude = { ok: true, left: Math.max(0, base - spent), base, top: Number(c.top) || base, spent, at: c.at || '' };
+  } else o.claude = { ok: false, unset: true, spent };
+  o.deepgram = dgBalance(force);
+  return o;
+}
+function creditsSet(b) {
+  const num = v => (v === '' || v == null) ? null : Number(String(v).replace(/[$,\s]/g, ''));
+  const bal = num(b.claude), top = num(b.claudeTop), dgTop = num(b.dgTop);
+  for (const v of [bal, top, dgTop]) if (v != null && !(v >= 0 && v < 1e6)) return { ok: false, error: '금액은 0 이상의 숫자로 적어 주세요' };
+  credEdit(c => {
+    if (bal != null) { c.base = bal; c.spent = 0; c.at = now(); c.top = top != null && top >= bal ? top : bal; }
+    else if (top != null) c.top = top;
+    if (b.dgTop !== undefined) c.dgTop = dgTop;            // 비우면 자동(본 적 있는 가장 큰 잔액)
+  });
+  try { CacheService.getScriptCache().remove('dgBal'); } catch (e) {}
+  return credits(true);
+}
+function dgBalance(force) {
+  const cache = CacheService.getScriptCache();
+  if (!force) { try { const v = cache.get('dgBal'); if (v) return JSON.parse(v); } catch (e) {} }
+  let o;
+  try {
+    if (!DEEPGRAM_KEY || /여기에/.test(DEEPGRAM_KEY)) throw new Error('엔진 Code.gs에 딥그램 키가 없어요');
+    const h = { headers: { Authorization: 'Token ' + DEEPGRAM_KEY }, muteHttpExceptions: true };
+    const r1 = UrlFetchApp.fetch('https://api.deepgram.com/v1/projects', h);
+    if (r1.getResponseCode() !== 200) throw new Error('딥그램이 키를 받지 않았어요 (' + r1.getResponseCode() + ')');
+    const ps = JSON.parse(r1.getContentText()).projects || [];
+    let amt = 0, units = 'usd', n = 0, code = 0;
+    ps.forEach(p => {
+      const r = UrlFetchApp.fetch('https://api.deepgram.com/v1/projects/' + encodeURIComponent(p.project_id) + '/balances', h);
+      if (r.getResponseCode() !== 200) { code = r.getResponseCode(); return; }
+      (JSON.parse(r.getContentText()).balances || []).forEach(x => { amt += Number(x.amount) || 0; units = x.units || units; n++; });
+    });
+    if (!n && code) throw new Error(code === 403 ? '이 딥그램 키는 잔액을 볼 권한이 없어요. 딥그램 콘솔에서 권한이 Owner나 Admin인 키를 만들어 엔진 Code.gs에 넣어 주세요' : '딥그램 잔액을 읽지 못했어요 (' + code + ')');
+    if (!n) throw new Error('딥그램 프로젝트에 잔액 정보가 없어요');
+    const c = credEdit(cc => { if (!(Number(cc.dgMax) >= amt)) cc.dgMax = amt; });
+    const top = Number(c.dgTop) > 0 ? Number(c.dgTop) : Number(c.dgMax) || amt;
+    o = { ok: true, left: amt, units: String(units).toLowerCase(), top: Math.max(top, amt), auto: !(Number(c.dgTop) > 0) };
+  } catch (e) { o = { ok: false, error: String(e && e.message || e).slice(0, 200) }; }
+  try { cache.put('dgBal', JSON.stringify(o), o.ok ? 600 : 60); } catch (e) {}
+  return o;
 }
 // 마스터 탭: 기능별 사용량 (이번 세션 / 최근 24시간)
 function tokenUsage() {
