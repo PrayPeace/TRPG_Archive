@@ -1016,20 +1016,27 @@ function withChars(n, chars){
 function buildLinks(n){
   linkMap = {}; linkRooms = {};
   const full = {}, part = {};
-  [['npcs','name'],['pcs','name'],['places','name'],['handouts','title']].forEach(([sec, k]) => (n && n[sec] || []).forEach(it => {
+  // 탐사자를 먼저 본다: 같은 사람이 NPC 목록에도 잘못 들어가 있으면 탐사자(초록)가 이긴다
+  [['pcs','name'],['npcs','name'],['places','name'],['handouts','title']].forEach(([sec, k]) => (n && n[sec] || []).forEach(it => {
     const raw = String(it[k] || '').trim(); if (raw.length < 2) return;
     const ref = { sec, id: it.id };
     // 방 번호가 든 장소("보든 암스 호텔 312호")는 번호로만 잇는다 → 글에서는 "보든 암스 호텔"(호텔)과 "312호"(방)가 따로 칠해진다
     if (sec === 'places') { const rm = ROOM_RE.exec(raw); if (rm) { const rk = rm[0].replace(/\s/g, ''); if (!linkRooms[rk]) linkRooms[rk] = ref; return; } }
     const al = lkAliases(sec, raw, sec === 'handouts' ? '' : it.aka);
     if (al.name.length >= 2 && !full[lkKey(al.name)]) full[lkKey(al.name)] = { ref, alias: al.name };
-    al.list.forEach(a => { const key = lkKey(a); if (key === lkKey(al.name)) return; (part[key] = part[key] || []).push({ ref, alias: a }); });
+    al.list.forEach(a => { const key = lkKey(a); if (key === lkKey(al.name)) return; (part[key] = part[key] || []).push({ ref, alias: a, who: lkKey(al.name) }); });
   }));
   const pats = [];
   Object.keys(full).forEach(key => { linkMap[key] = full[key].ref; pats.push(full[key].alias); });
   Object.keys(part).forEach(key => {
-    if (full[key]) return;                                                       // 다른 대상의 정식 이름이면 그쪽이 이긴다
-    const ids = new Set(part[key].map(x => x.ref.sec + x.ref.id)); if (ids.size > 1) return;      // 두 대상이 같은 조각 → 애매해서 뺀다
+    if (full[key]) {                                                             // 다른 대상의 정식 이름이면 그쪽이 이긴다
+      // 단, NPC 목록에 "루시"처럼 탐사자 이름 조각만 따로 들어가 있으면(잘못 정리된 것) 탐사자로 본다
+      const pc = part[key].filter(x => x.ref.sec === 'pcs');
+      if (full[key].ref.sec === 'npcs' && pc.length && new Set(pc.map(x => x.who)).size === 1) linkMap[key] = pc[0].ref;
+      return;
+    }
+    // 서로 다른 대상이 같은 조각을 가지면 애매해서 뺀다. 같은 이름이 탐사자·NPC 양쪽에 있는 경우(같은 사람)는 앞의 것(탐사자)으로
+    const who = new Set(part[key].map(x => x.who)); if (who.size > 1) return;
     linkMap[key] = part[key][0].ref; pats.push(part[key][0].alias);
   });
   const sorted = pats.sort((a, b) => lkKey(b).length - lkKey(a).length).map(lkPattern);
