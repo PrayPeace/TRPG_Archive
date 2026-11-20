@@ -44,7 +44,13 @@ function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).re
 const MODEL = 'claude-sonnet-5-5';
 // NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
 const MODEL_LIGHT = 'claude-haiku-5-5';
-const CODE_VER = '2026-11-20.8';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+// AI가 답하기 전에 속으로 생각하는 양. 생각한 글자도 출력 토큰으로 값을 낸다. 요약·정리·정정 같은 공개 기록 작업은 깊은 생각이 필요 없어서 'low'로 둔다 (마스터 도구는 적용 안 함).
+// 품질이 아쉬우면 'medium', 예전처럼 하려면 '' (빈칸이면 보내지 않는다)
+const AI_EFFORT = 'low';
+// 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
+const SUM_MIN_CHARS = 1500;
+const SUM_MAX_WAIT = 9 * 60 * 1000;
+const CODE_VER = '2026-11-20.9';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -862,6 +868,11 @@ function cacheBlocks(parts) {
   if (b.length) b[b.length - 1].cache_control = { type: 'ephemeral' };
   return b;
 }
+function aiBody(model, maxTokens, sys, msg, effort) {
+  const b = { model, max_tokens: maxTokens || 4000, system: sys.length ? sys : undefined, messages: [{ role: 'user', content: msg }] };
+  if (effort && AI_EFFORT && aiFeature().indexOf('마스터') !== 0) b.output_config = { effort: AI_EFFORT };      // 마스터 도구(시나리오 정리·NPC 대사 등)는 기본값 그대로
+  return b;
+}
 function claude(system, content, maxTokens, model) {
   let r; model = model || MODEL;
   const sys = cacheBlocks([system]);
@@ -874,9 +885,18 @@ function claude(system, content, maxTokens, model) {
     r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post', contentType: 'application/json',
       headers: { 'x-api-key': CLAUDE_KEY, 'anthropic-version': '2023-06-01' },
-      payload: JSON.stringify({ model, max_tokens: maxTokens || 4000, system: sys.length ? sys : undefined, messages: [{ role: 'user', content: msg }] }),
+      payload: JSON.stringify(aiBody(model, maxTokens, sys, msg, true)),
       muteHttpExceptions: true
     });
+    // 생각 양 설정을 이 모델이 받지 않으면 (400) 설정 없이 한 번 더 보낸다
+    if (r.getResponseCode() === 400 && AI_EFFORT && /effort|output_config/i.test(r.getContentText())) {
+      r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+        method: 'post', contentType: 'application/json',
+        headers: { 'x-api-key': CLAUDE_KEY, 'anthropic-version': '2023-06-01' },
+        payload: JSON.stringify(aiBody(model, maxTokens, sys, msg, false)),
+        muteHttpExceptions: true
+      });
+    }
   } catch (e) {
     throw aiErr('fetch', 'AI 서버 응답을 받지 못했어요 (연결이 끊겼거나 응답이 너무 늦었어요). 잠시 뒤 다시 시도하고, 되풀이되면 한 번에 보내는 양을 줄여 주세요 · ' + String(e && e.message || e).slice(0, 120));
   }
@@ -954,8 +974,30 @@ function parseJson(text) {
 
 /* ───────────── 5분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
 function tick() {
-  try { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); } catch (e) { Logger.log(e); }
+  try {
+    if (!quietSkip()) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); }
+  } catch (e) { Logger.log(e); }
   try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); }
+}
+
+/* 자동 요약을 이번엔 쉴지: 새 대화가 조금뿐이거나(SUM_MIN_CHARS 미만) 마스터 발언이 없으면 쉰다.
+ * 그래도 마지막 자동 요약에서 SUM_MAX_WAIT가 지났거나, 새 대화가 아예 없거나(AI를 부르지 않음), 정리 대기가 있으면 평소처럼 돈다.
+ * 손으로 누르는 "지금 요약"과 밀린 것을 잇는 tickMore는 이 검사를 거치지 않는다. */
+function quietSkip() {
+  const c = CacheService.getScriptCache();
+  const last = Number(c.get('lastAutoSum') || 0);
+  const go = () => { c.put('lastAutoSum', String(Date.now()), 21600); return false; };
+  if (!last || Date.now() - last >= SUM_MAX_WAIT) return go();
+  if (notesQ().length) return go();
+  const processed = Number(getConf('processedId') || 0), total = totalLines();
+  if (total <= processed) return go();
+  const rows = readLines(processed, Math.min(total - processed, 400));
+  const chars = rows.reduce((n, l) => n + (isFiller(l.text) ? 0 : String(l.text).replace(/\s+/g, '').length), 0);      // 추임새를 뺀 실제 발언 글자 수
+  const keeper = String(getConf('keeperName') || '').trim();
+  const keeperSpoke = !keeper || rows.some(l => l.name === keeper);
+  if (chars >= SUM_MIN_CHARS && keeperSpoke) return go();
+  if (total - processed >= WINDOW_LINES) return go();            // 줄 수가 이미 한 구간만큼 쌓였으면 기다리지 않는다
+  return true;
 }
 
 // 밀렸을 때: 다음 5분 정각을 기다리지 않고 1분 뒤에 이어서 정리한다 (진전이 있을 때만 이어 예약 → 계속 실패하면 반복하지 않는다)
