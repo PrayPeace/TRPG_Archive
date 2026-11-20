@@ -17,7 +17,7 @@
  ****************************************************************/
 const CLAUDE_KEY   = '여기에_클로드_API_키';
 const DEEPGRAM_KEY = '여기에_딥그램_API_키';
-const ROOM_PW      = '방비밀번호';      // 플레이어 모두가 아는 비밀번호
+const ROOM_PW      = '방비밀번호';      // 플레이어 모두가 아는 비밀번호 (로비에서 방을 개설했으면 그때 정한 비밀번호가 설정 탭에 들어가고, 그게 우선)
 const KEEPER_PW    = '키퍼비밀번호';    // 마스터만 아는 비밀번호
 
 // 새 방을 만들 때 어떤 룰로 진행할지 고른다 (아래 RULES의 이름 중 하나). 이미 만든 방은 마스터 탭에서 바꿀 수 있다.
@@ -64,7 +64,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.11';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.12';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -123,6 +123,8 @@ function ensureSheet(name) {
  * 이게 없으면 방 비밀번호를 아는 사람이 이름 칸에 =IMPORTDATA(...) 같은 수식을 넣어 마스터 전용 시트를 밖으로 빼낼 수 있다.
  * 실제 구글 시트에서 이 규칙이 통하는지는 맨 아래 selfTest()를 한 번 실행해서 확인한다. */
 const SAFE_MARK = '§';
+// 방 비밀번호: 로비에서 개설한 방은 설정 탭의 roomPw, 아니면 Code.gs 맨 위 ROOM_PW
+function roomPw() { try { const v = getConf('roomPw'); return v ? String(v) : ROOM_PW; } catch (e) { return ROOM_PW; } }
 function enc(v) { return (typeof v === 'string' && /^[=+\-@§'\t\r\n]/.test(v)) ? SAFE_MARK + v : v; }
 function dec(v) { return (typeof v === 'string' && v.charAt(0) === SAFE_MARK) ? v.slice(1) : v; }
 function decS(v) { return dec(v == null ? '' : String(v)); }
@@ -194,8 +196,8 @@ function setup() {
 // 비밀번호 설정 점검 (값 자체는 어디에도 찍지 않는다)
 function pwWarnings() {
   const w = [];
-  if (ROOM_PW === KEEPER_PW) w.push('방 비밀번호와 마스터 비밀번호가 같아요. 서로 다르게 바꾸지 않으면 마스터 기능을 쓸 수 없어요.');
-  if (KEEPER_PW === '키퍼비밀번호' || ROOM_PW === '방비밀번호') w.push('비밀번호가 처음 예시 그대로예요. Code.gs 맨 위에서 바꿔 주세요.');
+  if (roomPw() === KEEPER_PW) w.push('방 비밀번호와 마스터 비밀번호가 같아요. 서로 다르게 바꾸지 않으면 마스터 기능을 쓸 수 없어요.');
+  if (KEEPER_PW === '키퍼비밀번호' || roomPw() === '방비밀번호') w.push('비밀번호가 처음 예시 그대로예요. Code.gs 맨 위에서 바꿔 주세요.');
   if (KEEPER_PW.length < 10) w.push('마스터 비밀번호가 10자보다 짧아요. 짧아도 동작은 하지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워지니 10자 이상을 권해요.');
   return w;
 }
@@ -586,7 +588,7 @@ function csv(v) { return String(v || '').split(',').map(s => s.trim()).filter(Bo
  * 마스터 비밀번호는 여기서 보지 않는다. 마스터 비밀번호를 받는 곳은 로그인(keeperLogin) 하나뿐이다. */
 function roleOf(pw, kt) {
   if (kt && tokenOk(kt)) return 'keeper';
-  if (pw === ROOM_PW) return 'room';
+  if (pw != null && pw !== '' && pw === roomPw()) return 'room';
   return null;
 }
 
@@ -617,6 +619,8 @@ function doPost(e) {
   let b;
   try { b = JSON.parse(e.postData.contents); } catch (err) { return out({ ok: false, error: '잘못된 요청' }); }
   try {
+    // 로비의 ⚙ 설정: 방 비밀번호 없이 마스터 비밀번호만으로 로그인 (틀린 횟수 잠금은 keeperLogin이 그대로 한다)
+    if (b.action === 'hubLogin') return out(keeperLogin(b.kpw));
     const who = roleOf(b.pw, b.kt);
     if (!who) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
     // ── 플레이어 누구나
@@ -648,6 +652,8 @@ function doPost(e) {
       case 'setRule':    return out(setRule(b.rule));
       case 'tokenUsage': return out(Object.assign({ ok: true }, tokenUsage()));
       case 'hubSave':    return out(hubSave(b.rooms));
+      case 'hubGet':     return out({ ok: true, rooms: hubClean(confJson('hubRooms', [])), title: roomTitle(), self: ScriptApp.getService().getUrl() || '' });
+      case 'hubNewRoom': return out(hubNewRoom(b.name, b.rule, b.pw));
       case 'newRoom':    return out(newRoom(b.name, b.rule));
       case 'newSession': return out(newSession());
       case 'tabs':       return out(listTabs(b.url));
@@ -724,7 +730,7 @@ function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 function roomTitle() { try { return bareRoomName(SpreadsheetApp.getActive().getName()).slice(0, 40); } catch (e) { return ''; } }
 /* 새 방: 이 스프레드시트를 복사한다 (붙어 있는 Apps Script도 같이 복사됨). 복사본에서 앱 기록 탭을 모두 비우고 룰만 정해 둔다.
  * 지금 방의 기록은 그대로 남는다. 복사본은 주인이 한 번 열어서 setup 실행 → 웹 앱 배포를 해야 쓸 수 있다 (구글 정책상 자동으로는 못 함). */
-function newRoom(name, rule) {
+function newRoom(name, rule, pw) {
   name = String(name || '').trim().slice(0, 40);
   if (!name) return { ok: false, error: '새 방 이름을 적어 주세요' };
   rule = RULES[rule] ? rule : ruleKey();
@@ -733,8 +739,10 @@ function newRoom(name, rule) {
   const c = SpreadsheetApp.openById(f.getId());
   Object.keys(SH).forEach(k => { const sh = c.getSheetByName(SH[k]); if (sh) sh.clear(); });     // 대화·요약·정리·마스터 자료·토큰기록 등 앱 탭은 모두 비운다
   const cs = c.getSheetByName(SH.CONF);
-  if (cs) cs.getRange(1, 1, 3, 2).setNumberFormat('@').setValues([['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]]);
-  return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name,
+  const rows = [['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]];
+  if (pw) rows.push(['roomPw', enc(String(pw))]);                  // 로비에서 정한 방 비밀번호 (Code.gs의 ROOM_PW보다 우선)
+  if (cs) cs.getRange(1, 1, rows.length, 2).setNumberFormat('@').setValues(rows);
+  return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name, ruleKey: rule,
     message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
 }
 function setRule(k) {
@@ -747,12 +755,28 @@ function setRule(k) {
 /* ───────────── 로비: 이 방을 "로비"로 쓰면, 여기에 다른 방 목록을 적어 둔다 ─────────────
  * [{name, rule, url}] 최대 30개. 방 비밀번호는 적지 않는다 (들어갈 때 각자 입력). */
 const HUB_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec$/;
+const SHEET_URL_RE = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_\-]{20,}(?:\/[^\s"'<>]*)?$/;
+// url: 방의 웹 앱 주소 (아직 배포 전이면 빈칸) · sheet: 그 방의 구글 시트 주소 (마스터에게만 보낸다)
 function hubClean(list) {
-  return (Array.isArray(list) ? list : []).filter(x => x && typeof x === 'object' && HUB_URL_RE.test(String(x.url || '')))
-    .map(x => ({ name: String(x.name || '').trim().slice(0, 40) || '이름 없는 방', rule: RULES[x.rule] ? x.rule : 'etc', url: String(x.url) }))
-    .filter((x, i, a) => a.findIndex(y => y.url === x.url) === i).slice(0, 30);
+  return (Array.isArray(list) ? list : []).filter(x => x && typeof x === 'object')
+    .map(x => ({ name: String(x.name || '').trim().slice(0, 40) || '이름 없는 방', rule: RULES[x.rule] ? x.rule : 'etc',
+                 url: HUB_URL_RE.test(String(x.url || '')) ? String(x.url) : '', sheet: SHEET_URL_RE.test(String(x.sheet || '')) ? String(x.sheet) : '' }))
+    .filter(x => x.url || x.sheet)
+    .filter((x, i, a) => a.findIndex(y => (x.url && y.url === x.url) || (!x.url && x.sheet && y.sheet === x.sheet)) === i).slice(0, 30);
 }
-function hubList() { return { ok: true, title: roomTitle(), rooms: hubClean(confJson('hubRooms', [])), rules: Object.keys(RULES).map(k => ({ key: k, abbr: RULES[k].abbr, name: RULES[k].name })) }; }
+function hubList() { return { ok: true, title: roomTitle(), rule: ruleKey(), rooms: hubClean(confJson('hubRooms', [])).filter(x => x.url).map(x => ({ name: x.name, rule: x.rule, url: x.url })), rules: Object.keys(RULES).map(k => ({ key: k, abbr: RULES[k].abbr, name: RULES[k].name })) }; }
+// 로비에서 방 개설: 이 시트를 복사해 새 방을 만들고(newRoom), 방 비밀번호를 새 시트의 설정에 넣고, 로비 목록에 "배포 대기"로 올린다
+function hubNewRoom(name, rule, pw) {
+  pw = String(pw || '').trim();
+  if (!pw) return { ok: false, error: '새 방 비밀번호를 정해 주세요' };
+  if (pw === KEEPER_PW) return { ok: false, error: '방 비밀번호는 마스터 비밀번호와 달라야 해요' };
+  const r = newRoom(name, rule, pw);
+  if (!r.ok) return r;
+  const rooms = hubClean(confJson('hubRooms', []));
+  rooms.push({ name: r.name, rule: r.ruleKey, url: '', sheet: r.url });
+  const saved = hubSave(rooms);
+  return Object.assign(r, { rooms: saved.rooms });
+}
 function hubSave(list) {
   const rooms = hubClean(list);
   withLock(20000, () => setJson('hubRooms', rooms));
@@ -2101,7 +2125,7 @@ function sha(s) {
   return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s), Utilities.Charset.UTF_8));
 }
 function tokenOk(kt) {
-  if (!kt || ROOM_PW === KEEPER_PW) return false;
+  if (!kt || roomPw() === KEEPER_PW) return false;
   const h = sha(kt), t = Date.now();
   return confJson('ktokens', []).some(x => x && x.h === h && Number(x.exp) > t);
 }
@@ -2110,7 +2134,7 @@ function tokenOk(kt) {
  *  - 세는 일을 잠금 안에서 하므로 여러 요청이 동시에 틀려도 횟수가 빠지지 않는다.
  *  - 10분 안에 K_FAIL_MAX번 틀리면 비밀번호 로그인만 10분 잠근다. 이미 로그인한 마스터(토큰)는 영향을 받지 않는다. */
 function keeperLogin(kpw) {
-  if (ROOM_PW === KEEPER_PW) return { ok: false, error: '방 비밀번호와 마스터 비밀번호가 같아서 마스터 기능이 잠겨 있어요. Code.gs 맨 위에서 서로 다르게 바꾸고 다시 배포해 주세요' };
+  if (roomPw() === KEEPER_PW) return { ok: false, error: '방 비밀번호와 마스터 비밀번호가 같아서 마스터 기능이 잠겨 있어요. Code.gs 맨 위에서 서로 다르게 바꾸고 다시 배포해 주세요' };
   const kt = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
   return withLock(20000, () => {
     const c = CacheService.getScriptCache(), t = Date.now();
