@@ -2052,7 +2052,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.13';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.14';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -3331,8 +3331,9 @@ function settingsPanel(){
     const b1 = el('button', 'pri', '＋ 방 개설'); b1.onclick = newRoomForm;
     const b2 = el('button', '', '기존 방 추가'); b2.onclick = () => connectForm(-1);
     const b3 = el('button', '', '🔗 로비 링크 복사'); b3.onclick = async () => { try { await navigator.clipboard.writeText(lobbyLink()); toast('로비 링크를 복사했어요'); } catch (_) { prompt('이 링크를 복사해 보내 주세요', lobbyLink()); } };
+    const b5 = el('button', '', '🔑 마스터 비밀번호'); b5.onclick = keeperPwForm;
     const b4 = el('button', '', '로그아웃'); b4.onclick = () => { L.kt = ''; SS.del('t_hubkt'); sheetClose(); lobbyLoad(); };
-    row.append(b1, b2, b3, b4); s.append(row);
+    row.append(b1, b2, b3, b5, b4); s.append(row);
     const list = el('div'); list.style.marginTop = '14px'; s.append(list);
     if (!L.rooms.length) list.append(el('div', 'note', '아직 방이 없어요. "＋ 방 개설"로 만들어 보세요.'));
     L.rooms.forEach((r, i) => {
@@ -3342,6 +3343,7 @@ function settingsPanel(){
       const bt = el('div', 'row'); bt.style.gap = '4px';
       const mk = (txt, f) => { const b = el('button', '', txt); b.style.cssText = 'padding:6px 9px;font-size:12px'; b.onclick = f; bt.append(b); };
       mk(r.url ? '주소 바꾸기' : '주소 연결', () => connectForm(i));
+      if (r.url) mk('🔑 비밀번호', () => roomPwForm(i));
       if (r.sheet) mk('시트', () => window.open(r.sheet, '_blank'));
       mk('이름', async () => { const v = prompt('방 이름 (로비에 보이는 이름)', r.name); if (v && v.trim()) { const a = L.rooms.slice(); a[i] = Object.assign({}, r, { name: v.trim().slice(0, 40) }); if (await hubSaveRooms(a)) settingsPanel(); } });
       mk('빼기', async () => { if (!confirm('"' + r.name + '"을 로비에서 뺄까요? (시트와 기록은 지워지지 않아요)')) return; if (await hubSaveRooms(L.rooms.filter((_, j) => j !== i))) settingsPanel(); });
@@ -3408,6 +3410,87 @@ function connectForm(i){
         if (await hubSaveRooms(a)) { toast(res.ok ? '연결했어요' : '연결했어요 (그 방의 Code.gs가 예전 판이면 최신으로 바꿔 주세요)'); settingsPanel(); }
         else { go.disabled = false; msg.err('저장하지 못했어요'); }
       } catch (e) { msg.err('그 주소에 연결하지 못했어요. 배포할 때 액세스를 "모든 사용자"로 했는지 확인해 주세요'); go.disabled = false; }
+    };
+  });
+}
+/* 비밀번호 바꾸기 (유출됐을 때). 방마다 시트가 따로라서, 이 화면이 방마다 마스터 로그인(hubLogin) → setPw를 차례로 보낸다.
+ * 바뀐 값은 각 방 시트의 설정 탭에 들어가서 Code.gs를 다시 배포하지 않아도 바로 적용된다. */
+async function roomCall(url, b){ return (await fetch(url, { method: 'POST', body: JSON.stringify(b) })).json(); }
+async function roomSetPw(url, kpw, patch){
+  let r;
+  try { r = await roomCall(url, { action: 'hubLogin', kpw }); } catch (e) { return { ok: false, error: '연결하지 못했어요' }; }
+  if (!r || !r.ok) {
+    // 마스터 비밀번호를 바꾸다 중간에 끊겼으면, 이 방은 이미 새 비밀번호일 수 있다
+    if (patch.keeper && r && !r.locked) { try { const r2 = await roomCall(url, { action: 'hubLogin', kpw: patch.keeper }); if (r2 && r2.ok) return { ok: true, already: true }; } catch (_) {} }
+    return { ok: false, error: (r && r.error) || 'Code.gs가 예전 판이에요' };
+  }
+  let x;
+  try { x = await roomCall(url, Object.assign({ action: 'setPw', kt: r.kt, kpw }, patch)); } catch (e) { return { ok: false, error: '연결하지 못했어요' }; }
+  if (x && x.error === '알 수 없는 요청') return { ok: false, error: 'Code.gs가 예전 판이에요 (11-20.14 이상으로 바꿔 주세요)' };
+  try { if (x && x.ok && !patch.keeper) roomCall(url, { action: 'klogout', kt: r.kt }); } catch (_) {}
+  return x || { ok: false, error: '응답이 없어요' };
+}
+function rememberRoomPw(url, pw){        // 이 기기에 저장된 그 방 비밀번호도 새것으로
+  url = scriptUrl(url);
+  const a = roomsGet(); let hit = false;
+  a.forEach(x => { if (scriptUrl(x.url) === url) { x.pw = pw; hit = true; } });
+  if (hit) roomsSet(a);
+  if (cfg.url === url) { cfg.pw = pw; S.set('t_pw', pw); }
+}
+function roomPwForm(i){
+  const r = L.rooms[i]; if (!r || !r.url) return;
+  sheetOpen(s => {
+    s.append(el('h3', '', '🔑 ' + r.name + ' 방 비밀번호 바꾸기'));
+    s.append(el('div', 'note', '바꾸면 예전 비밀번호로 들어와 있던 사람은 바로 막히고, 새 비밀번호로 다시 들어와야 해요. 새 비밀번호는 같이 하는 사람들에게만 따로 알려 주세요.'));
+    const k = field(s, '지금 마스터 비밀번호 (확인용)', 'password');
+    const n = field(s, '새 방 비밀번호 (4자 이상)', 'text');
+    const go = bigBtn(s, '바꾸기'), msg = lmsg(s);
+    go.onclick = async () => {
+      const nv = n.value.trim();
+      if (!k.value || !nv) { msg.err('두 칸을 모두 넣어 주세요'); return; }
+      if (nv.length < 4) { msg.err('방 비밀번호는 4자 이상으로 정해 주세요'); return; }
+      go.disabled = true; msg.ok('바꾸는 중…');
+      const x = await roomSetPw(r.url, k.value, { room: nv });
+      if (!x.ok) { msg.err(x.error || '바꾸지 못했어요'); go.disabled = false; return; }
+      rememberRoomPw(r.url, nv);
+      msg.ok('"' + r.name + '" 방 비밀번호를 바꿨어요');
+      go.textContent = '닫기'; go.disabled = false; go.onclick = settingsPanel;
+    };
+  });
+}
+function keeperPwForm(){
+  sheetOpen(s => {
+    s.append(el('h3', '', '🔑 마스터 비밀번호 바꾸기'));
+    s.append(el('div', 'note', '로비 방과 연결된 모든 방의 마스터 비밀번호를 한 번에 바꿔요. 모든 기기의 마스터 로그인이 끊기니, 새 비밀번호로 다시 로그인해 주세요. 바꾼 뒤에는 Code.gs 맨 위 KEEPER_PW를 고쳐도 소용없어요 (잊어버렸으면 그 방 시트 설정 탭의 keeperPwH 줄을 지우면 Code.gs의 값으로 돌아가요).'));
+    const k = field(s, '지금 마스터 비밀번호', 'password');
+    const n1 = field(s, '새 마스터 비밀번호 (8자 이상, 10자 이상 권장)', 'password');
+    const n2 = field(s, '새 마스터 비밀번호 한 번 더', 'password');
+    const go = bigBtn(s, '모든 방에서 바꾸기'), msg = lmsg(s);
+    const res = el('div'); res.style.cssText = 'margin-top:10px;font-size:13px;line-height:1.7'; s.append(res);
+    go.onclick = async () => {
+      const nv = n1.value;
+      if (!k.value || !nv) { msg.err('칸을 모두 넣어 주세요'); return; }
+      if (nv !== n2.value) { msg.err('새 비밀번호 두 칸이 서로 달라요'); return; }
+      if (nv.length < 8) { msg.err('마스터 비밀번호는 8자 이상으로 정해 주세요'); return; }
+      if (/^\s|\s$/.test(nv)) { msg.err('앞뒤에 빈칸이 있으면 안 돼요'); return; }
+      if (nv === k.value) { msg.err('지금 비밀번호와 같아요'); return; }
+      go.disabled = true; msg.ok('바꾸는 중… (방마다 몇 초씩 걸려요)'); res.innerHTML = '';
+      // 로비 방은 맨 마지막에 (먼저 바꾸면 이 화면의 로그인이 끊긴다)
+      const seen = new Set([scriptUrl(L.hub)]);
+      const targets = L.rooms.filter(r => r.url && !seen.has(scriptUrl(r.url)) && seen.add(scriptUrl(r.url))).map(r => ({ name: r.name, url: r.url }));
+      targets.push({ name: '로비 방' + (L.title ? ' (' + L.title + ')' : ''), url: L.hub });
+      let bad = 0;
+      for (const t of targets) {
+        const line = el('div', '', '… ' + t.name); res.append(line);
+        const x = await roomSetPw(t.url, k.value, { keeper: nv });
+        if (x.ok) line.textContent = '✔ ' + t.name + (x.already ? ' (이미 새 비밀번호였어요)' : '');
+        else { bad++; line.textContent = '✖ ' + t.name + ': ' + (x.error || '바꾸지 못했어요'); line.style.color = '#ffb3ae'; }
+      }
+      if (bad) { msg.err(bad + '곳은 바꾸지 못했어요. 그 방의 Code.gs를 최신으로 바꾼 뒤 다시 눌러 주세요 (이미 바뀐 방은 그대로 넘어가요)'); go.disabled = false; return; }
+      msg.ok('모든 방의 마스터 비밀번호를 바꿨어요. 새 비밀번호로 다시 로그인해 주세요');
+      L.kt = ''; SS.del('t_hubkt');
+      if (cfg.kt) { cfg.kt = ''; try { S.del('t_kt'); SS.del('t_kt'); } catch (_) {} }
+      go.textContent = '다시 로그인'; go.disabled = false; go.onclick = hubLoginForm;
     };
   });
 }
