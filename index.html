@@ -444,8 +444,8 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 #lFx .fx-tag{position:absolute;left:-10px;right:-10px;top:73%;padding:9px 0 8px;background:#f4ece6;color:#111;text-align:center;font:900 17px/1.2 P,system-ui,sans-serif;letter-spacing:.5px;transform:rotate(-8deg);box-shadow:6px 6px 0 #e3222f;animation:fxTag .35s cubic-bezier(.2,.9,.2,1) 1.05s both}
 #lFx .fx-os{position:absolute;left:24px;top:56px;font:800 11px/1.5 ui-monospace,Menlo,monospace;color:#ff9aa1;letter-spacing:1px;animation:fxFade .2s .3s both}
 #lFx .fx-os i{font-style:normal;opacity:0;animation:fxFade .1s both}
-#lFx .fx-guy{position:absolute;right:-4px;bottom:-4px;width:140px;z-index:3;animation:fxGuy .5s cubic-bezier(.2,1.3,.4,1) 1.7s both}
-#lFx .fx-guy .arm{transform-origin:94px 98px;animation:fxThumb .35s ease-in-out 2.2s 6 alternate}
+#lFx .fx-guy{position:absolute;right:10px;bottom:14px;width:118px;z-index:3;animation:fxGuy .5s cubic-bezier(.2,1.3,.4,1) 1.7s both}
+#lFx .fx-guy img{display:block;width:100%;filter:drop-shadow(2px 0 0 #f4ece6) drop-shadow(-2px 0 0 #f4ece6) drop-shadow(0 2px 0 #f4ece6) drop-shadow(0 -2px 0 #f4ece6) drop-shadow(6px 6px 0 #e3222f);transform-origin:50% 100%;animation:fxThumb .4s ease-in-out 2.2s 6 alternate}
 #lFx .fx-say{position:absolute;left:18px;bottom:64px;z-index:3;max-width:200px;padding:9px 12px;background:#fff;color:#111;border:3px solid #111;font:900 14px/1.35 P,system-ui,sans-serif;transform:rotate(-6deg);white-space:pre-line;box-shadow:5px 5px 0 #e3222f;animation:fxPop .3s cubic-bezier(.3,1.7,.5,1) 2.25s both}
 #lFx .fx-say::after{content:'';position:absolute;right:-22px;top:14px;border:9px solid transparent;border-left:16px solid #111}
 #lFx .fx-os b{color:#fff}
@@ -456,7 +456,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 @keyframes fxDrop{from{opacity:0;translate:0 -40px;scale:1.8}to{opacity:1;translate:0 0;scale:1}}
 @keyframes fxTag{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
 @keyframes fxGuy{from{transform:translateX(130%) rotate(14deg)}to{transform:none}}
-@keyframes fxThumb{from{transform:rotate(0)}to{transform:rotate(-14deg)}}
+@keyframes fxThumb{from{transform:rotate(0)}to{transform:rotate(-4deg) translateY(-5px)}}
 @keyframes fxPop{from{opacity:0;scale:.3}to{opacity:1;scale:1}}
 @keyframes fxPulse{from{transform:scale(1) rotate(-6deg)}to{transform:scale(1.06) rotate(-4deg)}}
 @keyframes fxFade{from{opacity:0}to{opacity:1}}
@@ -4011,22 +4011,6 @@ const FX_TRI = (() => {
   <path d="M127 34 L224 212 L30 212 Z" fill="#000"/><path d="M115 22 L212 200 L18 200 Z" fill="#e3222f" stroke="#f4ece6" stroke-width="10" stroke-linejoin="round"/>
   <g clip-path="url(#fxc)">${ln}</g></svg>`;
 })();
-// 삼각두 요원: 삼각형 머리에 남색 정장, 엄지 척
-const FX_GUY = `<svg viewBox="0 0 120 220">
-  <g stroke="#111" stroke-width="3" stroke-linejoin="round">
-  <path d="M38 166 L36 210 L54 210 L58 170 Z M62 170 L66 210 L84 210 L82 166 Z" fill="#1d1a3a"/>
-  <path d="M30 208 h26 v8 h-30 Z M64 208 h26 l4 8 h-30 Z" fill="#111"/>
-  <path d="M28 92 Q60 80 92 92 L98 172 L22 172 Z" fill="#2b2556"/>
-  <path d="M50 88 L60 112 L70 88 Z" fill="#fff"/>
-  <path d="M57 93 h6 l2 26 l-5 8 l-5 -8 Z" fill="#e3222f"/>
-  <path d="M50 88 L44 118 L58 108 Z M70 88 L76 118 L62 108 Z" fill="#3a3270"/>
-  <path d="M30 96 L18 150" stroke="#2b2556" stroke-width="15" stroke-linecap="round"/><circle cx="18" cy="153" r="7" fill="#f2c9a5"/>
-  <g class="arm"><path d="M92 98 L108 128 L104 98" fill="none" stroke="#2b2556" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="95" y="68" width="9" height="24" rx="4.5" fill="#f2c9a5" transform="rotate(-12 99 90)"/>
-  <rect x="96" y="86" width="22" height="19" rx="5" fill="#f2c9a5"/><path d="M104 91 H117 M104 95.5 H117 M104 100 H117" stroke-width="2"/></g>
-  <path d="M64 12 L100 80 L28 80 Z" fill="#000" stroke="none"/>
-  <path d="M60 6 L96 74 L24 74 Z" fill="#e3222f" stroke="#f4ece6" stroke-width="5"/>
-  </g></svg>`;
 function unlock(){
   const lk = $('lLock'); if (lk.classList.contains('lb-up') || $('lFx')) return;
   let reduce = false; try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) {}
@@ -4036,7 +4020,7 @@ function unlock(){
   const os = el('div', 'fx-os'); os.innerHTML = 'AGENCY OS v3.0<br>&gt; 요원 확인 중… <i style="animation-delay:.9s"><b>승인</b></i><br><i style="animation-delay:1.5s">&gt; 출근 기록 완료</i><br><i style="animation-delay:2.4s">&gt; 오늘도 지켜보고 있어요</i>';
   const tri = el('div', 'fx-tri'); tri.innerHTML = FX_TRI;
   fx.append(el('div', 'fx-dots'), el('div', 'fx-band b1'), el('div', 'fx-band b2'), el('div', 'fx-band b3'), el('div', 'fx-band b4'), os, tri, word, el('div', 'fx-tag', '출근하세요. 세계를 구하세요.'));
-  const guy = el('div', 'fx-guy'); guy.innerHTML = FX_GUY; fx.append(guy, el('div', 'fx-say', '좋은 하루예요, 요원님!\n오늘도 현실을 지켜 주세요 👍'));
+  const guy = el('div', 'fx-guy'); guy.innerHTML = '<img src="agent.png?v=1" alt="">'; fx.append(guy, el('div', 'fx-say', '좋은 하루예요, 요원님!\n오늘도 현실을 지켜 주세요 👍'));
   $('lScreen').append(fx);
   const done = () => { lk.classList.add('lb-up'); };
   const t1 = setTimeout(done, 4350), t2 = setTimeout(() => fx.remove(), 5100);
