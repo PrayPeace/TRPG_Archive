@@ -469,7 +469,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 @keyframes fxSlam{from{opacity:0;transform:rotate(-7deg) scale(2.2)}60%{opacity:1}to{opacity:1;transform:rotate(-7deg) scale(1)}}
 #lFx .fx-os{position:absolute;left:18px;top:52px;z-index:2;padding:7px 10px;background:rgba(0,0,0,.72);border-left:3px solid #e3222f;font:800 12.5px/1.6 ui-monospace,Menlo,monospace;color:#ffc2c6;letter-spacing:.5px;text-shadow:0 1px 2px #000;animation:fxFade .2s .3s both}
 #lFx .fx-os i{font-style:normal;opacity:0;animation:fxFade .1s both}
-#lFx .fx-guy{position:absolute;left:50%;bottom:-60px;width:300px;margin-left:-204px;z-index:3;transform-origin:68% 100%;animation:fxCreep 4.2s cubic-bezier(.45,0,.25,1) 1.2s both}
+#lFx .fx-guy{position:absolute;left:50%;bottom:-60px;width:300px;margin-left:-159px;z-index:3;transform-origin:53% 100%;animation:fxCreep 4.2s cubic-bezier(.45,0,.25,1) 1.2s both}
 #lFx .fx-guy img{display:block;width:100%;filter:drop-shadow(1.5px 0 0 rgba(244,236,230,.8)) drop-shadow(-1.5px 0 0 rgba(244,236,230,.8)) drop-shadow(0 -1.5px 0 rgba(244,236,230,.8)) drop-shadow(0 0 18px rgba(227,34,47,.6))}
 #lFx .fx-os b{color:#fff}
 #lFx.fx-skip,#lFx.fx-skip *{animation-duration:.01s!important;animation-delay:0s!important}
@@ -2502,7 +2502,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.14';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.15';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
