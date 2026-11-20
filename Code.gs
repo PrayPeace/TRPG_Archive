@@ -7,7 +7,8 @@
  * ※ 마스터 비밀번호는 10자 이상을 권합니다. 짧아도 동작하지만 화면과 실행 로그에 경고가 나옵니다.
  *
  * 1) 아래 네 줄에 키와 비밀번호를 넣는다. (따옴표 '' 안에)
- * 2) 위쪽 함수 선택에서 setup 을 고르고 ▶실행 (권한 허용).
+ * 2) 위쪽 함수 선택에서 setup 을 고르고 ▶실행 (권한 허용). 새 방이면 아래 RULE 줄에서 룰을 먼저 고른다.
+ *    (이미 쓰던 방에 코드를 새로 붙였다면 setup 대신 fixTrigger 를 한 번 실행해도 5분마다 자동 정리가 맞춰진다)
  *    코드를 새로 붙여 넣었을 때도 setup 을 한 번 실행한다. (기존 기록은 그대로 두고 빠진 칸만 채움)
  * 3) 배포 → 새 배포 → 웹 앱 / 실행: 나 / 액세스: 모든 사용자 → 배포.
  *    코드를 고친 뒤에는 배포 → 배포 관리 → 연필 → 버전: 새 버전 → 배포.
@@ -19,8 +20,29 @@ const DEEPGRAM_KEY = '여기에_딥그램_API_키';
 const ROOM_PW      = '방비밀번호';      // 플레이어 모두가 아는 비밀번호
 const KEEPER_PW    = '키퍼비밀번호';    // 마스터만 아는 비밀번호
 
+// 새 방을 만들 때 어떤 룰로 진행할지 고른다 (아래 RULES의 이름 중 하나). 이미 만든 방은 마스터 탭에서 바꿀 수 있다.
+const RULE = 'coc';
+const RULES = {
+  coc:       { name: '크툴루의 부름', pc: '탐사자', en: 'INVESTIGATOR', hint: '',
+               gloss: '요그소토스, 틴달로스의 사냥개, 크툴루, 니알라토텝, 아자토스, 슈브니구라스, 네크로노미콘, 이성 판정' },
+  triangle:  { name: '트라이앵글 에이전시', pc: '요원', en: 'AGENT',
+               hint: '이 세션은 트라이앵글 에이전시 룰이다. 플레이어 캐릭터는 "요원"이라 부른다. 룰 용어와 설정은 대화에 나온 것만 적고, 알고 있다고 짐작해서 보태지 마라. ',
+               gloss: '트라이앵글 에이전시, 요원, 이상 현상' },
+  unlimited: { name: '언리미티드 월드', pc: '캐릭터', en: 'CHARACTER',
+               hint: '이 세션은 언리미티드 월드 룰이다. 룰 용어와 설정은 대화에 나온 것만 적고, 짐작해서 보태지 마라. ',
+               gloss: '언리미티드 월드' },
+  shinobi:   { name: '시노비가미', pc: '닌자', en: 'SHINOBI',
+               hint: '이 세션은 시노비가미 룰이다. 플레이어 캐릭터는 "닌자"라 부른다. 비밀·사명·인연·감정·유파·닌법 같은 룰 용어는 대화에 나온 그대로 적고, 나오지 않은 설정은 보태지 마라. ',
+               gloss: '시노비가미, 닌법, 유파, 비밀, 사명, 인연' },
+  etc:       { name: '기타 TRPG', pc: '캐릭터', en: 'CHARACTER', hint: '', gloss: '' }
+};
+function ruleKey() { const k = String(getConf('rule') || RULE); return RULES[k] ? k : 'coc'; }
+function R() { return RULES[ruleKey()]; }
+function ruleInfo() { const r = R(); return { key: ruleKey(), name: r.name, pc: r.pc, en: r.en, list: Object.keys(RULES).map(k => ({ key: k, name: RULES[k].name })) }; }
+function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).replace(/탐사자/g, pc); }     // 프롬프트의 "탐사자"를 룰에 맞는 말로 (대화 원문에는 쓰지 않는다)
+
 const MODEL = 'claude-sonnet-5-5';
-const CODE_VER = '2026-11-19.3';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.2';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -28,11 +50,14 @@ const SH = {
   // 아래 넷은 마스터 전용: 플레이어에게 가는 응답과 공개 기록용 AI(요약·정정·이미지 분석)는 절대 읽지 않는다
   KB: '키퍼자료', KSRC: '키퍼원문', KLOG: '키퍼기록', ROLLS: '판정기록'
 };
-const SECTIONS = ['places', 'npcs', 'clues', 'handouts'];
+const SECTIONS = ['places', 'npcs', 'pcs', 'clues', 'handouts'];
 
 const JOB_TTL = 7 * 60 * 1000;   // AI 작업 표시가 남아 있어도 이 시간이 지나면 끝난 것으로 본다 (스크립트 최대 실행 6분)
-const WINDOW_LINES = 300;        // 요약 한 번에 보내는 최대 줄 수 (넘으면 이어서 다음 구간). AI 답이 길어지면 늦거나 잘리므로 작게 잡는다
-const STORY_MAX = 3000;          // 누적 줄거리가 이보다 길어지면 AI가 한 번 줄여 쓴다
+const WINDOW_LINES = 120;        // 요약 한 번에 보내는 최대 줄 수 (넘으면 이어서 다음 구간). AI 답이 길어지면 늦거나 잘리므로 작게 잡는다
+const WINDOW_CHARS = 12000;       // 한 구간의 글자 수 상한 (묘사가 길면 줄 수가 적어도 여기서 끊어 나눠 처리한다)
+const NOTES_Q_MAX = 80;          // 정리(NPC·장소·단서) 대기 최대 건수
+const STORY_MAX = 3000;
+const STORY_REF = 900;           // 요약 AI에 참고로 주는 누적 줄거리는 끝부분만 (길이와 호출 무게를 줄이려고)          // 누적 줄거리가 이보다 길어지면 AI가 한 번 줄여 쓴다
 const KTOKEN_TTL = 12 * 3600 * 1000;   // 마스터 로그인 유지 시간
 const K_FAIL_MAX = 20;                 // 10분 안에 비밀번호를 이만큼 틀리면
 const K_LOCK_MS = 10 * 60 * 1000;      // 이 시간 동안 비밀번호 로그인을 잠근다 (이미 로그인한 마스터는 영향 없음)
@@ -80,6 +105,12 @@ function dec(v) { return (typeof v === 'string' && v.charAt(0) === SAFE_MARK) ? 
 function decS(v) { return dec(v == null ? '' : String(v)); }
 
 /* ───────────── 설치 ───────────── */
+// 자동 정리 트리거(5분마다)만 다시 건다. 다른 설정은 건드리지 않는다. 트리거만 바꾸고 싶을 때 이것만 실행해도 된다.
+function fixTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => { const h = t.getHandlerFunction(); if (h === 'tick' || h === 'tickMore') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('tick').timeBased().everyMinutes(5).create();
+  Logger.log('자동 정리 트리거를 5분마다로 설정했어요');
+}
 function setup() {
   const ss = SpreadsheetApp.getActive();
   const make = (name, header) => {
@@ -105,10 +136,10 @@ function setup() {
 
   const defaults = {
     session: '1', processedId: '0', story: '', notesVer: '1', charVer: '1', imgVer: '1', sumVer: '1',
-    glossary: '요그소토스, 틴달로스의 사냥개, 크툴루, 니알라토텝, 아자토스, 슈브니구라스, 네크로노미콘, 이성 판정',
+    glossary: (RULES[RULE] || RULES.coc).gloss, rule: RULE,
     charUrl: '', charMap: '[]', lastCharCheck: '0', keeperName: '', resetVer: '1', colors: '{}', corrections: '[]',
     colorVer: '1', job: '', pending: '', procStatus: '', notesSlot: 'A',
-    kbSlot: 'A', kbGen: '1', kVer: '1', ktokens: '[]', recap: '', awards: '', charLast: '{}', sessionAt: '0'
+    notesQ: '', kbSlot: 'A', kbGen: '1', kVer: '1', ktokens: '[]', recap: '', awards: '', charLast: '{}', sessionAt: '0'
   };
   confLoad(true);
   Object.keys(defaults).forEach(k => { if (getConf(k) === null) setConf(k, defaults[k]); });
@@ -123,9 +154,7 @@ function setup() {
     L.getRange(2, 6, last - 1, 1).setNumberFormat('@').setValues(f);
   }
 
-  // 10분 자동 정리 트리거만 다시 건다 (다른 트리거는 건드리지 않음)
-  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'tick') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('tick').timeBased().everyMinutes(10).create();
+  fixTrigger();
 
   // 외부 요청·캐시 권한을 미리 받아 두기 위한 호출
   UrlFetchApp.fetch('https://api.anthropic.com', { muteHttpExceptions: true });
@@ -178,11 +207,14 @@ function now() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:s
 function sheet(name) { return SpreadsheetApp.getActive().getSheetByName(name); }
 
 // 짧게 잠그고 바로 푼다. 잠금 안에서 쓴 내용은 풀기 전에 시트에 확정한다.
-let _lockDepth = 0;
+let _lockDepth = 0, _lockPatient = false;
 function withLock(ms, fn) {
   if (_lockDepth > 0) return fn();                       // 이미 이 실행이 잠금을 잡고 있다: 그대로 이어서 실행
   const l = LockService.getScriptLock();
-  if (!l.tryLock(ms)) throw new Error('다른 저장 작업이 몰려 있어요. 잠시 뒤 다시 시도해 주세요');
+  // 요약 실행은 대화 저장이 몰려도 쉽게 포기하지 않는다 (잠금을 못 잡으면 잠깐 쉬고 몇 번 더 시도)
+  let got = l.tryLock(ms);
+  for (let i = 0; !got && _lockPatient && i < 3; i++) { Utilities.sleep(1500 + i * 1500); got = l.tryLock(ms); }
+  if (!got) throw new Error('다른 저장 작업이 몰려 있어요. 잠시 뒤 다시 시도해 주세요');
   _lockDepth = 1;
   try { confLoad(true); const r = fn(); SpreadsheetApp.flush(); return r; }
   finally { _lockDepth = 0; l.releaseLock(); }
@@ -193,6 +225,25 @@ function liveJob() {
   const j = confJson('job', null);
   return j && Date.now() - Number(j.at || 0) < JOB_TTL ? j : null;
 }
+// ── 진행 표시: 지금 무슨 일을 하는지와 퍼센트를 캐시에 적어 둔다 (잠금·시트를 쓰지 않는다)
+let _prog = null;                                   // 이번 실행의 계산 기준
+function setProg(job, label, pct, next, detail) {
+  try {
+    if (!job) return;
+    const c = CacheService.getScriptCache();
+    let old = null; try { old = JSON.parse(c.get('prog') || 'null'); } catch (e) {}
+    pct = Math.max(0, Math.min(99, Math.round(pct)));
+    if (old && old.token === job.token && old.pct > pct) pct = old.pct;             // 뒤로 가지 않는다
+    c.put('prog', JSON.stringify({ token: job.token, label, detail: detail || '', pct, next: Math.max(pct, Math.min(99, Math.round(next == null ? pct : next))) }), 600);
+  } catch (e) {}
+}
+function getProg(job) {
+  try { const o = JSON.parse(CacheService.getScriptCache().get('prog') || 'null'); return o && job && o.token === job.token ? { label: o.label, detail: o.detail, pct: o.pct, next: o.next } : null; } catch (e) { return null; }
+}
+function clearProg() { try { CacheService.getScriptCache().remove('prog'); } catch (e) {} }
+// 요약 단계는 3~55%, NPC·장소·단서 정리는 55~93%, 마무리는 93~100%
+function pSum(extra) { const l0 = Math.max(1, _prog && _prog.l0 || 1); return 3 + 52 * Math.min(1, ((_prog ? _prog.lines : 0) + (extra || 0)) / l0); }
+function pNotes(done, step) { const b = _prog || { nb: 55, ns: 38 }; const q = notesQ().length; return b.nb + b.ns * Math.min(1, (done + (step || 0)) / Math.max(1, done + q)); }
 function acquireJob(kind, waitMs) {
   const until = Date.now() + (waitMs || 0);
   while (true) {
@@ -202,7 +253,7 @@ function acquireJob(kind, waitMs) {
       setJson('job', j);
       return j;
     });
-    if (job || Date.now() > until) return job;
+    if (job || Date.now() >= until) return job;
     Utilities.sleep(3000);
   }
 }
@@ -212,6 +263,7 @@ function jobAlive(job) {
   return !!j && j.token === job.token && (getConf('resetVer') || '0') === job.rv;
 }
 function releaseJob(job) {
+  clearProg();
   try { withLock(20000, () => { const j = confJson('job', null); if (j && j.token === job.token) setJson('job', null); }); } catch (e) {}
 }
 function setStatus(o) {
@@ -219,7 +271,7 @@ function setStatus(o) {
 }
 
 /* ───────────── 정리(장소·NPC·단서·핸드아웃) ───────────── */
-function emptyNotes() { return { places: [], npcs: [], clues: [], handouts: [], deleted: {} }; }
+function emptyNotes() { return { places: [], npcs: [], pcs: [], clues: [], handouts: [], deleted: {} }; }
 function newId() { return 'n' + Utilities.getUuid().replace(/-/g, '').slice(0, 10); }
 function itemKey(sec, x) {
   const k = sec === 'clues' ? x.text : sec === 'handouts' ? x.title : x.name;
@@ -277,6 +329,17 @@ function readNotes() {
 }
 function writeNotes(n) { blobWrite(SH.NOTES, 'notesSlot', n); }
 // AI에게 보낼 때: 근거 ID·사진 주소처럼 AI에게 필요 없는 칸은 빼서 토큰을 아낀다
+// 정리 AI에 줄 현재 정리: 이번 대화에 이름이 나온 항목만 전체, 나머지는 이름표(id+이름)만. 단서는 앞부분만. (길어질수록 무거워지는 것을 막는다)
+function notesForAiLite(n, transcript) {
+  const t = String(transcript || '');
+  const hit = x => [x.name, x.player, x.title].some(v => { v = String(v || '').trim(); return v.length >= 2 && t.indexOf(v) >= 0; });
+  const strip = x => { const y = Object.assign({}, x); delete y.src; delete y.img; delete y.editedAt; if (!y.locked) delete y.locked; return y; };
+  const o = {};
+  ['places', 'npcs', 'pcs', 'handouts'].forEach(sec => { o[sec] = (n[sec] || []).map(x => hit(x) ? strip(x) : (sec === 'handouts' ? { id: x.id, title: x.title } : { id: x.id, name: x.name, locked: x.locked ? true : undefined })); });
+  o.clues = (n.clues || []).slice(-40).map(x => ({ id: x.id, text: String(x.text || '').slice(0, 70), status: x.status, locked: x.locked ? true : undefined }));
+  o.deleted = n.deleted || {};
+  return JSON.stringify(o);
+}
 function notesForAi(n) {
   const o = {};
   SECTIONS.forEach(s => {
@@ -324,7 +387,7 @@ function mergeNotes(base, ai, human) {
 function mergeWriteNotes(aiNotes, human) { writeNotes(mergeNotes(readNotes(), aiNotes, human)); bump('notesVer'); }
 function saveAiNotes(aiNotes, human) { withLock(30000, () => mergeWriteNotes(aiNotes, human)); }
 
-const NOTE_FIELDS = ['name', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'kind', 'title', 'img', 'age', 'affil'];
+const NOTE_FIELDS = ['name', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'kind', 'title', 'img', 'age', 'affil', 'player'];
 function noteSave(sec, item) {
   if (SECTIONS.indexOf(sec) < 0 || !item) return { ok: false, error: '잘못된 항목' };
   return withLock(20000, () => {
@@ -364,21 +427,112 @@ function noteImage(sec, id, data) {
     return { ok: true, url };
   });
 }
-function noteUnlock(sec, id) {
-  return withLock(20000, () => {
+// 대기열을 지금 처리해 본다. 요약이 돌고 있으면 기다리지 않고 1분 뒤 이어서 하도록 예약한다.
+function runQueueNow() {
+  let job = null;
+  try { job = acquireJob('notes', 0); } catch (e) {}
+  if (!job) { scheduleMore(); return { busy: true }; }
+  let r = null, msg = '';
+  _prog = { job, l0: 0, lines: 0, nb: 5, ns: 90 };
+  try { _lockPatient = true; r = processNotesQueue(job, Date.now(), 100000); } catch (e) { msg = String(e && e.message || e).slice(0, 160); }
+  releaseJob(job); _lockPatient = false; _prog = null;
+  confLoad(true);
+  return { r, msg, stale: !!(r && r.stale) };
+}
+const NOTE_KEYF = { npcs: 'name', places: 'name', pcs: 'name', clues: 'text', handouts: 'title' };
+// "AI에게 맡기기": 마스터가 적어 둔 입력을 먼저 그대로 저장하고(🔒 없이), 그 항목을 AI가 대화에서 다시 읽고 보강하게 한다.
+// 입력은 AI 결과와 상관없이 항상 남는다. (저장하지 않은 입력이 있는 창에서 눌러도 사라지지 않게)
+function noteHandoff(sec, item) {
+  if (SECTIONS.indexOf(sec) < 0 || !item) return { ok: false, error: '잘못된 항목' };
+  const kf = NOTE_KEYF[sec];
+  if (!String(item[kf] || '').trim()) return { ok: false, error: (sec === 'clues' ? '내용' : sec === 'handouts' ? '제목' : '이름') + '을(를) 적어 주세요' };
+  const id = withLock(20000, () => {
     const n = readNotes() || emptyNotes();
-    (n[sec] || []).forEach(x => { if (x.id === id) x.locked = false; });
+    const clean = {};
+    NOTE_FIELDS.forEach(k => { if (item[k] != null && k !== 'img') clean[k] = String(item[k]).slice(0, 4000); });
+    clean.locked = false; clean.editedAt = now();
+    let i = item.id ? n[sec].findIndex(x => x.id === item.id) : -1;
+    let nid;
+    if (i < 0) {                                                  // 같은 이름이 이미 있으면 새로 만들지 않고 그 항목에 합친다 (적은 칸만 덮어씀)
+      const k0 = itemKey(sec, clean); i = k0 ? n[sec].findIndex(x => itemKey(sec, x) === k0) : -1;
+      if (i >= 0) Object.keys(clean).forEach(k => { if (clean[k] === '' && k !== 'locked') delete clean[k]; });
+    }
+    if (i >= 0) { n[sec][i] = Object.assign({}, n[sec][i], clean); nid = n[sec][i].id; }
+    else { nid = newId(); n[sec].push(Object.assign({ id: nid, src: [] }, clean)); }
+    const key = itemKey(sec, clean);
+    if (n.deleted[sec]) n.deleted[sec] = n.deleted[sec].filter(k => k !== key);
     writeNotes(n); bump('notesVer');
-    return { ok: true };
+    if (sec === 'npcs' || sec === 'places' || sec === 'pcs') queueNotes({ r: 1, sec, id: nid });
+    return nid;
   });
+  if (sec !== 'npcs' && sec !== 'places' && sec !== 'pcs') return { ok: true, id, saved: true, message: '저장했어요. 이 항목은 다음 정리 때 AI가 보강할 수 있게 열어 뒀어요' };
+  const q = runQueueNow();
+  if (q.busy) return { ok: true, id, saved: true, queued: true, message: '입력한 내용은 저장했어요. 지금 다른 정리가 돌고 있어서, 곧 이어서 AI가 대화를 읽고 보강해요' };
+  if (q.stale) return { ok: true, id, saved: true, queued: true, message: '입력한 내용은 저장했어요' };
+  const left = notesQ().some(x => x.r && x.sec === sec && x.id === id);
+  if (left) { scheduleMore(); return { ok: true, id, saved: true, queued: true, message: '입력한 내용은 저장했어요. AI가 곧 이어서 보강해요' + (q.msg || (q.r && q.r.warn) ? ' (' + (q.msg || q.r.warn) + ')' : '') }; }
+  return { ok: true, id, saved: true, refreshed: !(q.r && q.r.warn), message: (q.r && q.r.warn) ? '입력한 내용은 그대로 저장했어요 · ' + q.r.warn : '저장하고 AI가 대화를 읽어 보강했어요' };
+}
+// 탐사자 특징 만들기: 한 명 또는 (이름을 비우면) 최근 대화에 나온 플레이어 모두
+function pcBuild(player) {
+  const want = String(player || '').trim();
+  let names = [];
+  if (want) names = [want];
+  else {
+    const s = sheet(SH.LINES), last = s.getLastRow();
+    if (last >= 2) {
+      const from = Math.max(2, last - 1500 + 1), keeper = String(getConf('keeperName') || '').trim(), cnt = {};
+      s.getRange(from, 4, last - from + 1, 1).getValues().forEach(r => { const nm = decS(r[0]); if (nm && nm !== keeper) cnt[nm] = (cnt[nm] || 0) + 1; });
+      names = Object.keys(cnt).filter(k => cnt[k] >= 3).sort((a, b) => cnt[b] - cnt[a]).slice(0, 8);
+    }
+  }
+  if (!names.length) return { ok: false, error: '특징을 만들 만큼 말한 플레이어가 아직 없어요' };
+  withLock(20000, () => names.forEach(nm => queueNotes({ pc: 1, player: nm })));
+  const q = runQueueNow();
+  if (q.busy) return { ok: true, queued: true, message: names.length + '명의 ' + R().pc + ' 특징 만들기를 대기열에 넣었어요. 지금 다른 정리가 돌고 있어서 곧 이어서 해요' };
+  const left = notesQ().filter(x => x.pc).length;
+  if (left) scheduleMore();
+  return { ok: true, queued: left > 0, message: (names.length - left) + '명의 ' + R().pc + ' 특징을 정리했어요' + (left ? ' · ' + left + '명은 곧 이어서 해요' : '') + (q.r && q.r.warn ? ' · ' + q.r.warn : '') };
+}
+// "AI에게 다시 맡기기": 확정을 풀고, 이 항목을 AI가 대화 전체에서 다시 읽고 새로 정리하도록 대기열에 넣는다.
+// 요약이 돌고 있지 않으면 바로 처리하고, 돌고 있으면 1분 안에 이어서 처리한다.
+function noteUnlock(sec, id) {
+  const found = withLock(20000, () => {
+    const n = readNotes() || emptyNotes();
+    let hit = false;
+    (n[sec] || []).forEach(x => { if (x.id === id) { x.locked = false; hit = true; } });
+    if (!hit) return false;
+    writeNotes(n); bump('notesVer');
+    queueNotes({ r: 1, sec, id });
+    return true;
+  });
+  if (!found) return { ok: false, error: '항목을 찾지 못했어요' };
+  let job = null;
+  try { job = acquireJob('notes', 0); } catch (e) {}
+  if (!job) { scheduleMore(); return { ok: true, queued: true, message: '확정을 풀었어요. 지금 다른 정리가 돌고 있어서, 곧 이어서 AI가 다시 읽고 정리해요' }; }
+  let r = null, msg = '';
+  try {
+    _lockPatient = true;
+    r = processNotesQueue(job, Date.now(), 90000);
+  } catch (e) { msg = String(e && e.message || e).slice(0, 160); }
+  releaseJob(job); _lockPatient = false;
+  if (r && r.stale) return { ok: true, queued: true, message: '확정을 풀었어요' };
+  confLoad(true);
+  const left = notesQ().some(x => x.r && x.sec === sec && x.id === id);
+  if (left) { scheduleMore(); return { ok: true, queued: true, message: '확정을 풀었어요. AI가 곧 이어서 다시 읽고 정리해요' + (msg || (r && r.warn) ? ' (' + (msg || r.warn) + ')' : '') }; }
+  return { ok: true, refreshed: true, message: (r && r.warn) ? '확정을 풀었어요 · ' + r.warn : '확정을 풀고 AI가 대화를 다시 읽어 정리했어요' };
 }
 
 /* ───────────── 접속 현황 (캐시에만 저장) ───────────── */
-function touchPresence(name, mic) {
+function touchPresence(name, mic, why, hid, bye) {
   if (!name) return;
   name = String(name).slice(0, 40);
   const c = CacheService.getScriptCache();
-  c.put('p_' + name, JSON.stringify({ t: Date.now(), mic: String(mic || 'off').slice(0, 8) }), 600);
+  const o = { t: Date.now(), mic: String(mic || 'off').slice(0, 8) };
+  if (why) o.why = String(why).slice(0, 8);       // 받아쓰기가 꺼진 이유: user(직접 끔) · idle(자동 멈춤)
+  if (hid) o.hid = 1;                             // 이 사람의 탭이 숨겨져 있음 (숨은 탭은 요청이 드물어져도 끊김이 아니다)
+  if (bye) o.bye = 1;                             // 방 나가기·창 닫기: 일부러 나간 것
+  c.put('p_' + name, JSON.stringify(o), 600);
   const names = JSON.parse(c.get('p_names') || '[]');
   if (names.indexOf(name) < 0) { names.push(name); c.put('p_names', JSON.stringify(names.slice(-30)), 21600); }
 }
@@ -390,7 +544,7 @@ function presence() {
   return names.map(n => {
     const v = all['p_' + n]; if (!v) return null;
     const o = JSON.parse(v);
-    return { name: n, online: Date.now() - o.t < 25000, mic: o.mic, seen: o.t };
+    return { name: n, online: !o.bye && Date.now() - o.t < 25000, mic: o.mic, seen: o.t, age: Date.now() - o.t, why: o.why || '', hid: !!o.hid, bye: !!o.bye };
   }).filter(Boolean);
 }
 
@@ -415,7 +569,7 @@ function doGet(e) {
     if (!roleOf(p.pw, null)) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
     switch (p.action) {
       case 'poll':
-        try { touchPresence(p.me, p.mic); } catch (err) {}
+        try { touchPresence(p.me, p.mic, p.why, p.hid === '1'); } catch (err) {}
         return out(poll(Number(p.since || 0)));
       case 'data':        return out(allData());
       case 'token':       return out(deepgramToken());
@@ -438,6 +592,9 @@ function doPost(e) {
     // ── 플레이어 누구나
     switch (b.action) {
       case 'lines':      return out(addLines(b));
+      case 'bye':        try { touchPresence(String(b.name || ''), 'off', 'bye', false, true); } catch (err) {} return out({ ok: true });
+      case 'noteHandoff': return out(noteHandoff(b.sec, b.item));
+      case 'pcBuild':    return out(pcBuild(b.player));
       case 'glossary':   withLock(20000, () => { setConf('glossary', String(b.glossary || '').slice(0, 5000)); bump('notesVer'); }); return out({ ok: true });
       case 'color':      return out(saveColor(b.name, b.color));
       case 'noteSave':   return out(noteSave(b.sec, b.item));
@@ -458,6 +615,7 @@ function doPost(e) {
     }
     switch (b.action) {
       case 'kping':      return out({ ok: true, keeper: true });
+      case 'setRule':    return out(setRule(b.rule));
       case 'newSession': return out(newSession());
       case 'tabs':       return out(listTabs(b.url));
       case 'chars':      return out(saveCharConfig(b.url, b.map));
@@ -530,13 +688,19 @@ function readLines(sinceId, maxRows) {
 }
 function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 
+function setRule(k) {
+  k = String(k || '');
+  if (!RULES[k]) return { ok: false, error: '알 수 없는 룰이에요' };
+  withLock(20000, () => { setConf('rule', k); bump('notesVer'); bump('charVer'); });
+  return { ok: true, rule: ruleInfo(), message: RULES[k].name + '로 바꿨어요. 이미 쌓인 용어집·기록은 그대로예요 (용어집은 직접 고쳐 주세요)' };
+}
 function versions() {
   const job = liveJob();
   return {
     session: getConf('session'), sumVer: getConf('sumVer'), notesVer: getConf('notesVer'),
     charVer: getConf('charVer'), imgVer: getConf('imgVer'), resetVer: getConf('resetVer') || '0',
     colorVer: getConf('colorVer') || '0', processedId: Number(getConf('processedId') || 0),
-    total: totalLines(), job: job ? { kind: job.kind, at: job.at } : null, proc: confJson('procStatus', null)
+    total: totalLines(), nq: notesQ().length, job: job ? { kind: job.kind, at: job.at, prog: getProg(job) } : null, proc: confJson('procStatus', null)
   };
 }
 
@@ -611,7 +775,7 @@ function allData() {
     .map(r => { let a = {}; try { a = JSON.parse(decS(r[4]) || '{}'); } catch (e) {} return { time: String(r[0]), session: String(r[1]), url: decS(r[3]), title: a.title || '', text: a.text || '', description: a.description || '' }; });
   return {
     ok: true, v: versions(), summaries: sums, notes: readNotes() || emptyNotes(), characters: chars, images: imgs,
-    story: storyText(), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
+    story: storyText(), rule: ruleInfo(), glossary: getConf('glossary'), keeperName: getConf('keeperName') || '',
     charUrl: getConf('charUrl'), charMap: confJson('charMap', []), colors: confJson('colors', {}),
     corrections: confJson('corrections', []),
     recap: confJson('recap', null), awards: confJson('awards', null)      // 마스터가 '공개'를 누른 것만 들어 있다
@@ -701,15 +865,30 @@ function parseJson(text) {
   try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { throw aiErr('parse', 'AI 답의 형식이 깨져 있어요. 다시 시도해 주세요'); }
 }
 
-/* ───────────── 10분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
+/* ───────────── 5분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
 function tick() {
-  try { processNow(false); } catch (e) { Logger.log(e); }
+  try { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); } catch (e) { Logger.log(e); }
   try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); }
+}
+
+// 밀렸을 때: 다음 5분 정각을 기다리지 않고 1분 뒤에 이어서 정리한다 (진전이 있을 때만 이어 예약 → 계속 실패하면 반복하지 않는다)
+function scheduleMore() {
+  try {
+    if (ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'tickMore')) return;
+    ScriptApp.newTrigger('tickMore').timeBased().after(60 * 1000).create();
+  } catch (e) { Logger.log('이어서 정리 예약 실패: ' + e); }
+}
+function tickMore() {
+  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'tickMore') ScriptApp.deleteTrigger(t); });
+  try { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); } catch (e) { Logger.log(e); }
 }
 
 const NOTES_RULE =
   '정리(notes) 규칙: places=[{id,name,desc,found,src}] 장소와 거기서 일어난 일·발견한 것, ' +
   'npcs=[{id,name,affil,age,traits,said,relation,src}] NPC의 소속·직업(affil), 나이(age, 언급됐을 때만), 캐릭터성(성격·말투·행동 습관을 쉼표로 구분한 짧은 말들. 대화에서 드러난 것만), 가장 인상적인 대사 한두 개(said), 탐사자들과의 관계, ' +
+  'pcs=[{id,name,player,traits,said,relation,src}] 탐사자(플레이어 캐릭터)의 특징. name은 "플레이어 = 캐릭터" 목록의 캐릭터 이름(목록에 없으면 플레이어 이름), player는 플레이어 이름, ' +
+  'traits는 그 플레이어 본인의 발언·결정에서 드러난 성격·말투·행동 습관·판단 성향을 쉼표로 구분한 짧은 말들(최대 8개), said는 가장 인상적인 발언 1~2개, relation은 동료·NPC와의 관계. ' +
+  '마스터의 묘사나 판정 요구만으로는 탐사자의 특징을 적지 마라. 이번 대화에서 새로 드러난 특징이 있을 때만 출력하고, 출력할 때는 기존 특징과 합쳐 전체를 다시 써라. ' +
   'clues=[{id,text,status,kind,src}] 얻은 정보와 단서. status는 "미해결" 또는 "해결". ' +
   'kind는 "확인"(마스터 묘사나 판정 결과로 확인된 사실), "주장"(NPC가 한 말이라 사실인지 모름. text에 "OO는 ~라고 주장함"처럼 누가 말했는지 적는다), "추측"(탐사자의 추리·의심) 중 하나. ' +
   'handouts=[{id,title,text,src}] 핸드아웃 내용. ' +
@@ -727,7 +906,7 @@ const FACT_RULES =
   '④ 판정은 성공/실패나 수치 변화가 말로 선언된 것만 "[판정]"을 붙여 적는다. 예: "[판정] 프레이피스 도서관 이용 성공". 선언되지 않은 결과를 짐작하지 마라. ';
 
 function keeperRules() {
-  return '가장 중요한 원칙: 마스터의 발언은 이야기의 정보 그 자체다. 마스터가 말한 묘사, NPC 대사, 장소·물건·단서 정보, 판정 요구와 그 결과는 ' +
+  return R().hint + '가장 중요한 원칙: 마스터의 발언은 이야기의 정보 그 자체다. 마스터가 말한 묘사, NPC 대사, 장소·물건·단서 정보, 판정 요구와 그 결과는 ' +
     '문장을 다듬어 줄이더라도 내용은 하나도 빠뜨리지 말고 요약과 정리에 담아라. 플레이어 발언은 행동과 결정 위주로 줄여도 된다. ';
 }
 function correctionsText() {
@@ -810,32 +989,57 @@ function processNow(manual) {
     const j = liveJob();
     return { ok: false, busy: true, error: (j && j.kind === 'correct' ? 'AI 정정을 처리하는 중이에요.' : '이미 다른 정리가 진행 중이에요.') + ' 잠시 뒤 다시 확인해 주세요' };
   }
+  _lockPatient = true;
   const t0 = Date.now(), budget = manual ? 150000 : 200000;
-  let lines = 0, segs = 0, more = false, err = null, stale = false;
+  _prog = { job, l0: Math.max(0, totalLines() - Number(getConf('processedId') || 0)), lines: 0, nb: 55, ns: 38 };
+  setProg(job, '대화를 읽을 준비 중', 2, 4);
+  let lines = 0, segs = 0, more = false, err = null, stale = false, nDone = 0, nWarn = '';
   try {
+    // ① 요약 (밀렸으면 시간이 허락하는 만큼 구간을 계속 이어서)
     while (true) {
       const r = processWindow(job, t0, budget);
-      lines += r.lines; segs += r.segs;
+      lines += r.lines; segs += r.segs; _prog.lines += r.lines;
       if (r.stale) { stale = true; break; }
       if (!r.more) break;
       if (Date.now() - t0 > budget) { more = true; break; }
     }
   } catch (e) { err = String(e && e.message || e); }
+  // ② NPC·장소·단서 정리 (요약이 막혔어도 따로 진행. 여기서 실패해도 요약 결과에는 영향이 없다)
+  if (!stale && Date.now() - t0 < budget) {
+    try {
+      const nr = processNotesQueue(job, t0, budget);
+      if (nr.stale) stale = true; else { nDone = nr.done; nWarn = nr.warn || ''; }
+    } catch (e) { nWarn = '정리 처리 중 오류: ' + String(e && e.message || e).slice(0, 160); }
+  }
   if (!err && !stale && Date.now() - t0 < budget) {
-    try { confLoad(true); compactStory(job); } catch (e) { Logger.log('줄거리 줄이기 실패: ' + e); }
+    try { setProg(job, '누적 줄거리를 다듬는 중', 94, 98); confLoad(true); compactStory(job); } catch (e) { Logger.log('줄거리 줄이기 실패: ' + e); }
   }
   releaseJob(job);
+  _lockPatient = false; _prog = null;
 
   if (stale) return { ok: false, error: '정리하는 사이 기록이 초기화돼서 결과를 버렸어요' };
   confLoad(true);
   const left = Math.max(0, totalLines() - Number(getConf('processedId') || 0));
+  const nLeft = notesQ().length;
+  const progress = lines + nDone;
   if (err) {
-    setStatus({ ok: false, error: err, left });
-    return { ok: false, error: '요약 실패: ' + err + (lines ? ' (그 전에 ' + lines + '줄은 정리됨)' : '') + ' · 다음 자동 정리 때 같은 구간부터 다시 시도해요', left };
+    setStatus({ ok: false, error: err, left, nLeft });
+    return { ok: false, error: '요약 실패: ' + err + (lines ? ' (그 전에 ' + lines + '줄은 정리됨)' : '') + ' · 다음 자동 정리 때 같은 구간부터 다시 시도해요', left, nLeft };
   }
-  const msg = lines ? lines + '줄을 ' + segs + '개 요약으로 정리했어요' + (more || left ? ' · 남은 ' + left + '줄은 이어서 정리해요' : '') : '새로 정리할 대화가 없어요';
-  if (lines || manual) setStatus({ ok: true, message: msg, left });
-  return { ok: true, message: msg, left, more: more || left > 0 };
+  const msg = (lines ? lines + '줄을 ' + segs + '개 요약으로 정리했어요' + (more || left ? ' · 남은 ' + left + '줄은 이어서 정리해요' : '') : '새로 정리할 대화가 없어요')
+    + (nDone ? ' · NPC·장소·단서 ' + nDone + '건 정리' : '') + (nLeft ? ' · 정리 대기 ' + nLeft + '건' : '');
+  if (lines || nDone || manual || nWarn) setStatus(Object.assign({ ok: true, message: msg, left, nLeft }, nWarn ? { warn: nWarn } : {}));
+  return { ok: true, message: msg, left, nLeft, progress, lines, more: more || left > 0 || nLeft > 0 };
+}
+
+function windowEnd(from, to) {
+  const rows = readLines(from, to - from);
+  let sum = 0, n = 0;
+  for (; n < rows.length; n++) {
+    sum += String(rows[n].text).length + String(rows[n].name).length + 12;
+    if (sum > WINDOW_CHARS && n >= 8) break;
+  }
+  return from + Math.max(1, n);
 }
 
 function processWindow(job, t0, budget) {
@@ -847,9 +1051,10 @@ function processWindow(job, t0, budget) {
     let p = confJson('pending', null);
     if (!p || p.rv !== job.rv || p.from !== processed || p.to <= processed || p.to > total) {
       if (total <= processed) { setJson('pending', null); return { empty: true }; }
-      p = { from: processed, to: Math.min(total, processed + WINDOW_LINES), rv: job.rv, fails: 0, done: [] };
+      p = { from: processed, to: windowEnd(processed, Math.min(total, processed + WINDOW_LINES)), rv: job.rv, fails: 0, done: [] };
       setJson('pending', p);
     }
+    if (p.to - p.from > WINDOW_LINES && !stageHasWindow(job.rv + ':' + p.from + '-' + p.to + ':')) { p.to = windowEnd(p.from, p.from + WINDOW_LINES); p.fails = 0; setJson('pending', p); }
     return { p, total };
   });
   if (win.stale) return { stale: true, lines: 0, segs: 0 };
@@ -863,7 +1068,7 @@ function processWindow(job, t0, budget) {
   order.sort((a, b) => Number(a) - Number(b));
   const existing = summaryKeys();
   const prefix = job.rv + ':' + p.from + '-' + p.to + ':';
-  let segs = 0;
+  let segs = 0, halved = false;
 
   try {
     for (let gi = 0; gi < order.length; gi++) {
@@ -876,8 +1081,9 @@ function processWindow(job, t0, budget) {
         // AI 결과가 아직 없을 때만 AI를 부른다
         if (segs > 0 && Date.now() - t0 > budget) return { lines: 0, segs, more: true };
         const g = groups[sess].slice().sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : a.id - b.id));
+        setProg(job, '회의록 요약 중', pSum(0), pSum(g.length), '대화 ' + g.length + '줄을 읽고 요약해요');
         const res = summarizeGroup(g, sess);
-        const keep = { summary: res.summary || '- (잡담 위주, 진행 없음)', storyAdd: res.storyAdd || '', notes: res.notes ? srcToUids(res.notes, idMap) : null,
+        const keep = { summary: res.summary || '- (잡담 위주, 진행 없음)', storyAdd: res.storyAdd || '', notes: null,
                        session: sess, from: g[0].time, to: g[g.length - 1].time };
         const put = withLock(30000, () => {
           if (!jobAlive(job) || Number(getConf('processedId') || 0) !== p.from) return 'stale';
@@ -907,7 +1113,8 @@ function processWindow(job, t0, budget) {
           stageMark(cur.row, 3);
         }
         if (!cur.notes) {
-          if (r.notes) mergeWriteNotes(r.notes);
+          if (r.notes) mergeWriteNotes(r.notes);                       // 예전 버전이 보관해 둔 결과
+          else queueNotes({ k: segKey, s: String(r.session), f: p.from, t: p.to });   // NPC·장소·단서 정리는 따로(요약을 막지 않게)
           stageMark(cur.row, 4);
         }
         bump('sumVer');
@@ -915,6 +1122,7 @@ function processWindow(job, t0, budget) {
       });
       if (applied === 'stale') return { stale: true, lines: 0, segs };
       segs++;
+      setProg(job, '요약을 저장했어요', pSum(0), pSum(0));
     }
   } catch (e) {
     // 같은 구간에서 두 번 넘게 실패하고 아직 보관된 AI 결과가 없으면 구간을 반으로 줄여 본다 (AI 답 잘림 대비)
@@ -923,10 +1131,12 @@ function processWindow(job, t0, budget) {
         const pp = confJson('pending', null);
         if (!pp || pp.from !== p.from || pp.to !== p.to) return;
         pp.fails = (pp.fails || 0) + 1; pp.lastError = String(e && e.message || e).slice(0, 300);
-        if (pp.fails >= 2 && !stageHasWindow(prefix) && pp.to - pp.from > 40) { pp.to = pp.from + Math.floor((pp.to - pp.from) / 2); pp.fails = 0; }
+        const cut = e && (e.kind === 'truncated' || e.kind === 'parse');     // 답이 길어 끊김: 기다리지 않고 바로 반으로 줄인다
+        if ((cut || pp.fails >= 2) && !stageHasWindow(prefix) && pp.to - pp.from > 12) { pp.to = pp.from + Math.floor((pp.to - pp.from) / 2); pp.fails = 0; halved = true; }
         setJson('pending', pp);
       });
     } catch (e2) {}
+    if (halved) return { lines: 0, segs, more: true };      // 같은 실행 안에서 줄인 구간으로 바로 다시
     throw e;
   }
 
@@ -947,32 +1157,190 @@ function processWindow(job, t0, budget) {
   return { lines: p.to - p.from, segs, more: p.to < totalLines() };
 }
 
+/* ───────────── NPC·장소·단서 정리: 요약과 따로 (대기열) ─────────────
+ * 요약은 짧고 빨리 끝나게 하고, 정리는 이 대기열에서 자기 속도로 처리한다.
+ * 정리가 길어지거나 실패해도 요약은 밀리지 않는다. 대기열 한 건 = {k,s,f,t}(대화 구간 정리) 또는 {r:1,sec,id}(마스터가 "AI에게 다시 맡기기"한 항목). */
+function taskSame(a, b) { return (!!b.k && a.k === b.k) || (!!b.r && !!a.r && a.sec === b.sec && a.id === b.id) || (!!b.pc && !!a.pc && a.player === b.player); }
+function notesQ() { const q = confJson('notesQ', []); return Array.isArray(q) ? q : []; }
+function notesQSet(q) { setJson('notesQ', q.length ? q : null); }
+// 잠금 안에서 부른다
+function queueNotes(task) {
+  const q = notesQ();
+  if (!q.some(x => taskSame(x, task))) q.push(task);
+  notesQSet(q.slice(-NOTES_Q_MAX));
+}
+function notesCall(sys2, user2, maxTok) {
+  const system =
+    '너는 한국어 TRPG(' + R().name + ') 세션의 기록 담당이다. 음성 받아쓰기라서 단어가 잘못 적혀 있을 수 있다. ' +
+    '용어집·캐릭터 이름·앞뒤 맥락으로 잘못 들린 고유명사를 바로잡아라. 없는 일을 지어내지 마라. ' + rl(FACT_RULES) + keeperRules() +
+    '정정 메모는 사람이 바로잡아 준 사실이니 반드시 따르라. ' + sys2 + ' 반드시 JSON 하나만 출력하라.';
+  return parseJson(claude(system, user2, maxTok));
+}
+function notesCommon() {
+  return '## 용어집\n' + getConf('glossary') + '\n\n## 플레이어 = 캐릭터\n' + (charsText() || '(아직 없음)') + '\n\n## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n';
+}
+const LINE_FMT = l => '#' + l.id + ' [' + String(l.time).slice(11) + '] ' + l.name + ': ' + l.text;
+// 대화 구간에서 NPC·장소·단서·핸드아웃을 뽑는다
+function extractNotes(g, sess) {
+  const transcriptText = g.map(LINE_FMT).join('\n');
+  return publicAi(() => notesCall('이 대화에서 장소·NPC·' + R().pc + '·단서·핸드아웃만 정리한다.',
+    notesCommon() + '## 현재 정리(notes) (이름이 나온 항목만 자세히, 나머지는 이름표만. 이름표 항목을 고치려면 id를 그대로 쓰고 바뀐 칸을 모두 적어라)\n' + notesForAiLite(readNotes() || emptyNotes(), transcriptText) + '\n\n' +
+    '## 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcriptText + '\n\n' +
+    '## 출력 형식\n{"notes":{"places":[],"npcs":[],"pcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) +
+    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.', 5000));
+}
+// 마스터가 "AI에게 다시 맡기기"한 항목 하나를, 그 이름이 나온 대화 전체를 다시 읽고 새로 정리한다
+function refineItem(sec, id) {
+  const n = readNotes() || emptyNotes();
+  const it = (n[sec] || []).find(x => x.id === id);
+  if (!it) return { skip: '항목이 이미 지워졌어요' };
+  if (sec === 'pcs') return buildPc(it.player || it.name);
+  const nm = String(it.name || it.title || '').trim();
+  const s = sheet(SH.LINES), last = s.getLastRow();
+  if (last < 2) return { skip: '대화 기록이 없어요' };
+  const from = Math.max(2, last - 3000 + 1);
+  const all = s.getRange(from, 1, last - from + 1, 6).getValues().map(rowToLine);
+  const byText = nm.length >= 2 ? all.filter(l => String(l.text).indexOf(nm) >= 0) : [];
+  const srcSet = new Set((it.src || []).map(String));
+  const bySrc = all.filter(l => l.uid && srcSet.has(String(l.uid)));
+  const seen = new Set(), picked = [];
+  byText.slice(-60).concat(bySrc).forEach(l => { if (!seen.has(l.id)) { seen.add(l.id); picked.push(l); } });
+  picked.sort((a, b) => a.id - b.id);
+  if (!picked.length) return { skip: '대화에서 "' + nm + '"이(가) 나온 줄을 찾지 못했어요' };
+  // 앞뒤 맥락: 선택한 줄 바로 다음 줄을 하나씩 붙인다 (마스터 묘사가 이어지는 경우가 많다)
+  const byId = {}; all.forEach(l => { byId[l.id] = l; });
+  picked.slice().forEach(l => { const nx = byId[l.id + 1]; if (nx && !seen.has(nx.id)) { seen.add(nx.id); picked.push(nx); } });
+  picked.sort((a, b) => a.id - b.id);
+  const lines = picked.slice(-90);
+  const idMap = {}; lines.forEach(l => { idMap[l.id] = l.uid || ('id:' + l.id); });
+  const cur = notesForAi({ [sec]: [it], deleted: n.deleted });
+  const res = publicAi(() => notesCall('아래 항목 하나를 대화 전체를 근거로 다시 정리한다. 마스터가 이 항목을 AI에게 다시 맡겼다.',
+    notesCommon() + '## 지금 저장된 항목 (' + sec + ')\n' + JSON.stringify(it && (function(o){ const y = Object.assign({}, o); delete y.img; delete y.editedAt; delete y.src; return y; })(it)) + '\n\n' +
+    '## 이 항목과 관련된 대화 (각 줄 앞 #번호는 발언 번호)\n' + lines.map(LINE_FMT).join('\n') + '\n\n' +
+    '## 출력 형식\n{"notes":{"' + sec + '":[{"id":"' + id + '", ...이 항목의 칸들}]}}\n' + rl(NOTES_RULE) +
+    '\n이 항목 하나만 출력하라. id는 그대로 두고, 대화에서 확인되는 내용으로 칸을 새로 채워라. 대화에 없는 내용은 기존 칸을 지우지 말고 그대로 두어라.', 3000));
+  const out = res && res.notes && Array.isArray(res.notes[sec]) ? res.notes[sec].filter(x => x && typeof x === 'object') : [];
+  const mine = out.filter(x => String(x.id || '') === id)[0] || out[0];
+  if (!mine) return { skip: 'AI가 새로 정리할 내용을 찾지 못했어요' };
+  mine.id = id;
+  const o = {}; o[sec] = [srcToUids({ [sec]: [mine] }, idMap)[sec][0]];
+  return { notes: o };
+}
+// 탐사자 한 명의 특징을 그 플레이어 본인의 발언으로 (NPC 카드처럼) 만든다. 이미 카드가 있으면 거기에 합쳐 다시 쓴다.
+function buildPc(player) {
+  const nm = String(player || '').trim();
+  if (!nm) return { skip: '플레이어 이름이 없어요' };
+  if (nm === String(getConf('keeperName') || '').trim()) return { skip: '마스터는 플레이어 캐릭터(' + R().pc + ')가 아니라서 특징을 만들지 않아요' };
+  const s = sheet(SH.LINES), last = s.getLastRow();
+  if (last < 2) return { skip: '대화 기록이 없어요' };
+  const from = Math.max(2, last - 3000 + 1);
+  const all = s.getRange(from, 1, last - from + 1, 6).getValues().map(rowToLine);
+  const mine = all.filter(l => l.name === nm && String(l.text).trim().length >= 4);
+  if (mine.length < 3) return { skip: '"' + nm + '"님의 발언이 아직 너무 적어요 (' + mine.length + '줄)' };
+  const byId = {}; all.forEach(l => { byId[l.id] = l; });
+  const pick = mine.slice(-90), seen = new Set(pick.map(l => l.id)), lines = pick.slice();
+  pick.forEach(l => { const pv = byId[l.id - 1]; if (pv && pv.name !== nm && !seen.has(pv.id)) { seen.add(pv.id); lines.push(pv); } });   // 바로 앞 줄(마스터의 물음 등)은 맥락으로만
+  lines.sort((a, b) => a.id - b.id);
+  const n = readNotes() || emptyNotes();
+  const ex = (n.pcs || []).find(x => String(x.player || '').trim() === nm || String(x.name || '').trim() === nm);
+  const idMap = {}; lines.forEach(l => { idMap[l.id] = l.uid || ('id:' + l.id); });
+  const exJson = ex ? JSON.stringify((function (o) { const y = Object.assign({}, o); delete y.img; delete y.editedAt; delete y.src; return y; })(ex)) : '(아직 없음)';
+  const res = publicAi(() => notesCall(rl('탐사자 한 명의 특징을 그 플레이어의 발언으로 정리한다.'),
+    notesCommon() + '## 정리할 플레이어\n' + nm + '\n\n## 지금 저장된 이 ' + R().pc + ' 항목\n' + exJson + '\n\n' +
+    '## 대화 (' + nm + '님의 발언과, 이해를 돕는 바로 앞 줄. 각 줄 앞 #번호는 발언 번호)\n' + lines.map(LINE_FMT).join('\n') + '\n\n' +
+    '## 출력 형식\n{"notes":{"pcs":[{"id":"' + (ex ? ex.id : '') + '","name":"캐릭터 이름","player":"' + nm + '","traits":"","said":"","relation":"","src":[]}]}}\n' + rl(NOTES_RULE) +
+    '\n이 ' + R().pc + ' 항목 하나만 출력하라. ' + (ex ? 'id는 그대로 두고, 기존 특징과 새로 드러난 특징을 합쳐 전체를 다시 써라. 직접 적어 둔 내용은 지우지 마라.' : 'id는 비워라.') + ' ' + nm + '님 본인의 말에서 드러난 것만 쓰고, 대화에 없는 성격은 지어내지 마라.', 2500));
+  const out = res && res.notes && Array.isArray(res.notes.pcs) ? res.notes.pcs.filter(x => x && typeof x === 'object') : [];
+  const mineItem = out[0];
+  if (!mineItem || !(mineItem.traits || mineItem.said || mineItem.relation)) return { skip: 'AI가 정리할 만한 특징을 찾지 못했어요' };
+  mineItem.player = nm; mineItem.id = ex ? ex.id : '';
+  if (!mineItem.name) mineItem.name = (ex && ex.name) || nm;
+  return { notes: { pcs: [srcToUids({ pcs: [mineItem] }, idMap).pcs[0]] } };
+}
+function readLinesWindow(f, t, sess) {
+  return readLines(f, t - f).filter(l => String(l.session) === String(sess) && String(l.text).trim());
+}
+// 대기열을 처리한다 (job은 이 실행이 잡고 있는 작업 표시). 한 건씩: AI(잠금 밖) → 저장(짧은 잠금) → 대기열에서 뺌
+function processNotesQueue(job, t0, budget) {
+  let done = 0, warn = '';
+  while (Date.now() - t0 < budget) {
+    const head = withLock(20000, () => jobAlive(job) ? (notesQ()[0] || null) : 'stale');
+    if (head === 'stale') return { stale: true, done };
+    if (!head) break;
+    const lbl = head.r ? 'NPC·장소 데이터를 다시 읽는 중' : head.pc ? R().pc + ' 특징 만드는 중' : 'NPC·장소·단서 데이터 업데이트 중';
+    setProg(job, lbl, pNotes(done, 0), pNotes(done, 1), '남은 정리 ' + notesQ().length + '건');
+    let res = null, err = null;
+    try {
+      if (head.r) res = refineItem(head.sec, head.id);
+      else if (head.pc) res = buildPc(head.player);
+      else {
+        const g = readLinesWindow(head.f, head.t, head.s).sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : a.id - b.id));
+        if (!g.length) res = { skip: '' };
+        else {
+          const idMap = {}; g.forEach(l => { idMap[l.id] = l.uid || ('id:' + job.rv + ':' + l.id); });
+          const r = extractNotes(g, head.s);
+          res = { notes: r && r.notes ? srcToUids(r.notes, idMap) : null };
+        }
+      }
+    } catch (e) { err = e; }
+    const outcome = withLock(30000, () => {
+      if (!jobAlive(job)) return 'stale';
+      const q = notesQ();
+      const i = q.findIndex(x => taskSame(x, head));
+      if (i < 0) return 'gone';
+      let e2 = err;
+      if (!e2) { try { if (res.notes) mergeWriteNotes(res.notes); } catch (x) { e2 = x; } }     // 저장이 실패해도 요약은 이미 끝났다. 이 건만 실패로 세고 다시 시도
+      if (!e2) {
+        q.splice(i, 1); notesQSet(q);
+        return res.skip ? 'skip:' + res.skip : 'ok';
+      }
+      const t = q[i]; t.fails = (t.fails || 0) + 1;
+      const cut = e2 && (e2.kind === 'truncated' || e2.kind === 'parse');
+      if (head.k && cut && head.t - head.f > 12) {           // 답이 길어 끊김: 구간을 반으로 나눠 두 건으로
+        const mid = head.f + Math.floor((head.t - head.f) / 2);
+        q.splice(i, 1, { k: head.k + 'a', s: head.s, f: head.f, t: mid }, { k: head.k + 'b', s: head.s, f: mid, t: head.t });
+        notesQSet(q); return 'split';
+      }
+      if (t.fails >= 4) { q.splice(i, 1); notesQSet(q); return 'drop:' + String(e2.message || e2).slice(0, 160); }
+      notesQSet(q); return 'retry:' + String(e2.message || e2).slice(0, 160);
+    });
+    if (outcome === 'stale') return { stale: true, done };
+    if (outcome === 'ok') done++;
+    else if (String(outcome).indexOf('skip:') === 0) { done++; warn = outcome.slice(5) || warn; }
+    else if (String(outcome).indexOf('drop:') === 0) warn = '정리 한 건을 4번 실패해서 건너뛰었어요: ' + outcome.slice(5);
+    else if (String(outcome).indexOf('retry:') === 0) { warn = '정리가 잠깐 막혔어요 (곧 다시 시도): ' + outcome.slice(6); break; }   // 같은 문제로 계속 부르지 않고 다음 실행으로
+  }
+  return { done, warn };
+}
+
 function summarizeGroup(g, sess) {
   return publicAi(() => {
     const transcript = g.map(l => '#' + l.id + ' [' + String(l.time).slice(11) + '] ' + l.name + ': ' + l.text).join('\n');
     const card = recapText(sess);
     const system =
-      '너는 한국어 TRPG(주로 크툴루의 부름) 세션의 기록 담당이다. 음성 받아쓰기라서 단어가 잘못 적혀 있을 수 있다. ' +
+      '너는 한국어 TRPG(' + R().name + ') 세션의 기록 담당이다. 음성 받아쓰기라서 단어가 잘못 적혀 있을 수 있다. ' +
       '용어집·캐릭터 이름·앞뒤 맥락으로 잘못 들린 고유명사를 바로잡고, 의미 없는 조각은 무시하라. ' +
       '플레이어 잡담(규칙 질문, 농담, 현실 이야기)과 캐릭터로서의 행동·대사를 구분해서, 요약은 이야기 안의 일을 중심으로 캐릭터 이름으로 써라. ' +
-      '없는 일을 지어내지 마라. ' + FACT_RULES + keeperRules() +
+      '없는 일을 지어내지 마라. ' + rl(FACT_RULES) + keeperRules() +
       '정정 메모는 사람이 바로잡아 준 사실이니 반드시 따르라. 반드시 JSON 하나만 출력하라.';
     const user =
       '## 마스터 이름\n' + (getConf('keeperName') || '(미지정: 상황 묘사와 NPC 대사를 하는 사람이 마스터다)') + '\n\n' +
       '## 용어집\n' + getConf('glossary') + '\n\n' +
       '## 플레이어 = 캐릭터\n' + (charsText() || '(아직 없음)') + '\n\n' +
       '## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n' +
-      '## 지금까지의 누적 줄거리 (참고용, 다시 쓰지 않는다)\n' + (storyText() || '(처음)') + '\n\n' +
+      '## 지금까지의 누적 줄거리 중 최근 부분 (참고용, 다시 쓰지 않는다)\n' + (storyTail(STORY_REF) || '(처음)') + '\n\n' +
       (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
-      '## 현재 정리(notes)\n' + notesForAi(readNotes() || emptyNotes()) + '\n\n' +
       '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcript + '\n\n' +
       '## 출력 형식\n' +
-      '{"summary":"이 대화 구간의 요약. 사건이 일어난 시간순(타임라인)으로 \\"- HH:MM 내용\\" 형식의 줄들(HH:MM은 그 일이 나온 대화의 시각). 마스터가 준 정보는 모두 포함 (줄 수 제한 없음). ' +
+      '{"summary":"이 대화 구간의 요약. 읽기 쉽게 장소(장면) 기준으로 문단을 나눠라: 문단은 \\"【장소 이름】\\" 한 줄로 시작하고, 이어서 그 장소에서 일어난 일을 시간순으로 \\"- HH:MM 내용\\" 줄들(HH:MM은 그 일이 나온 대화의 시각)로 쓴다. 문단 사이는 빈 줄 하나. ' +
+      '장소가 바뀌면 새 문단이고, 같은 장소로 돌아오면 그 장소 문단에 이어 써도 된다. 장소를 알 수 없으면 \\"【장소 미상】\\". ' +
+      '길이: 구간 전체 12줄 안팎(최대 16줄), 문단마다 2~5줄. 한 줄은 한두 문장으로 핵심만 쓴다. ' +
+      '마스터가 준 정보(이름·장소·단서·판정 결과·NPC의 주장)는 빠뜨리지 말고 한 줄에 압축해서 담되, 분위기 묘사 문장은 줄여라 (자세한 묘사는 NPC·장소·단서 정리에 따로 남는다). ' +
       '줄마다 끝에 근거 발언 번호를 (#12, #15)처럼 붙여라",' +
-      '"storyAdd":"이 구간에서 누적 줄거리 뒤에 덧붙일 내용. 중요한 사건·결정·알아낸 사실만 2~5문장(300자 이내)으로. 누적 줄거리를 다시 쓰지 말고 새로 더할 부분만 써라. 이야기 진행이 없으면 빈칸",' +
-      '"notes":{"places":[],"npcs":[],"clues":[],"handouts":[]}}\n' + NOTES_RULE +
-      '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸, notes는 생략하라.';
-    return parseJson(claude(system, user, 5000));
+      '"storyAdd":"이 구간에서 누적 줄거리 뒤에 덧붙일 내용. 중요한 사건·결정·알아낸 사실만 2~4문장(250자 이내)으로. 누적 줄거리를 다시 쓰지 말고 새로 더할 부분만 써라. 이야기 진행이 없으면 빈칸"}\n' +
+      '(NPC·장소·단서 정리는 따로 처리하니 여기서는 출력하지 마라.)\n' +
+      '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸으로 하라.';
+    return parseJson(claude(system, user, 6500));
   });
 }
 /* 누적 줄거리 저장소 (설정 시트의 story 칸 하나)
@@ -988,6 +1356,7 @@ function storyDoc() {
   return { t: v, k: [], legacy: true };       // 예전 버전이 남긴 글 (구간 목록 없음)
 }
 function storyText() { return storyDoc().t; }
+function storyTail(n) { const t = storyDoc().t; return t.length <= n ? t : '…' + t.slice(-n); }
 function storyWrite(text, keys) { setConf('story', JSON.stringify({ _story: 1, t: String(text || ''), k: (keys || []).slice(-600) })); }
 // 요약 한 구간의 줄거리 반영 (잠금 안에서 부른다). 이미 반영한 구간이면 아무것도 하지 않는다.
 function storyApply(segKey, r) {
@@ -1016,7 +1385,7 @@ function compactStory(job) {
   const res = publicAi(() => parseJson(claude(
     '너는 TRPG 세션 기록 담당이다. 길어진 누적 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
     '## 누적 줄거리\n' + story + '\n\n## 할 일\n1500자 이내로 다시 써라. 【세션 N】 구분 줄은 그대로 두어라. 오래된 일은 짧게, 최근 일은 자세히. ' +
-    '인물·장소 이름과 중요한 사건·결정·알아낸 사실은 빠뜨리지 마라. 확인된 사실, NPC의 주장, 탐사자의 추측을 섞지 마라.\n' +
+    '인물·장소 이름과 중요한 사건·결정·알아낸 사실은 빠뜨리지 마라. 확인된 사실, NPC의 주장, ' + R().pc + '의 추측을 섞지 마라.\n' +
     '## 출력 형식\n{"story":"줄여 쓴 누적 줄거리"}', 2600)));
   const outStory = String(res.story || '').trim();
   if (outStory.length < 100 || outStory.length >= story.length) return false;
@@ -1061,6 +1430,7 @@ function correct(text, who) {
     const sh = sheet(SH.SUM);
     const rows = sh.getDataRange().getValues().slice(1).map((r, i) => ({ id: i + 2, session: String(r[0]), text: decS(r[3]) }));
     const recent = rows.slice(-8);
+    setProg(job, 'AI가 정정 요청을 읽고 고치는 중', 10, 85);
     const res = publicAi(() => {
       const system = '너는 TRPG 세션 기록 담당이다. 사람이 기록의 잘못된 부분을 정정해 달라고 했다. ' +
         '요청에 맞게 누적 줄거리, 요약, 정리를 고쳐라. 이번에는 locked 항목도 요청과 관계있으면 고쳐도 된다. 요청과 관계없는 부분은 바꾸지 마라. ' +
@@ -1074,10 +1444,11 @@ function correct(text, who) {
         '## 현재 정리(notes)\n' + notesForAi(readNotes() || emptyNotes()) + '\n\n' +
         '## 출력 형식\n{"reply":"무엇을 고쳤는지 한두 문장","memo":"앞으로 기억해야 할 정정 사실 한 줄 (없으면 빈칸)",' +
         '"story":"고친 누적 줄거리 전체 (줄거리에 틀린 내용이 있을 때만. 없으면 빈칸)","summaries":[{"id":숫자,"text":"고친 요약 전문"}] (고친 것만),' +
-        '"notes":{"places":[],"npcs":[],"clues":[],"handouts":[]} (고칠 게 없으면 생략)}\n' + NOTES_RULE +
+        '"notes":{"places":[],"npcs":[],"clues":[],"handouts":[]} (고칠 게 없으면 생략)}\n' + rl(NOTES_RULE) +
         '\n정정할 때는 src를 출력하지 마라 (기존 근거가 유지된다).';
       return parseJson(claude(system, user, 5000));
     });
+    setProg(job, '고친 내용을 저장하는 중', 90, 98);
     const okIds = new Set(recent.map(r => r.id));
     const applied = withLock(30000, () => {
       if (!jobAlive(job)) return false;                      // 그 사이 초기화됨 → 아무것도 쓰지 않음
@@ -1420,7 +1791,7 @@ function addImage(data, mime, caption) {
       'TRPG 세션 중 마스터가 보여 준 핸드아웃/이미지다. ' + (caption ? '마스터 메모: ' + caption + '\n' : '') +
       '## 현재 정리(notes)\n' + notesForAi(readNotes() || emptyNotes()) + '\n\n' +
       '이미지 속 글자는 빠짐없이 옮기고, 그림이면 무엇이 보이는지 묘사하라. 그리고 정리를 갱신하라.\n' +
-      '출력 형식: {"title":"짧은 제목","text":"이미지 속 글자 전문","description":"묘사와 눈여겨볼 점","notes":{"places":[],"npcs":[],"clues":[],"handouts":[]}}\n' + NOTES_RULE }
+      '출력 형식: {"title":"짧은 제목","text":"이미지 속 글자 전문","description":"묘사와 눈여겨볼 점","notes":{"places":[],"npcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) }
   ];
   const res = publicAi(() => parseJson(claude('너는 TRPG 세션 기록 담당이다. JSON 하나만 출력하라.', content, 4000)));
   return withLock(30000, () => {
@@ -1448,7 +1819,7 @@ function clearLog(all) {
     [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
     setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}');
     setConf('processedId', '0'); storyWrite('', []);
-    setJson('job', null); setJson('pending', null); setJson('procStatus', null);
+    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null);
     if (all) {
       wipe(SH.IMG);
       writeNotes(emptyNotes());
@@ -2467,7 +2838,7 @@ function kFeedback(session, full) {
  *                · "=1+1" 같은 글이 수식으로 바뀌지 않고 글자 그대로 저장되는지 (setValues·setValue·appendRow 세 길 모두)
  *                · 날짜·숫자처럼 보이는 글("1/2", "0012")이 바뀌지 않는지
  *                · 긴 글을 여러 칸에 나눠 쓰고 다시 읽었을 때 똑같은지
- *                · 잠금, 캐시, 시트 구성, 10분 자동 정리 트리거, 비밀번호 설정
+ *                · 잠금, 캐시, 시트 구성, 5분 자동 정리 트리거, 비밀번호 설정
  * selfTestAi() Claude와 Deepgram에 아주 짧게 한 번씩 연결해 본다 (Claude 호출 1번: 몇 원 수준).
  * 비밀번호·API 키의 값은 로그에 적지 않는다.
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -2542,7 +2913,7 @@ function selfTest() {
   });
   let trig = 0;
   try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'tick').length; } catch (e) {}
-  check('10분 자동 정리 트리거 1개', trig === 1, trig === 1 ? '' : '지금 ' + trig + '개 → setup을 실행해 주세요');
+  check('5분 자동 정리 트리거 1개', trig === 1, trig === 1 ? '' : '지금 ' + trig + '개 → setup을 실행해 주세요');
   const pw = pwWarnings();
   check('비밀번호 설정', !pw.filter(w => !/10자/.test(w)).length, pw.join(' / '));
   if (pw.some(w => /10자/.test(w))) log.push('참고 · ' + pw.filter(w => /10자/.test(w))[0]);
