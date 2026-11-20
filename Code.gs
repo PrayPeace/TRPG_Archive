@@ -157,6 +157,7 @@ function fixTrigger() {
 // roomPwFirst: (라이브러리로 쓸 때) 방 시트의 연결 코드가 넘겨주는 이 방 비밀번호. 비어 있으면 건드리지 않는다
 function setup(roomPwFirst) {
   const ss = SpreadsheetApp.getActive();
+  if (!ss) { Logger.log('여기는 시트가 없는 엔진 프로젝트예요. setup은 엔진에서 실행하지 말고, 각 방 시트의 Apps Script(Room.gs)에서 실행해 주세요. 엔진은 저장만 하면 돼요.'); return; }
   const make = (name, header) => {
     let s = ss.getSheetByName(name);
     if (!s) s = ss.insertSheet(name);
