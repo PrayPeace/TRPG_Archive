@@ -379,8 +379,10 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 /* ── 로비 (폰 화면) ── */
 #lobby{position:fixed;inset:0;z-index:60;background:radial-gradient(1200px 700px at 50% 20%,#151a26,#07090d);display:flex;align-items:center;justify-content:center;padding:24px 16px;overflow:auto}
 .lb-phone{position:relative;width:360px;height:740px;max-height:calc(100vh - 48px);border-radius:46px;background:#1a1c22;padding:11px;box-shadow:0 30px 80px rgba(0,0,0,.6),inset 0 0 0 2px #2b2e36;flex:none}
-.lb-screen{position:relative;width:100%;height:100%;border-radius:36px;overflow:hidden;background:radial-gradient(420px 360px at 85% 12%,rgba(227,34,47,.38),transparent 62%),radial-gradient(380px 380px at 0% 100%,rgba(140,18,36,.45),transparent 62%),linear-gradient(165deg,#3b1119 0%,#2a0c13 34%,#16070b 68%,#0b0507 100%);color:#fff;user-select:none}
-.lb-screen::before{content:'';position:absolute;right:-70px;bottom:40px;width:330px;height:330px;opacity:.13;transform:rotate(-10deg);pointer-events:none;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 230 230'%3E%3Cpath d='M115 18 L214 200 L16 200 Z' fill='none' stroke='%23ff6b74' stroke-width='3'/%3E%3Cpath d='M40 180 C 80 168, 110 192, 140 176 S 190 188, 214 178 M52 160 C 90 150, 115 170, 140 158 S 180 166, 200 160' fill='none' stroke='%23ffb3a8' stroke-width='2.5'/%3E%3C/svg%3E") center/contain no-repeat}
+.lb-screen{position:relative;width:100%;height:100%;border-radius:36px;overflow:hidden;background:linear-gradient(165deg,#2c3a6e 0%,#3f3a6b 28%,#1f2440 58%,#163640 82%,#0f1c26 100%);color:#fff;user-select:none}
+/* 컷인이 끝나면(.agency) 에이전시 톤이 서서히 덮인다 */
+.lb-screen::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity 1.8s ease;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 230 230' opacity='.13'%3E%3Cpath d='M115 18 L214 200 L16 200 Z' fill='none' stroke='%23ff6b74' stroke-width='3'/%3E%3Cpath d='M40 180 C 80 168, 110 192, 140 176 S 190 188, 214 178 M52 160 C 90 150, 115 170, 140 158 S 180 166, 200 160' fill='none' stroke='%23ffb3a8' stroke-width='2.5'/%3E%3C/svg%3E") right -70px bottom 40px/330px 330px no-repeat,radial-gradient(420px 360px at 85% 12%,rgba(227,34,47,.38),transparent 62%),radial-gradient(380px 380px at 0% 100%,rgba(140,18,36,.45),transparent 62%),linear-gradient(165deg,#3b1119 0%,#2a0c13 34%,#16070b 68%,#0b0507 100%)}
+.lb-screen.agency::before{opacity:1}
 .lb-notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:128px;height:26px;background:#000;border-radius:0 0 16px 16px;z-index:5}
 .lb-sbar{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;justify-content:space-between;padding:6px 26px 0;font-size:12.5px;font-weight:700;z-index:4}
 .lb-sbar .lb-ic{display:flex;gap:6px;align-items:center;opacity:.9}
@@ -2492,7 +2494,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.9';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.10';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -4044,7 +4046,7 @@ function lobbyBg(){
     const tri = `<svg viewBox="0 0 230 230"><defs><clipPath id="bgc"><path d="M115 18 L214 200 L16 200 Z"/></clipPath></defs><path d="M115 18 L214 200 L16 200 Z" fill="#e3222f"/><g clip-path="url(#bgc)">${ln}</g><path d="M115 18 L214 200 L16 200 Z" fill="none" stroke="#f4ece6" stroke-width="3"/></svg>`;
     b.innerHTML = `<div class="bg-band" style="top:22%;height:90px;background:#e3222f"></div><div class="bg-band" style="top:30%;height:14px;background:#f4ece6"></div><div class="bg-band" style="top:74%;height:120px;background:#000;opacity:.25"></div><div class="bg-dots"></div><div class="bg-tri2">${tri}</div><div class="bg-tri">${tri}</div><div class="bg-vig"></div>`;
   }
-  b.classList.add('on');
+  b.classList.add('on'); $('lScreen').classList.add('agency');
 }
 function unlock(){
   const lk = $('lLock'); if (lk.classList.contains('lb-up') || $('lFx')) return;
