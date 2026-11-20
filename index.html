@@ -269,6 +269,14 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .kcard.sec{border-color:#4a3a1c;background:linear-gradient(180deg,#1d1912,#1e222b)}
 .kcard.pick{cursor:pointer}.kcard.pick:hover{border-color:var(--gold)}
 .kcard b.ttl{font-size:14.5px}
+.kfind{position:sticky;top:0;z-index:3;background:var(--panel);padding:10px 0 8px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.kfind .row{gap:6px;flex-wrap:wrap}
+.kfind input{max-width:360px}
+.kfind select{width:auto;padding:5px 8px;font-size:13px}
+.kfind .lbl{font-size:12px;color:var(--faint)}
+.kgrp{font-size:13px;font-weight:700;color:var(--gold2);margin:12px 0 6px;padding-bottom:3px;border-bottom:1px dashed var(--line2)}
+.kgrp span{color:var(--faint);font-weight:500;margin-left:6px}
+.kcard mark{background:#5a4210;color:#ffe9b0;border-radius:3px;padding:0 1px}
 .kk{color:var(--faint);font-size:11.5px;font-weight:700;letter-spacing:.03em;margin-top:6px}
 .kv2{white-space:pre-wrap}
 .kline{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
@@ -1946,7 +1954,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.4';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.5';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -2397,14 +2405,50 @@ function chunkText(text, max){
   });
 }
 function kProg(text, err){ const p = $('kProgTxt'); if (p) { p.textContent = text; p.className = 'note' + (err ? ' kerr' : ''); } const bar = $('kProgBar'); if (bar && K.d && K.d.chunks) bar.style.width = Math.round((K.d.chunks - K.d.pending) / K.d.chunks * 100) + '%'; }
+// 워드(.docx)에서 글자만 뽑는다 (이 기기에서. 외부 도구 없이 zip을 풀어 word/document.xml을 읽음)
+async function docxText(file){
+  const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let e = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('워드(docx) 파일 형식이 아니에요');
+  const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true), ent = null;
+  const td = new TextDecoder();
+  for (let k = 0; k < n && p + 46 <= buf.length; k++) {
+    const nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+    const name = td.decode(buf.subarray(p + 46, p + 46 + nl));
+    if (name === 'word/document.xml') { ent = { method: dv.getUint16(p + 10, true), csize: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) }; break; }
+    p += 46 + nl + xl + cl;
+  }
+  if (!ent) throw new Error('워드 본문을 찾지 못했어요');
+  const st = ent.off + 30 + dv.getUint16(ent.off + 26, true) + dv.getUint16(ent.off + 28, true);
+  const data = buf.subarray(st, st + ent.csize);
+  let xb;
+  if (ent.method === 0) xb = data;
+  else if (ent.method === 8) xb = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  else throw new Error('지원하지 않는 압축 방식이에요');
+  const doc = new DOMParser().parseFromString(td.decode(xb), 'application/xml');
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', out = [];
+  [...doc.getElementsByTagNameNS(W, 'p')].forEach(pp => {
+    let line = '';
+    [...pp.getElementsByTagNameNS(W, '*')].forEach(x => { if (x.localName === 't') line += x.textContent; else if (x.localName === 'tab') line += '\t'; else if (x.localName === 'br' || x.localName === 'cr') line += '\n'; });
+    out.push(line);
+  });
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
 async function kUpload(fileInput){
-  const f = K.kbF, files = [...fileInput.files], pasted = f.paste.trim(), label = f.source.trim();
-  if (!files.length && !pasted) { kProg('파일을 고르거나 글을 붙여 넣어 주세요', true); return; }
+  const f = K.kbF, files = [...fileInput.files], pasted = f.paste.trim(), label = f.source.trim(), docUrl = String(f.doc || '').trim();
+  if (!files.length && !pasted && !docUrl) { kProg('파일을 고르거나, 구글 문서 링크를 넣거나, 글을 붙여 넣어 주세요', true); return; }
   K.stop = false; K.uploading = true; K.upNote = '';
   const jobs = [], notes = [], gen = K.gen; let ocrCalls = 0;      // gen: 올리기를 시작할 때의 자료 번호 (도중에 전체 지우기가 있었으면 서버가 받지 않는다)
   const stopBtn = $('kUpStop'); if (stopBtn) { stopBtn.classList.remove('hide'); stopBtn.disabled = false; stopBtn.textContent = '멈추기'; }
   try {
     if (pasted) jobs.push({ source: label || '붙여 넣은 글', text: pasted });
+    if (docUrl) {
+      kProg('구글 문서 읽는 중…');
+      const r = await kpost({ action: 'kDocText', url: docUrl });
+      if (!r.ok) { kProg(r.error || '구글 문서를 읽지 못했어요', true); if (!files.length && !pasted) return; notes.push('구글 문서: ' + (r.error || '읽지 못함')); }
+      else jobs.push({ source: (!files.length && !pasted && label) ? label : (r.title || '구글 문서'), text: r.text });
+    }
     for (const file of files) {
       let text;
       if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
@@ -2425,6 +2469,9 @@ async function kUpload(fileInput){
         text = r.pages.map(p => { const t = String(got[p.n] != null ? got[p.n] : p.text).trim(); return t ? '⟦' + p.n + '쪽⟧\n' + t : ''; }).filter(Boolean).join('\n\n');
         try { r.doc.destroy(); } catch (_) {}
         if (!text.trim()) { notes.push('"' + file.name + '"에서 올릴 글자가 없었어요'); continue; }
+      } else if (/\.docx$/i.test(file.name)) {
+        try { text = await docxText(file); } catch (e) { notes.push('"' + file.name + '"을(를) 읽지 못했어요 (' + e.message + ')'); continue; }
+        if (!text.trim()) { notes.push('"' + file.name + '"에서 올릴 글자가 없었어요'); continue; }
       } else if (/\.(txt|md|text)$/i.test(file.name) || /^text\//.test(file.type)) text = await file.text();
       else { toast('"' + file.name + '"은(는) 읽을 수 없는 형식이에요. PDF·TXT로 바꾸거나 내용을 붙여 넣어 주세요'); notes.push('"' + file.name + '"은(는) 읽을 수 없는 형식이라 건너뛰었어요'); continue; }
       if (text.trim()) jobs.push({ source: files.length === 1 && label && !pasted ? label : file.name, text });
@@ -2442,7 +2489,7 @@ async function kUpload(fileInput){
     if (ocrCalls) notes.push('그림 쪽 읽기에 AI 호출 ' + ocrCalls + '번');
     K.upNote = notes.join(' · ');
     if (!added) { kProg('올릴 내용이 없었어요' + (K.upNote ? ' · ' + K.upNote : ''), true); return; }
-    f.paste = ''; f.source = ''; fileInput.value = '';
+    f.paste = ''; f.source = ''; f.doc = ''; fileInput.value = '';
     const stopped = K.stop;
     K.uploading = false;
     await kLoad();
@@ -2490,13 +2537,106 @@ function kbEdit(sec, item){
   openForm((item ? '고치기 · ' : '추가 · ') + def.title, def.fields, vals, v => kpost({ action: 'kKbSave', sec, item: Object.assign({}, v, { id: item && item.id }), gen: K.gen }),
     { extra, hint: '저장하면 🔒 마스터가 확정한 항목이 되어, 자료를 더 올려도 AI가 바꾸지 않아요.', after: () => kLoad() });
 }
+// ── 정리본 찾기: 검색 · 칸 고르기 · 정렬(묶기) · 핵심 단서만
+function kbFindState(){ return K.kf || (K.kf = { q: '', sec: 'all', npc: 'order', clue: 'order' }); }
+function kbPlaceOf(kb, txt){
+  txt = String(txt || ''); let best = '';
+  (kb.places || []).forEach(p => { const n = String(p.name || '').trim(); if (n.length >= 2 && txt.indexOf(n) >= 0 && n.length > best.length) best = n; });
+  return best;
+}
+function kbSkillOf(kb, how){
+  how = String(how || '').trim(); if (!how) return '방법 미상';
+  let best = '';
+  (kb.rolls || []).forEach(r => { const n = String(r.skill || '').trim(); if (n.length >= 2 && how.indexOf(n) >= 0 && n.length > best.length) best = n; });
+  if (best) return best;
+  const m = how.match(/([가-힣A-Za-z·]{2,12})\s*(?:판정|굴림|체크|롤|성공)/); if (m) return m[1];
+  return how.length > 14 ? how.slice(0, 14) + '…' : how;
+}
+function kbList(cont){
+  const kb = K.d.kb, st = kbFindState(); cont.innerHTML = '';
+  const words = st.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = it => !words.length || (function(){ const h = Object.keys(it).filter(k => typeof it[k] === 'string' && k !== 'id').map(k => it[k]).join('\n').toLowerCase(); return words.every(w => h.includes(w)); })();
+  const order = st.sec === 'core' ? ['clues'] : st.sec === 'all' ? ['npcs', 'clues', 'rolls', 'places', 'scenes'] : [st.sec];
+  let shown = 0;
+  order.forEach(sec => {
+    const def = KSEC[sec]; let arr2 = (kb[sec] || []).filter(hit);
+    if (sec === 'clues' && st.sec === 'core') arr2 = arr2.filter(c => c.core);
+    const tot = (kb[sec] || []).length;
+    if (words.length && !arr2.length && st.sec === 'all') return;
+    const h = kH(sec === 'clues' && st.sec === 'core' ? '⭐ 핵심 단서' : def.title, arr2.length + '개' + (arr2.length !== tot ? ' / 전체 ' + tot + '개' : '')); h.append(el('span', 'grow'));
+    const add = el('button', '', '+ 추가'); add.onclick = () => kbEdit(sec, null); h.append(add); cont.append(h);
+    if (!arr2.length) { cont.append(kEmpty(tot ? '조건에 맞는 항목이 없어요' : '아직 없어요')); return; }
+    // 묶기
+    let groups = null;
+    const nm = x => String(x[def.key] || '');
+    if (sec === 'npcs' && st.npc !== 'order') {
+      if (st.npc === 'name') arr2 = arr2.slice().sort((a, b) => nm(a).localeCompare(nm(b), 'ko'));
+      else groups = arr2.map(x => [st.npc === 'place' ? (kbPlaceOf(kb, [x.role, x.knows, x.secret, x.attitude, x.motive].join(' ')) || '장소 미상') : (String(x.role || '').trim() || '역할 미상'), x]);
+    }
+    if (sec === 'clues' && st.clue !== 'order') {
+      if (st.clue === 'name') arr2 = arr2.slice().sort((a, b) => nm(a).localeCompare(nm(b), 'ko'));
+      else groups = arr2.map(x => [st.clue === 'place' ? (kbPlaceOf(kb, x.where) || String(x.where || '').trim() || '장소 미상') : kbSkillOf(kb, x.how), x]);
+    }
+    if (sec !== 'npcs' && sec !== 'clues' && st.npc === 'name') arr2 = arr2.slice().sort((a, b) => nm(a).localeCompare(nm(b), 'ko'));
+    const card = it => {
+      const c = el('div', 'kcard pick'); c.style.marginBottom = '0';
+      const t = el('b', 'ttl'); t.append((it.locked ? '🔒 ' : ''), hlK(sec === 'rolls' ? (it.where ? it.where + ' · ' : '') + (it.skill || '') : it[def.key] || '', words)); c.append(t);
+      if (sec === 'clues' && it.core) c.append(el('span', 'tag', '핵심'));
+      const sub = def.sub(it); if (sub) { const sv = el('div', 'note'); sv.append(hlK(sub, words)); sv.style.cssText = 'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden'; c.append(sv); }
+      c.onclick = () => kbEdit(sec, it); return c;
+    };
+    if (groups) {
+      const by = {}; groups.forEach(([g, x]) => { (by[g] = by[g] || []).push(x); });
+      const miss = /미상$/;
+      Object.keys(by).sort((a, b) => (miss.test(a) - miss.test(b)) || a.localeCompare(b, 'ko')).forEach(g => {
+        const gh = el('div', 'kgrp', g); gh.append(el('span', '', by[g].length + '개')); cont.append(gh);
+        const grid = el('div', 'grid'); by[g].forEach(x => grid.append(card(x))); cont.append(grid);
+      });
+    } else { const grid = el('div', 'grid'); arr2.forEach(x => grid.append(card(x))); cont.append(grid); }
+    shown += arr2.length;
+  });
+  if (words.length && !shown && st.sec === 'all') cont.append(kEmpty('"' + st.q + '"이(가) 들어간 자료가 없어요'));
+}
+function hlK(text, words){
+  const f = document.createDocumentFragment(); const t = String(text || '');
+  if (!words.length) { f.append(t); return f; }
+  const re = new RegExp('(' + words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+  t.split(re).forEach((part, i) => { if (i % 2) { const m = document.createElement('mark'); m.textContent = part; f.append(m); } else if (part) f.append(part); });
+  return f;
+}
+function kbFind(box){
+  const kb = K.d.kb, st = kbFindState();
+  const wrap = el('div', 'kfind');
+  const r1 = el('div', 'row');
+  const q = el('input'); q.id = 'kbQ'; q.placeholder = '🔍 시나리오 자료 검색 (이름·내용 · 띄어쓰기로 여러 단어)'; q.value = st.q;
+  const list = el('div'); list.id = 'kbList';
+  q.oninput = () => { st.q = q.value.trim(); kbList(list); };
+  r1.append(q); wrap.append(r1);
+  const r2 = el('div', 'row'); r2.style.marginTop = '6px';
+  const nCore = (kb.clues || []).filter(c => c.core).length;
+  [['all', '전체'], ['npcs', 'NPC'], ['clues', '단서'], ['core', '⭐ 핵심 단서 ' + nCore], ['rolls', '판정'], ['places', '장소'], ['scenes', '장면']].forEach(([k, lb]) => {
+    const b = el('button', 'fchip' + (st.sec === k ? ' act' : ''), lb); b.dataset.ksec = k;
+    b.onclick = () => { st.sec = k; r2.querySelectorAll('.fchip').forEach(x => x.classList.toggle('act', x.dataset.ksec === k)); kbList(list); }; r2.append(b);
+  });
+  wrap.append(r2);
+  const r3 = el('div', 'row'); r3.style.marginTop = '6px';
+  const sel = (id, label, opts, val, on) => { const sl = el('select'); sl.id = id; opts.forEach(([v, t]) => { const o = el('option', '', t); o.value = v; sl.append(o); }); sl.value = val; sl.onchange = () => { on(sl.value); kbList(list); }; r3.append(el('span', 'lbl', label), sl); };
+  sel('kbNpcSort', 'NPC 정렬', [['order', '정리된 순서'], ['name', '가나다'], ['place', '장소별'], ['role', '직업·역할별']], st.npc, v => { st.npc = v; });
+  sel('kbClueSort', '단서 정렬', [['order', '정리된 순서'], ['name', '가나다'], ['place', '장소별'], ['skill', '기능(판정)별']], st.clue, v => { st.clue = v; });
+  wrap.append(r3);
+  const area = el('div'); area.append(wrap, list); box.append(area); kbList(list);      // 검색 막대는 목록을 보는 동안에만 위에 붙어 있다
+}
 function kvKb(box){
-  const d = K.d, kb = d.kb, f = K.kbF || (K.kbF = { source: '', paste: '', truth: null, memo: null });
-  box.append(kH('자료 올리기', 'PDF·TXT 파일이나 붙여 넣은 글. 한글(HWP) 파일은 PDF로 저장해서 올려 주세요.'));
+  const d = K.d, kb = d.kb, f = K.kbF || (K.kbF = { source: '', paste: '', truth: null, memo: null, doc: '' });
+  const hasKb = ['npcs', 'clues', 'rolls', 'places', 'scenes'].some(k => (kb[k] || []).length);
+  if (hasKb) { box.append(kH('시나리오 자료 찾기', '정리본(NPC·단서·판정·장소·장면)에서 찾기 · 누르면 고칠 수 있어요')); kbFind(box); }
+  box.append(kH('자료 올리기', 'PDF·워드(DOCX)·TXT 파일, 구글 문서 링크, 붙여 넣은 글. 한글(HWP) 파일은 PDF로 저장해서 올려 주세요.'));
   const up = el('div', 'kcard');
-  const fi = el('input'); fi.type = 'file'; fi.multiple = true; fi.accept = '.pdf,.txt,.md,text/plain,application/pdf'; fi.id = 'kFile';
+  const fi = el('input'); fi.type = 'file'; fi.multiple = true; fi.accept = '.pdf,.docx,.txt,.md,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'; fi.id = 'kFile';
   const g = el('div', 'kgrid');
+  const docIn = kInput(f.doc, 'https://docs.google.com/document/d/…', v => { f.doc = v; }); docIn.id = 'kDocUrl';
   g.append(kWrap('파일', fi), kWrap('자료 이름 (선택)', kInput(f.source, '예: 시나리오 본문, 진상 메모', v => { f.source = v; })),
+    kWrap('또는 구글 문서 링크 (마스터 구글 계정으로 열 수 있는 문서)', docIn, 'wide'),
     kWrap('또는 글 붙여 넣기', kArea(f.paste, 4, '진상, NPC 설정, 직접 쓴 메모 등을 그대로 붙여 넣어도 돼요', v => { f.paste = v; }), 'wide'));
   up.append(g);
   const row = el('div', 'row'); row.style.marginTop = '10px';
@@ -2530,21 +2670,8 @@ function kvKb(box){
   ts.onclick = async () => { const r = await kDo(ts, '저장 중…', { action: 'kKbText', key: 'truth', text: ta.value, gen: K.gen }, tm); if (r.ok) { f.truth = null; tm.textContent = '저장됨'; kLoad(); } };
   tp.onclick = async () => { if (f.truth != null && f.truth !== kb.truth) { tm.textContent = '고친 내용을 먼저 저장해 주세요'; tm.className = 'note kerr'; return; } const r = await kDo(tp, 'AI가 다듬는 중…', { action: 'kTruthPolish' }, tm); if (r.ok) { f.truth = null; kLoad(); } };
   tr.append(ts, tp, tm); box.append(ta, tr);
+  if (!hasKb) { box.append(kH('정리본', '자료를 올리면 AI가 채워요. 직접 추가해도 돼요')); kbFind(box); }      // 정리본이 비어 있으면 예전처럼 아래에 (직접 추가용)
 
-  ['npcs', 'clues', 'rolls', 'places', 'scenes'].forEach(sec => {
-    const def = KSEC[sec], arr2 = kb[sec] || [];
-    const h = kH(def.title, arr2.length + '개'); h.append(el('span', 'grow')); const add = el('button', '', '+ 추가'); add.onclick = () => kbEdit(sec, null); h.append(add); box.append(h);
-    if (!arr2.length) { box.append(kEmpty('아직 없어요')); return; }
-    const grid = el('div', 'grid');
-    arr2.forEach(it => {
-      const c = el('div', 'kcard pick'); c.style.marginBottom = '0';
-      c.append(el('b', 'ttl', (it.locked ? '🔒 ' : '') + (sec === 'rolls' ? (it.where ? it.where + ' · ' : '') + (it.skill || '') : it[def.key] || '')));
-      if (sec === 'clues' && it.core) c.append(el('span', 'tag', '핵심'));
-      const sub = def.sub(it); if (sub) { const sv = el('div', 'note', sub); sv.style.cssText = 'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden'; c.append(sv); }
-      c.onclick = () => kbEdit(sec, it); grid.append(c);
-    });
-    box.append(grid);
-  });
 
   box.append(kH('마스터 용어집', '마스터만 보는 용어 풀이 (플레이어에게 공개되지 않고 AI에도 보내지 않아요)'));
   const ga = kArea(f.glossary != null ? f.glossary : kb.glossary, 4, '', v => { f.glossary = v; });
