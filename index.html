@@ -985,6 +985,8 @@ function lkPattern(alias){
 // 이름 하나 → [정식 이름, 변형들]
 function lkAliases(sec, raw, aka){
   const out = new Set();
+  // 탐사자 이름이 "프레이피스 = 루시 프레이저"처럼 적혀 있으면 오른쪽(캐릭터)이 이름, 왼쪽(플레이어)은 다른 이름
+  if (sec === 'pcs') { const mm = /^(.+?)\s*(?:=|→|->|:)\s*(.+)$/.exec(String(raw)); if (mm) { raw = mm[2]; aka = [aka, mm[1]].filter(Boolean).join(', '); } }
   const paren = []; const nm = String(raw).replace(/[(（\[]([^)）\]]*)[)）\]]/g, (_, x) => { paren.push(x.trim()); return ' '; }).replace(/\s+/g, ' ').trim();
   if (nm.length >= 2) out.add(nm);
   const w = nm.split(' ').filter(Boolean);
@@ -995,10 +997,11 @@ function lkAliases(sec, raw, aka){
     for (let i = 1; i < w.length; i++) { const tail = w.slice(i).join(' ').replace(/^.*의\s+/, ''); if (tail.replace(/\s/g, '').length >= 2) out.add(tail); }
     if (w.length >= 2 && LK_PLACE_END.has(w[w.length - 1])) { const head = w.slice(0, -1).join(' ').replace(/의$/, ''); if (head.replace(/\s/g, '').length >= 2) out.add(head); }
   }
-  if ((sec === 'npcs' || sec === 'pcs') && w.length >= 2) w.forEach(x => { x = x.replace(/의$/, ''); if (x.length >= 2 && !LK_TITLES.has(x)) out.add(x); });
+  // 인물 이름 조각. "루시의 상관"의 "루시"처럼 '~의'로 끝나는 말은 다른 사람을 가리키는 꾸밈말이라 조각으로 쓰지 않는다
+  if ((sec === 'npcs' || sec === 'pcs') && w.length >= 2) w.forEach(x => { if (/의$/.test(x)) return; if (x.length >= 2 && !LK_TITLES.has(x)) out.add(x); });
   String(aka || '').split(/[,，、\n]+/).map(x => x.trim()).filter(x => x.length >= 2 && x.length <= 30).forEach(x => {
     out.add(x);
-    if (sec === 'npcs' || sec === 'pcs') x.split(/\s+/).forEach(y => { y = y.replace(/의$/, ''); if (y.length >= 2 && !LK_TITLES.has(y)) out.add(y); });     // 다른 이름이 "루시 프레이저"면 "루시", "프레이저"도
+    if (sec === 'npcs' || sec === 'pcs') x.split(/\s+/).forEach(y => { if (/의$/.test(y)) return; if (y.length >= 2 && !LK_TITLES.has(y)) out.add(y); });     // 다른 이름이 "루시 프레이저"면 "루시", "프레이저"도
   });
   return { name: nm, list: [...out] };
 }
@@ -1036,8 +1039,10 @@ function buildLinks(n){
       return;
     }
     // 서로 다른 대상이 같은 조각을 가지면 애매해서 뺀다. 같은 이름이 탐사자·NPC 양쪽에 있는 경우(같은 사람)는 앞의 것(탐사자)으로
-    const who = new Set(part[key].map(x => x.who)); if (who.size > 1) return;
-    linkMap[key] = part[key][0].ref; pats.push(part[key][0].alias);
+    // 여러 대상에 걸치면: 탐사자가 한 사람뿐이면 탐사자로(주인공 이름이 우선), 아니면 애매해서 뺀다
+    let cand = part[key];
+    if (new Set(cand.map(x => x.who)).size > 1) { const pc = cand.filter(x => x.ref.sec === 'pcs'); if (pc.length && new Set(pc.map(x => x.who)).size === 1) cand = pc; else return; }
+    linkMap[key] = cand[0].ref; pats.push(cand[0].alias);
   });
   const sorted = pats.sort((a, b) => lkKey(b).length - lkKey(a).length).map(lkPattern);
   sorted.push(ROOM_RE.source);                                                   // 방 번호는 맨 마지막 (이름에 들어 있으면 이름이 먼저 잡힌다)
