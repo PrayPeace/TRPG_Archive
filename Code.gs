@@ -17,8 +17,8 @@
  ****************************************************************/
 const CLAUDE_KEY   = '여기에_클로드_API_키';
 const DEEPGRAM_KEY = '여기에_딥그램_API_키';
-const ROOM_PW      = '방비밀번호';      // 플레이어 모두가 아는 비밀번호 (로비에서 방을 개설했으면 그때 정한 비밀번호가 설정 탭에 들어가고, 그게 우선)
-const KEEPER_PW    = '키퍼비밀번호';    // 마스터만 아는 비밀번호
+const ROOM_PW      = '방비밀번호';      // 플레이어 모두가 아는 비밀번호 (로비에서 방을 개설했거나 ⚙ 설정에서 바꿨으면 설정 탭의 값이 우선)
+const KEEPER_PW    = '키퍼비밀번호';    // 마스터만 아는 비밀번호 (로비 ⚙ 설정에서 바꿨으면 그게 우선. 바꾼 뒤엔 여기를 고쳐도 소용없음)
 
 // 새 방을 만들 때 어떤 룰로 진행할지 고른다 (아래 RULES의 이름 중 하나). 이미 만든 방은 마스터 탭에서 바꿀 수 있다.
 const RULE = 'coc';
@@ -66,7 +66,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.13';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.14';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -127,6 +127,17 @@ function ensureSheet(name) {
 const SAFE_MARK = '§';
 // 방 비밀번호: 로비에서 개설한 방은 설정 탭의 roomPw, 아니면 Code.gs 맨 위 ROOM_PW
 function roomPw() { try { const v = getConf('roomPw'); return v ? String(v) : ROOM_PW; } catch (e) { return ROOM_PW; } }
+/* 마스터 비밀번호: 로비 ⚙ 설정에서 바꿨으면 설정 탭의 keeperPwH(소금+해시, 비밀번호 자체는 남기지 않는다)가 우선, 아니면 Code.gs 맨 위 KEEPER_PW */
+function keeperHash() { try { const v = getConf('keeperPwH'); return v ? String(v) : ''; } catch (e) { return ''; } }
+function keeperPwOk(p) {
+  p = String(p == null ? '' : p);
+  if (!p) return false;
+  const h = keeperHash();
+  if (!h) return p === KEEPER_PW;
+  const i = h.indexOf(':');
+  return i > 0 && sha(h.slice(0, i) + p) === h.slice(i + 1);
+}
+function keeperWeak() { return keeperHash() ? getConf('keeperWeak') === '1' : KEEPER_PW.length < 10; }
 function enc(v) { return (typeof v === 'string' && /^[=+\-@§'\t\r\n]/.test(v)) ? SAFE_MARK + v : v; }
 function dec(v) { return (typeof v === 'string' && v.charAt(0) === SAFE_MARK) ? v.slice(1) : v; }
 function decS(v) { return dec(v == null ? '' : String(v)); }
@@ -198,9 +209,9 @@ function setup() {
 // 비밀번호 설정 점검 (값 자체는 어디에도 찍지 않는다)
 function pwWarnings() {
   const w = [];
-  if (roomPw() === KEEPER_PW) w.push('방 비밀번호와 마스터 비밀번호가 같아요. 서로 다르게 바꾸지 않으면 마스터 기능을 쓸 수 없어요.');
-  if (KEEPER_PW === '키퍼비밀번호' || roomPw() === '방비밀번호') w.push('비밀번호가 처음 예시 그대로예요. Code.gs 맨 위에서 바꿔 주세요.');
-  if (KEEPER_PW.length < 10) w.push('마스터 비밀번호가 10자보다 짧아요. 짧아도 동작은 하지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워지니 10자 이상을 권해요.');
+  if (keeperPwOk(roomPw())) w.push('방 비밀번호와 마스터 비밀번호가 같아요. 서로 다르게 바꾸지 않으면 마스터 기능을 쓸 수 없어요.');
+  if ((!keeperHash() && KEEPER_PW === '키퍼비밀번호') || roomPw() === '방비밀번호') w.push('비밀번호가 처음 예시 그대로예요. Code.gs 맨 위에서 바꿔 주세요.');
+  if (keeperWeak()) w.push('마스터 비밀번호가 10자보다 짧아요. 짧아도 동작은 하지만, 방 비밀번호를 아는 사람이 찍어 맞히기 쉬워지니 10자 이상을 권해요.');
   return w;
 }
 
@@ -656,6 +667,7 @@ function doPost(e) {
       case 'hubSave':    return out(hubSave(b.rooms));
       case 'hubGet':     return out({ ok: true, rooms: hubClean(confJson('hubRooms', [])), title: roomTitle(), self: ScriptApp.getService().getUrl() || '' });
       case 'hubNewRoom': return out(hubNewRoom(b.name, b.rule, b.pw));
+      case 'setPw':      return out(setPw(b));
       case 'newRoom':    return out(newRoom(b.name, b.rule));
       case 'newSession': return out(newSession());
       case 'tabs':       return out(listTabs(b.url));
@@ -771,7 +783,7 @@ function hubList() { return { ok: true, title: roomTitle(), rule: ruleKey(), roo
 function hubNewRoom(name, rule, pw) {
   pw = String(pw || '').trim();
   if (!pw) return { ok: false, error: '새 방 비밀번호를 정해 주세요' };
-  if (pw === KEEPER_PW) return { ok: false, error: '방 비밀번호는 마스터 비밀번호와 달라야 해요' };
+  if (keeperPwOk(pw)) return { ok: false, error: '방 비밀번호는 마스터 비밀번호와 달라야 해요' };
   const r = newRoom(name, rule, pw);
   if (!r.ok) return r;
   const rooms = hubClean(confJson('hubRooms', []));
@@ -2127,7 +2139,7 @@ function sha(s) {
   return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(s), Utilities.Charset.UTF_8));
 }
 function tokenOk(kt) {
-  if (!kt || roomPw() === KEEPER_PW) return false;
+  if (!kt || keeperPwOk(roomPw())) return false;
   const h = sha(kt), t = Date.now();
   return confJson('ktokens', []).some(x => x && x.h === h && Number(x.exp) > t);
 }
@@ -2136,14 +2148,14 @@ function tokenOk(kt) {
  *  - 세는 일을 잠금 안에서 하므로 여러 요청이 동시에 틀려도 횟수가 빠지지 않는다.
  *  - 10분 안에 K_FAIL_MAX번 틀리면 비밀번호 로그인만 10분 잠근다. 이미 로그인한 마스터(토큰)는 영향을 받지 않는다. */
 function keeperLogin(kpw) {
-  if (roomPw() === KEEPER_PW) return { ok: false, error: '방 비밀번호와 마스터 비밀번호가 같아서 마스터 기능이 잠겨 있어요. Code.gs 맨 위에서 서로 다르게 바꾸고 다시 배포해 주세요' };
+  if (keeperPwOk(roomPw())) return { ok: false, error: '방 비밀번호와 마스터 비밀번호가 같아서 마스터 기능이 잠겨 있어요. Code.gs 맨 위에서 서로 다르게 바꾸고 다시 배포해 주세요' };
   const kt = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
   return withLock(20000, () => {
     const c = CacheService.getScriptCache(), t = Date.now();
     const until = Number(c.get('k_lock') || 0);
     const lockedOut = u => ({ ok: false, locked: true, error: '마스터 비밀번호를 여러 번 틀려서 잠겼어요. ' + Math.max(1, Math.ceil((u - Date.now()) / 60000)) + '분 뒤에 다시 시도해 주세요 (이미 로그인한 기기는 계속 쓸 수 있어요)' });
     if (t < until) return lockedOut(until);
-    if (String(kpw == null ? '' : kpw) !== KEEPER_PW) {
+    if (!keeperPwOk(kpw)) {
       const n = Number(c.get('k_fail') || 0) + 1;
       if (n >= K_FAIL_MAX) { const u = t + K_LOCK_MS; c.put('k_lock', String(u), 1200); c.remove('k_fail'); return lockedOut(u); }
       c.put('k_fail', String(n), 600);
@@ -2154,8 +2166,33 @@ function keeperLogin(kpw) {
     const list = confJson('ktokens', []).filter(x => x && Number(x.exp) > t).slice(-4);   // 동시에 5대까지
     list.push({ h: sha(kt), exp });
     setJson('ktokens', list);
-    return { ok: true, kt, exp, weak: KEEPER_PW.length < 10 };     // weak: 비밀번호가 10자보다 짧다 (막지는 않고 화면에 알린다)
+    return { ok: true, kt, exp, weak: keeperWeak() };     // weak: 비밀번호가 10자보다 짧다 (막지는 않고 화면에 알린다)
   });
+}
+/* 비밀번호 바꾸기 (마스터 로그인 + 지금 마스터 비밀번호를 한 번 더 확인).
+ *  b.room: 새 방 비밀번호 → 설정 탭 roomPw. 예전 비밀번호로 들어와 있던 사람은 다음 요청부터 막힌다.
+ *  b.keeper: 새 마스터 비밀번호 → 설정 탭 keeperPwH(해시). 모든 마스터 로그인(토큰)을 끊는다.
+ *  유출됐을 때 쓰는 기능이라 Code.gs를 다시 배포하지 않아도 바로 적용된다. */
+const PW_MIN = 4, KPW_MIN = 8;
+function setPw(b) {
+  if (!keeperPwOk(b.kpw)) return { ok: false, error: '지금 마스터 비밀번호가 틀렸어요' };
+  const room = b.room == null ? '' : String(b.room).trim(), keeper = b.keeper == null ? '' : String(b.keeper);
+  if (!room && !keeper) return { ok: false, error: '바꿀 비밀번호를 적어 주세요' };
+  if (room && room.length < PW_MIN) return { ok: false, error: '방 비밀번호는 ' + PW_MIN + '자 이상으로 정해 주세요' };
+  if (keeper && keeper.length < KPW_MIN) return { ok: false, error: '마스터 비밀번호는 ' + KPW_MIN + '자 이상으로 정해 주세요' };
+  if (keeper && /^\s|\s$/.test(keeper)) return { ok: false, error: '마스터 비밀번호 앞뒤에 빈칸이 있으면 안 돼요' };
+  const newRoom = room || roomPw();
+  if (keeper ? newRoom === keeper : keeperPwOk(newRoom)) return { ok: false, error: '방 비밀번호와 마스터 비밀번호는 서로 달라야 해요' };
+  withLock(20000, () => {
+    if (room) setConf('roomPw', room);
+    if (keeper) {
+      const salt = Utilities.getUuid().replace(/-/g, '');
+      setConf('keeperPwH', salt + ':' + sha(salt + keeper));
+      setConf('keeperWeak', keeper.length < 10 ? '1' : '');
+      setJson('ktokens', []);                         // 모든 기기의 마스터 로그인을 끊는다
+    }
+  });
+  return { ok: true, room: !!room, keeper: !!keeper, title: roomTitle() };
 }
 function keeperLogout(kt, all) {
   if (!kt || !tokenOk(kt)) return { ok: true };
@@ -2643,7 +2680,7 @@ function kData() {
     recap: confJson('recap', null), awards: confJson('awards', null),
     rollsTotal: Math.max(0, rollS.getLastRow() - 1), sessions: sessionList().sessions, session: getConf('session'),
     keeperName: getConf('keeperName') || '', resetVer: getConf('resetVer') || '0', kbGen: getConf('kbGen') || '0',
-    weak: KEEPER_PW.length < 10, code: CODE_VER
+    weak: keeperWeak(), code: CODE_VER
   };
 }
 
