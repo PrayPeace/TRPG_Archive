@@ -14,6 +14,11 @@
  *    코드를 고친 뒤에는 배포 → 배포 관리 → 연필 → 버전: 새 버전 → 배포.
  * 4) (권장) 함수 선택에서 selfTest 를 고르고 ▶실행 → 실행 로그가 "결과: 모두 PASS"인지 확인한다.
  *    실제 구글 시트에서 "=1+1" 같은 글이 수식으로 바뀌지 않는지 등을 점검한다. 기존 기록은 건드리지 않는다. (맨 아래 설명 참고)
+ *
+ * ★ 라이브러리 방식 (권장, 11-20.15부터): 이 파일은 "🎲TRPG Archive 엔진" 프로젝트 하나에만 두고,
+ *   방 시트(로비 포함)에는 저장소의 Room.gs(짧은 연결 코드)만 붙여 라이브러리 TRPG(HEAD 개발 모드)로 부른다.
+ *   그러면 업데이트는 엔진의 이 파일만 바꿔 저장하면 끝 (방마다 붙이기·다시 배포 불필요). 키 네 줄도 엔진에만 넣는다.
+ *   방 비밀번호는 방마다 설정 탭(roomPw)에 있고, 마스터 비밀번호는 아래 KEEPER_PW (로비 🔑로 바꾸면 방마다 설정 탭이 우선).
  ****************************************************************/
 const CLAUDE_KEY   = '여기에_클로드_API_키';
 const DEEPGRAM_KEY = '여기에_딥그램_API_키';
@@ -66,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-20.14';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.15';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -149,7 +154,8 @@ function fixTrigger() {
   ScriptApp.newTrigger('tick').timeBased().everyMinutes(5).create();
   Logger.log('자동 정리 트리거를 5분마다로 설정했어요');
 }
-function setup() {
+// roomPwFirst: (라이브러리로 쓸 때) 방 시트의 연결 코드가 넘겨주는 이 방 비밀번호. 비어 있으면 건드리지 않는다
+function setup(roomPwFirst) {
   const ss = SpreadsheetApp.getActive();
   const make = (name, header) => {
     let s = ss.getSheetByName(name);
@@ -182,6 +188,8 @@ function setup() {
   };
   confLoad(true);
   Object.keys(defaults).forEach(k => { if (getConf(k) === null) setConf(k, defaults[k]); });
+  const rp = typeof roomPwFirst === 'string' ? roomPwFirst.trim() : '';
+  if (rp) { if (keeperPwOk(rp)) Logger.log('⚠ 방 비밀번호가 마스터 비밀번호와 같아서 넣지 않았어요'); else { setConf('roomPw', rp); Logger.log('방 비밀번호를 설정 탭에 넣었어요'); } }
   if (!readNotes()) writeNotes(emptyNotes());
 
   // 예전 대화 줄에 발언ID 채우기 (근거 원문 찾기용)
@@ -197,7 +205,7 @@ function setup() {
 
   // 외부 요청·캐시 권한을 미리 받아 두기 위한 호출
   UrlFetchApp.fetch('https://api.anthropic.com', { muteHttpExceptions: true });
-  CacheService.getScriptCache().put('setup', '1', 60);
+  roomCache().put('setup', '1', 60);
   SpreadsheetApp.flush();
   pwWarnings().forEach(w => Logger.log('⚠ ' + w));
   // 예전 버전에서 이 문서의 내부 탭을 캐릭터로 연결해 둔 것이 있으면 바로 끊는다
@@ -245,11 +253,24 @@ function setJson(key, obj) { setConf(key, obj == null ? '' : JSON.stringify(obj)
 function now() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'); }
 function sheet(name) { return SpreadsheetApp.getActive().getSheetByName(name); }
 
+/* ───────────── 라이브러리로 써도 방끼리 섞이지 않게 ─────────────
+ * 이 코드는 방 시트에 통째로 붙여도 되고, "엔진" 프로젝트 하나에 두고 방 시트에서 라이브러리(TRPG)로 불러도 된다.
+ * 라이브러리로 쓰면 캐시와 스크립트 잠금은 모든 방이 같이 쓰므로, 캐시 이름 앞에 시트 ID를 붙이고 잠금은 시트(문서) 잠금을 쓴다. */
+let _ssId = null;
+function ssId() { if (_ssId == null) { try { _ssId = SpreadsheetApp.getActive().getId(); } catch (e) { _ssId = 'x'; } } return _ssId; }
+function roomCache() {
+  const c = CacheService.getScriptCache(), p = ssId().slice(0, 60) + ':';
+  return {
+    get: k => c.get(p + k), put: (k, v, t) => c.put(p + k, v, t), remove: k => c.remove(p + k),
+    getAll: ks => { const o = c.getAll(ks.map(k => p + k)), r = {}; Object.keys(o).forEach(k => { r[k.slice(p.length)] = o[k]; }); return r; }
+  };
+}
+function roomLock() { let l = null; try { l = LockService.getDocumentLock(); } catch (e) {} return l || LockService.getScriptLock(); }
 // 짧게 잠그고 바로 푼다. 잠금 안에서 쓴 내용은 풀기 전에 시트에 확정한다.
 let _lockDepth = 0, _lockPatient = false;
 function withLock(ms, fn) {
   if (_lockDepth > 0) return fn();                       // 이미 이 실행이 잠금을 잡고 있다: 그대로 이어서 실행
-  const l = LockService.getScriptLock();
+  const l = roomLock();
   // 요약 실행은 대화 저장이 몰려도 쉽게 포기하지 않는다 (잠금을 못 잡으면 잠깐 쉬고 몇 번 더 시도)
   let got = l.tryLock(ms);
   for (let i = 0; !got && _lockPatient && i < 3; i++) { Utilities.sleep(1500 + i * 1500); got = l.tryLock(ms); }
@@ -269,7 +290,7 @@ let _prog = null;                                   // 이번 실행의 계산 �
 function setProg(job, label, pct, next, detail) {
   try {
     if (!job) return;
-    const c = CacheService.getScriptCache();
+    const c = roomCache();
     let old = null; try { old = JSON.parse(c.get('prog') || 'null'); } catch (e) {}
     pct = Math.max(0, Math.min(99, Math.round(pct)));
     if (old && old.token === job.token && old.pct > pct) pct = old.pct;             // 뒤로 가지 않는다
@@ -277,9 +298,9 @@ function setProg(job, label, pct, next, detail) {
   } catch (e) {}
 }
 function getProg(job) {
-  try { const o = JSON.parse(CacheService.getScriptCache().get('prog') || 'null'); return o && job && o.token === job.token ? { label: o.label, detail: o.detail, pct: o.pct, next: o.next } : null; } catch (e) { return null; }
+  try { const o = JSON.parse(roomCache().get('prog') || 'null'); return o && job && o.token === job.token ? { label: o.label, detail: o.detail, pct: o.pct, next: o.next } : null; } catch (e) { return null; }
 }
-function clearProg() { try { CacheService.getScriptCache().remove('prog'); } catch (e) {} }
+function clearProg() { try { roomCache().remove('prog'); } catch (e) {} }
 // 요약 단계는 3~55%, NPC·장소·단서 정리는 55~93%, 마무리는 93~100%
 function pSum(extra) { const l0 = Math.max(1, _prog && _prog.l0 || 1); return 3 + 52 * Math.min(1, ((_prog ? _prog.lines : 0) + (extra || 0)) / l0); }
 function pNotes(done, step) { const b = _prog || { nb: 55, ns: 38 }; const q = notesQ().length; return b.nb + b.ns * Math.min(1, (done + (step || 0)) / Math.max(1, done + q)); }
@@ -570,7 +591,7 @@ function noteUnlock(sec, id) {
 function touchPresence(name, mic, why, hid, bye) {
   if (!name) return;
   name = String(name).slice(0, 40);
-  const c = CacheService.getScriptCache();
+  const c = roomCache();
   const o = { t: Date.now(), mic: String(mic || 'off').slice(0, 8) };
   if (why) o.why = String(why).slice(0, 8);       // 받아쓰기가 꺼진 이유: user(직접 끔) · idle(자동 멈춤)
   if (hid) o.hid = 1;                             // 이 사람의 탭이 숨겨져 있음 (숨은 탭은 요청이 드물어져도 끊김이 아니다)
@@ -580,7 +601,7 @@ function touchPresence(name, mic, why, hid, bye) {
   if (names.indexOf(name) < 0) { names.push(name); c.put('p_names', JSON.stringify(names.slice(-30)), 21600); }
 }
 function presence() {
-  const c = CacheService.getScriptCache();
+  const c = roomCache();
   const names = JSON.parse(c.get('p_names') || '[]');
   if (!names.length) return [];
   const all = c.getAll(names.map(n => 'p_' + n));
@@ -1055,7 +1076,7 @@ function tick() {
  * 그래도 마지막 자동 요약에서 SUM_MAX_WAIT가 지났거나, 새 대화가 아예 없거나(AI를 부르지 않음), 정리 대기가 있으면 평소처럼 돈다.
  * 손으로 누르는 "지금 요약"과 밀린 것을 잇는 tickMore는 이 검사를 거치지 않는다. */
 function quietSkip() {
-  const c = CacheService.getScriptCache();
+  const c = roomCache();
   const last = Number(c.get('lastAutoSum') || 0);
   const go = () => { c.put('lastAutoSum', String(Date.now()), 21600); return false; };
   if (!last || Date.now() - last >= SUM_MAX_WAIT) return go();
@@ -1861,7 +1882,7 @@ function cardClean(c) {
 // 시트 내용 → 카드. 같은 내용이면 미리 보기에서 만든 카드를 그대로 쓴다 (마스터가 본 카드와 공개되는 카드가 같게)
 function cardFor(text, player, keepPreview) {
   const key = 'cc_' + Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, text + '|' + player));
-  const cache = CacheService.getScriptCache();
+  const cache = roomCache();
   const hit = cache.get(key);
   if (hit) { try { return { card: cardClean(JSON.parse(hit)), cached: true }; } catch (e) {} }
   const card = cardClean(publicAi(() => parseJson(claude(
@@ -1902,7 +1923,7 @@ function charPreview(url, map) {
     const r = cardFor(t.text, m.player, true);
     items.push({ tab: m.tab, player: m.player, inputChars: t.text.length, input: t.text.slice(0, 1500), card: r.card });
   });
-  try { CacheService.getScriptCache().put(mapKey(url, list, texts), '1', 1800); } catch (e) {}
+  try { roomCache().put(mapKey(url, list, texts), '1', 1800); } catch (e) {}
   return { ok: true, same: c.same, items };
 }
 // 연결 저장: 먼저 검사하고, 통과했을 때만 설정을 바꾼다 (잘못된 새 연결 때문에 기존 연결이 지워지지 않게)
@@ -1914,7 +1935,7 @@ function saveCharConfig(url, map) {
     const bad = checkList(c, url, list); if (bad) return bad;
     if (c.same) {          // 이 앱의 저장용 문서: 마스터가 플레이어에게 보일 카드를 미리 본 뒤에만 저장한다
       const texts = list.map(m => readTabText(c.src.getSheetByName(m.tab)).text);
-      if (!CacheService.getScriptCache().get(mapKey(url, list, texts)))
+      if (!roomCache().get(mapKey(url, list, texts)))
         return { ok: false, needPreview: true, error: '이 주소는 이 앱의 저장용 시트예요. 먼저 "플레이어에게 보일 카드 미리 보기"를 눌러 카드 내용을 확인해 주세요 (30분 안에 저장해야 하고, 그 사이 시트 내용이 바뀌면 다시 미리 봐야 해요) · 기존 연결은 그대로 뒀어요' };
     }
   }
@@ -2151,7 +2172,7 @@ function keeperLogin(kpw) {
   if (keeperPwOk(roomPw())) return { ok: false, error: '방 비밀번호와 마스터 비밀번호가 같아서 마스터 기능이 잠겨 있어요. Code.gs 맨 위에서 서로 다르게 바꾸고 다시 배포해 주세요' };
   const kt = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
   return withLock(20000, () => {
-    const c = CacheService.getScriptCache(), t = Date.now();
+    const c = roomCache(), t = Date.now();
     const until = Number(c.get('k_lock') || 0);
     const lockedOut = u => ({ ok: false, locked: true, error: '마스터 비밀번호를 여러 번 틀려서 잠겼어요. ' + Math.max(1, Math.ceil((u - Date.now()) / 60000)) + '분 뒤에 다시 시도해 주세요 (이미 로그인한 기기는 계속 쓸 수 있어요)' });
     if (t < until) return lockedOut(until);
@@ -2518,7 +2539,7 @@ function kDigestStep() {
     if (kind === 'truncated' || kind === 'parse') { try { split = ksrcSplit(c.id, c.len, gen); } catch (e2) {} }
     else if (kind === 'fetch') {
       let n = 1;
-      try { const ch = CacheService.getScriptCache(); n = Number(ch.get('kd_' + c.id) || 0) + 1; ch.put('kd_' + c.id, String(n), 900); } catch (e2) {}
+      try { const ch = roomCache(); n = Number(ch.get('kd_' + c.id) || 0) + 1; ch.put('kd_' + c.id, String(n), 900); } catch (e2) {}
       if (n >= 2) { try { split = ksrcSplit(c.id, c.len, gen); } catch (e2) {} }
       again = true; wait = 3000;
     }
@@ -3236,7 +3257,7 @@ function selfTest() {
     try { nested = withLock(5000, () => withLock(5000, () => true)); } catch (e) {}
     check('잠금 겹쳐 잡기', nested === true);
     let cacheOk = false;
-    try { const c = CacheService.getScriptCache(); c.put('selftest', '1', 30); cacheOk = c.get('selftest') === '1'; c.remove('selftest'); } catch (e) {}
+    try { const c = roomCache(); c.put('selftest', '1', 30); cacheOk = c.get('selftest') === '1'; c.remove('selftest'); } catch (e) {}
     check('캐시 쓰기·읽기', cacheOk);
     // 6) 설정 칸: 수식처럼 보이는 값을 쓰고 다시 읽기 (끝나면 그 줄을 지운다)
     let confOk = false;
