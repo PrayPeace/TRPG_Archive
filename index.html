@@ -428,21 +428,26 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .lb-bi .lb-bat .lbb{width:34px;height:16px}
 .lb-bi .lb-bat .lbb b{font-size:10px}
 /* 잠금 해제 연출: 에이전시 인증 컷인 (사선 띠·몸값 편지 글자·붉은 삼각형) */
-#lFx{position:absolute;inset:0;z-index:20;overflow:hidden;background:#0a0708;cursor:pointer;animation:fxOut .45s ease-in 1.75s forwards}
+#lFx{position:absolute;inset:0;z-index:20;overflow:hidden;background:#0a0708;cursor:pointer;animation:fxOut .5s ease-in 4.5s forwards}
 #lFx .fx-dots{position:absolute;inset:-20%;background:radial-gradient(circle,rgba(230,40,55,.32) 1.6px,transparent 2.2px) 0 0/9px 9px;transform:rotate(-14deg);animation:fxFade .3s ease-out both}
 #lFx .fx-band{position:absolute;left:-30%;width:160%;transform-origin:left center;animation:fxBand .32s cubic-bezier(.2,.9,.2,1) both}
 #lFx .b1{top:20%;height:120px;background:#e3222f;transform:rotate(-18deg);animation-delay:.04s;clip-path:polygon(0 18%,100% 0,100% 82%,0 100%)}
 #lFx .b2{top:30%;height:26px;background:#f4ece6;transform:rotate(-18deg);animation-delay:.12s}
 #lFx .b3{top:62%;height:150px;background:#111;transform:rotate(-18deg);animation-delay:.18s;box-shadow:0 0 0 5px #e3222f}
 #lFx .b4{top:70%;height:14px;background:#e3222f;transform:rotate(-18deg);animation-delay:.24s}
-#lFx .fx-tri{position:absolute;left:50%;top:37%;width:230px;height:230px;margin:-115px 0 0 -115px;animation:fxTri .5s cubic-bezier(.3,1.6,.4,1) .2s both,fxZoom .5s cubic-bezier(.6,0,.9,.4) 1.45s forwards}
+#lFx .fx-tri{position:absolute;left:50%;top:37%;width:230px;height:230px;margin:-115px 0 0 -115px;animation:fxTri .5s cubic-bezier(.3,1.6,.4,1) .25s both,fxPulse 1.2s ease-in-out 1s 3 alternate,fxZoom .55s cubic-bezier(.6,0,.9,.4) 4.2s forwards}
 #lFx .fx-word{position:absolute;left:0;right:0;top:61%;display:flex;justify-content:center;gap:3px;transform:rotate(-8deg)}
 #lFx .fx-word span{display:inline-block;font:900 34px/1 P,system-ui,sans-serif;padding:6px 7px 5px;animation:fxDrop .22s cubic-bezier(.3,1.7,.5,1) both}
 #lFx .fx-word span:nth-child(3n+1){background:#f4ece6;color:#111;transform:rotate(-6deg)}
 #lFx .fx-word span:nth-child(3n+2){background:#111;color:#f4ece6;transform:rotate(5deg) translateY(4px);font-size:30px;box-shadow:0 0 0 2px #f4ece6}
 #lFx .fx-word span:nth-child(3n){background:#e3222f;color:#fff;transform:rotate(-2deg) translateY(-3px)}
-#lFx .fx-tag{position:absolute;left:-10px;right:-10px;top:73%;padding:9px 0 8px;background:#f4ece6;color:#111;text-align:center;font:900 17px/1.2 P,system-ui,sans-serif;letter-spacing:.5px;transform:rotate(-8deg);box-shadow:6px 6px 0 #e3222f;animation:fxTag .3s cubic-bezier(.2,.9,.2,1) .78s both}
+#lFx .fx-tag{position:absolute;left:-10px;right:-10px;top:73%;padding:9px 0 8px;background:#f4ece6;color:#111;text-align:center;font:900 17px/1.2 P,system-ui,sans-serif;letter-spacing:.5px;transform:rotate(-8deg);box-shadow:6px 6px 0 #e3222f;animation:fxTag .35s cubic-bezier(.2,.9,.2,1) 1.05s both}
 #lFx .fx-os{position:absolute;left:24px;top:56px;font:800 11px/1.5 ui-monospace,Menlo,monospace;color:#ff9aa1;letter-spacing:1px;animation:fxFade .2s .3s both}
+#lFx .fx-os i{font-style:normal;opacity:0;animation:fxFade .1s both}
+#lFx .fx-guy{position:absolute;right:-4px;bottom:-4px;width:140px;z-index:3;animation:fxGuy .5s cubic-bezier(.2,1.3,.4,1) 1.7s both}
+#lFx .fx-guy .arm{transform-origin:94px 98px;animation:fxThumb .35s ease-in-out 2.2s 6 alternate}
+#lFx .fx-say{position:absolute;left:18px;bottom:64px;z-index:3;max-width:200px;padding:9px 12px;background:#fff;color:#111;border:3px solid #111;font:900 14px/1.35 P,system-ui,sans-serif;transform:rotate(-6deg);white-space:pre-line;box-shadow:5px 5px 0 #e3222f;animation:fxPop .3s cubic-bezier(.3,1.7,.5,1) 2.25s both}
+#lFx .fx-say::after{content:'';position:absolute;right:-22px;top:14px;border:9px solid transparent;border-left:16px solid #111}
 #lFx .fx-os b{color:#fff}
 #lFx.fx-skip,#lFx.fx-skip *{animation-duration:.01s!important;animation-delay:0s!important}
 @keyframes fxBand{from{transform:rotate(-18deg) translateX(-110%)}to{transform:rotate(-18deg) translateX(0)}}
@@ -450,6 +455,10 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 @keyframes fxZoom{from{transform:scale(1) rotate(-6deg)}to{transform:scale(14) rotate(8deg)}}
 @keyframes fxDrop{from{opacity:0;translate:0 -40px;scale:1.8}to{opacity:1;translate:0 0;scale:1}}
 @keyframes fxTag{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes fxGuy{from{transform:translateX(130%) rotate(14deg)}to{transform:none}}
+@keyframes fxThumb{from{transform:rotate(0)}to{transform:rotate(-14deg)}}
+@keyframes fxPop{from{opacity:0;scale:.3}to{opacity:1;scale:1}}
+@keyframes fxPulse{from{transform:scale(1) rotate(-6deg)}to{transform:scale(1.06) rotate(-4deg)}}
 @keyframes fxFade{from{opacity:0}to{opacity:1}}
 @keyframes fxOut{to{opacity:0;visibility:hidden}}
 .lb-wid{margin:0 4px 16px;padding:11px 13px;border-radius:18px;background:rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;flex:none}
@@ -2457,7 +2466,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.4';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.5';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -3995,25 +4004,42 @@ function keeperPwForm(){
     };
   });
 }
-/* 잠금 해제: 에이전시 인증 컷인을 1.9초쯤 보여 주고 홈 화면으로 (누르면 건너뜀, 동작 줄이기 설정이면 생략) */
+/* 잠금 해제: 에이전시 인증 컷인을 5초쯤 보여 주고 홈 화면으로 (누르면 건너뜀, 동작 줄이기 설정이면 생략) */
 const FX_TRI = (() => {
   let ln = ''; for (let i = 0; i < 6; i++) { const y = 196 - i * 13, a = 15 - i * 1.5; ln += `<path d="M40 ${y} C 80 ${y - a}, 110 ${y + a}, 140 ${y - a * .6} S 190 ${y + a * .8}, 220 ${y - a * .4}" fill="none" stroke="#ffd2c2" stroke-opacity="${(.95 - i * .12).toFixed(2)}" stroke-width="5"/>`; }
   return `<svg viewBox="0 0 230 230"><defs><clipPath id="fxc"><path d="M115 22 L212 200 L18 200 Z"/></clipPath></defs>
   <path d="M127 34 L224 212 L30 212 Z" fill="#000"/><path d="M115 22 L212 200 L18 200 Z" fill="#e3222f" stroke="#f4ece6" stroke-width="10" stroke-linejoin="round"/>
   <g clip-path="url(#fxc)">${ln}</g></svg>`;
 })();
+// 삼각두 요원: 삼각형 머리에 남색 정장, 엄지 척
+const FX_GUY = `<svg viewBox="0 0 120 220">
+  <g stroke="#111" stroke-width="3" stroke-linejoin="round">
+  <path d="M38 166 L36 210 L54 210 L58 170 Z M62 170 L66 210 L84 210 L82 166 Z" fill="#1d1a3a"/>
+  <path d="M30 208 h26 v8 h-30 Z M64 208 h26 l4 8 h-30 Z" fill="#111"/>
+  <path d="M28 92 Q60 80 92 92 L98 172 L22 172 Z" fill="#2b2556"/>
+  <path d="M50 88 L60 112 L70 88 Z" fill="#fff"/>
+  <path d="M57 93 h6 l2 26 l-5 8 l-5 -8 Z" fill="#e3222f"/>
+  <path d="M50 88 L44 118 L58 108 Z M70 88 L76 118 L62 108 Z" fill="#3a3270"/>
+  <path d="M30 96 L18 150" stroke="#2b2556" stroke-width="15" stroke-linecap="round"/><circle cx="18" cy="153" r="7" fill="#f2c9a5"/>
+  <g class="arm"><path d="M92 98 L108 128 L104 98" fill="none" stroke="#2b2556" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="95" y="68" width="9" height="24" rx="4.5" fill="#f2c9a5" transform="rotate(-12 99 90)"/>
+  <rect x="96" y="86" width="22" height="19" rx="5" fill="#f2c9a5"/><path d="M104 91 H117 M104 95.5 H117 M104 100 H117" stroke-width="2"/></g>
+  <path d="M64 12 L100 80 L28 80 Z" fill="#000" stroke="none"/>
+  <path d="M60 6 L96 74 L24 74 Z" fill="#e3222f" stroke="#f4ece6" stroke-width="5"/>
+  </g></svg>`;
 function unlock(){
   const lk = $('lLock'); if (lk.classList.contains('lb-up') || $('lFx')) return;
   let reduce = false; try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) {}
   if (reduce) { lk.classList.add('lb-up'); return; }
   const fx = el('div'); fx.id = 'lFx';
   const word = el('div', 'fx-word'); '에이전시OS'.split('').forEach((c, i) => { const sp = el('span', '', c); sp.style.animationDelay = (.42 + i * .045) + 's'; word.append(sp); });
-  const os = el('div', 'fx-os'); os.innerHTML = 'AGENCY OS v3.0<br>&gt; 요원 확인 중… <b>승인</b><br>&gt; 오늘도 지켜보고 있어요';
+  const os = el('div', 'fx-os'); os.innerHTML = 'AGENCY OS v3.0<br>&gt; 요원 확인 중… <i style="animation-delay:.9s"><b>승인</b></i><br><i style="animation-delay:1.5s">&gt; 출근 기록 완료</i><br><i style="animation-delay:2.4s">&gt; 오늘도 지켜보고 있어요</i>';
   const tri = el('div', 'fx-tri'); tri.innerHTML = FX_TRI;
   fx.append(el('div', 'fx-dots'), el('div', 'fx-band b1'), el('div', 'fx-band b2'), el('div', 'fx-band b3'), el('div', 'fx-band b4'), os, tri, word, el('div', 'fx-tag', '출근하세요. 세계를 구하세요.'));
+  const guy = el('div', 'fx-guy'); guy.innerHTML = FX_GUY; fx.append(guy, el('div', 'fx-say', '좋은 하루예요, 요원님!\n오늘도 현실을 지켜 주세요 👍'));
   $('lScreen').append(fx);
   const done = () => { lk.classList.add('lb-up'); };
-  const t1 = setTimeout(done, 1500), t2 = setTimeout(() => fx.remove(), 2300);
+  const t1 = setTimeout(done, 4350), t2 = setTimeout(() => fx.remove(), 5100);
   fx.onclick = e => { e.stopPropagation(); clearTimeout(t1); clearTimeout(t2); done(); fx.classList.add('fx-skip'); setTimeout(() => fx.remove(), 450); };
 }
 (function(){
