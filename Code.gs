@@ -44,7 +44,7 @@ function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).re
 const MODEL = 'claude-sonnet-5-5';
 // NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
 const MODEL_LIGHT = 'claude-haiku-5-5';
-const CODE_VER = '2026-11-20.5';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.7';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -2068,6 +2068,7 @@ function keeperTool(b) {
     case 'kDigest':        return kDigestStep();
     case 'kKbSave':        return kbGuard(b.gen, () => kKbSave(b.sec, b.item));
     case 'kKbDelete':      return kbGuard(b.gen, () => kKbDelete(b.sec, b.id));
+    case 'kKbOrder':       return kbGuard(b.gen, () => kKbOrder(b.sec, b.ids));
     case 'kKbUnlock':      return kbGuard(b.gen, () => kKbUnlock(b.sec, b.id));
     case 'kKbText':        return kbGuard(b.gen, () => kKbText(b.key, b.text));
     case 'kTruthPolish':   return kTruthPolish();
@@ -2114,6 +2115,7 @@ const KB_FIELDS = {
 };
 const KB_NAME = { npcs: 'name', places: 'name', clues: 'text', rolls: 'skill', scenes: 'title' };
 function kbEmpty() { return { truth: '', memo: '', glossary: '', npcs: [], places: [], clues: [], rolls: [], scenes: [], done: [], deleted: {} }; }
+function kbNextSeq(arr) { let m = 0; (arr || []).forEach(x => { if (Number(x.seq) > m) m = Number(x.seq); }); return m + 1; }
 function kid() { return 'k' + Utilities.getUuid().replace(/-/g, '').slice(0, 10); }
 function kbKey(sec, x) {
   const k = sec === 'rolls' ? String(x.where || '') + '|' + String(x.skill || '') : x[KB_NAME[sec]];
@@ -2124,6 +2126,8 @@ function kbRead() {
   ensureSheet(SH.KB);
   const k = blobRead(SH.KB, 'kbSlot') || kbEmpty();
   KB_SECTIONS.forEach(s => { k[s] = (Array.isArray(k[s]) ? k[s] : []).filter(x => x && typeof x === 'object').map(x => (x.id ? x : Object.assign({ id: kid() }, x))); });
+  // seq: 처음 정리된 순번 (= 시나리오 원문에 나온 순서). 카드를 끌어 순서를 바꿔도 그대로라서 "시간순" 정렬에 쓴다
+  KB_SECTIONS.forEach(s => { let m = 0; k[s].forEach(x => { if (Number(x.seq) > m) m = Number(x.seq); }); const none = !m; k[s].forEach((x, i) => { if (!Number(x.seq)) x.seq = none ? i + 1 : ++m; }); });
   k.truth = String(k.truth || ''); k.memo = String(k.memo || ''); k.glossary = String(k.glossary || '');
   k.done = Array.isArray(k.done) ? k.done : []; k.deleted = k.deleted || {};
   return k;
@@ -2168,7 +2172,7 @@ function kbMerge(base, ai) {
         return;
       }
       if (!k || k === '|' || dead.has(k)) return;
-      const item = Object.assign({ id: kid(), locked: false }, clean);
+      const item = Object.assign({ id: kid(), locked: false }, clean); item.seq = kbNextSeq(res);
       res.push(item); byId[item.id] = res.length - 1; byKey[k] = res.length - 1;
     });
     outK[sec] = res;
@@ -2380,9 +2384,22 @@ function kKbSave(sec, item) {
     clean.locked = true; clean.editedAt = now();
     const i = item.id ? kb[sec].findIndex(x => x.id === item.id) : -1;
     if (i >= 0) kb[sec][i] = Object.assign({}, kb[sec][i], clean);
-    else kb[sec].push(Object.assign({ id: kid() }, clean));
+    else kb[sec].push(Object.assign({ id: kid(), seq: kbNextSeq(kb[sec]) }, clean));
     const key = kbKey(sec, clean);
     if (kb.deleted[sec]) kb.deleted[sec] = kb.deleted[sec].filter(k => k !== key);
+    kbWrite(kb);
+    return { ok: true };
+  });
+}
+// 마스터가 카드를 끌어서 정한 순서로 저장한다 (목록에 없는 항목은 원래 순서대로 뒤에)
+function kKbOrder(sec, ids) {
+  if (KB_SECTIONS.indexOf(sec) < 0 || !Array.isArray(ids)) return { ok: false, error: '잘못된 요청' };
+  return withLock(20000, () => {
+    const kb = kbRead(), arr = kb[sec] || [], pos = {};
+    ids.slice(0, 2000).forEach((id, i) => { if (pos[id] == null) pos[id] = i; });
+    const known = arr.filter(x => pos[x.id] != null).sort((a, b) => pos[a.id] - pos[b.id]);
+    const rest = arr.filter(x => pos[x.id] == null);
+    kb[sec] = known.concat(rest);
     kbWrite(kb);
     return { ok: true };
   });
