@@ -444,7 +444,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 @keyframes fxInfect{from{filter:none}to{filter:saturate(.35) brightness(.4) sepia(.5) hue-rotate(-25deg)}}
 @keyframes fxDrift{from{transform:translateY(-30px)}to{transform:translateY(30px)}}
 @keyframes fxFlash{from{opacity:1}to{opacity:0}}
-@keyframes fxCreep{from{opacity:0;transform:translateY(45%) scale(.8);filter:brightness(.15) blur(2px)}35%{opacity:1}to{opacity:1;transform:translateY(4%) scale(2.2);filter:brightness(.6) contrast(1.15) blur(.3px)}}
+@keyframes fxCreep{from{opacity:0;transform:translateY(45%) scale(.8);filter:brightness(.15) blur(2px)}35%{opacity:1}to{opacity:1;transform:translateY(-15%) scale(1.75);filter:brightness(.6) contrast(1.15) blur(.3px)}}
 
 #lFx .fx-sw{position:absolute;inset:-6%;background:#0a0708 url(ta_swirl.jpg?v=1) center/cover;filter:brightness(.5) saturate(1.1);animation:fxFade .6s both,fxSwZ 5.6s linear both,fxSwOut .6s cubic-bezier(.6,0,.9,.4) 5.6s forwards}
 #lFx .fx-logo{position:absolute;left:50%;top:19%;width:256px;margin-left:-128px;z-index:2;filter:drop-shadow(4px 4px 0 #0a0708) drop-shadow(0 0 22px rgba(0,0,0,.7));animation:fxLogo .55s cubic-bezier(.3,1.6,.4,1) .35s both}
@@ -456,20 +456,20 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 #lFx .b1{top:20%;height:120px;background:#e3222f;transform:rotate(-18deg);animation-delay:.04s;clip-path:polygon(0 18%,100% 0,100% 82%,0 100%)}
 #lFx .b2{top:30%;height:26px;background:#f4ece6;transform:rotate(-18deg);animation-delay:.12s}
 #lFx .b3{top:62%;height:150px;background:#111;transform:rotate(-18deg);animation-delay:.18s;box-shadow:0 0 0 5px #e3222f}
-#lFx .b4{top:70%;height:14px;background:#e3222f;transform:rotate(-18deg);animation-delay:.24s}
+#lFx .b4{top:84%;height:14px;background:#e3222f;transform:rotate(-18deg);animation-delay:.24s}
 #lFx .fx-tri{position:absolute;left:50%;top:37%;width:230px;height:230px;margin:-115px 0 0 -115px;animation:fxTri .5s cubic-bezier(.3,1.6,.4,1) .25s both,fxPulse 1.5s ease-in-out 1s 3 alternate,fxZoom .6s cubic-bezier(.6,0,.9,.4) 5.6s forwards}
 #lFx .fx-word{position:absolute;left:0;right:0;top:44%;z-index:2;display:flex;justify-content:center;gap:3px;transform:rotate(-8deg)}
 #lFx .fx-word span{display:inline-block;font:900 30px/1 P,system-ui,sans-serif;padding:6px 7px 5px;box-shadow:3px 3px 0 rgba(0,0,0,.6);animation:fxDrop .22s cubic-bezier(.3,1.7,.5,1) both}
 #lFx .fx-word span:nth-child(3n+1){background:#f4ece6;color:#111;transform:rotate(-6deg)}
 #lFx .fx-word span:nth-child(3n+2){background:#111;color:#f4ece6;transform:rotate(5deg) translateY(4px);font-size:30px;box-shadow:0 0 0 2px #f4ece6}
 #lFx .fx-word span:nth-child(3n){background:#e3222f;color:#fff;transform:rotate(-2deg) translateY(-3px)}
-#lFx .fx-tag{position:absolute;left:-14px;right:-14px;top:63%;padding:12px 0 12px;background:#f4ece6;color:#0a0708;text-align:center;font-family:P,system-ui,sans-serif;transform:rotate(-7deg);box-shadow:0 0 0 4px #0a0708,10px 10px 0 4px #e3222f;z-index:5;animation:fxSlam .5s cubic-bezier(.2,1.5,.4,1) 4.1s both}
+#lFx .fx-tag{position:absolute;left:-14px;right:-14px;top:75%;padding:12px 0 12px;background:#f4ece6;color:#0a0708;text-align:center;font-family:P,system-ui,sans-serif;transform:rotate(-7deg);box-shadow:0 0 0 4px #0a0708,10px 10px 0 4px #e3222f;z-index:5;animation:fxSlam .5s cubic-bezier(.2,1.5,.4,1) 4.1s both}
 #lFx .fx-tag b{display:block;font-weight:900;font-size:50px;line-height:1;letter-spacing:-1px}
 #lFx .fx-tag span{display:inline-block;margin-top:8px;padding:4px 12px 5px;background:#e3222f;color:#fff;font-weight:900;font-size:24px;line-height:1.1;letter-spacing:-.3px}
 @keyframes fxSlam{from{opacity:0;transform:rotate(-7deg) scale(2.2)}60%{opacity:1}to{opacity:1;transform:rotate(-7deg) scale(1)}}
 #lFx .fx-os{position:absolute;left:18px;top:52px;z-index:2;padding:7px 10px;background:rgba(0,0,0,.72);border-left:3px solid #e3222f;font:800 12.5px/1.6 ui-monospace,Menlo,monospace;color:#ffc2c6;letter-spacing:.5px;text-shadow:0 1px 2px #000;animation:fxFade .2s .3s both}
 #lFx .fx-os i{font-style:normal;opacity:0;animation:fxFade .1s both}
-#lFx .fx-guy{position:absolute;left:50%;bottom:-60px;width:180px;margin-left:-90px;z-index:3;transform-origin:50% 100%;animation:fxCreep 4.2s cubic-bezier(.45,0,.25,1) 1.2s both}
+#lFx .fx-guy{position:absolute;left:50%;bottom:-60px;width:300px;margin-left:-204px;z-index:3;transform-origin:68% 100%;animation:fxCreep 4.2s cubic-bezier(.45,0,.25,1) 1.2s both}
 #lFx .fx-guy img{display:block;width:100%;filter:drop-shadow(1.5px 0 0 rgba(244,236,230,.8)) drop-shadow(-1.5px 0 0 rgba(244,236,230,.8)) drop-shadow(0 -1.5px 0 rgba(244,236,230,.8)) drop-shadow(0 0 18px rgba(227,34,47,.6))}
 #lFx .fx-os b{color:#fff}
 #lFx.fx-skip,#lFx.fx-skip *{animation-duration:.01s!important;animation-delay:0s!important}
@@ -2502,7 +2502,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.13';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.14';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -4054,7 +4054,7 @@ function unlock(){
   const lk = $('lLock'); if (lk.classList.contains('lb-up') || $('lFx')) return;
   // 휴대폰 '애니메이션 줄이기' 설정이어도 재생한다(깜빡임 없는 연출이라서)
   const fx = el('div'); fx.id = 'lFx'; const timers = [], born = Date.now();
-  ['ta_swirl.jpg?v=1', 'ta_logo.png?v=1', 'ta_agent.webp?v=1'].forEach(u => { const i = new Image(); i.src = u; });     // 감염 장면 동안 미리 받아 둔다
+  ['ta_swirl.jpg?v=1', 'ta_logo.png?v=1', 'ta_ceo.webp?v=1'].forEach(u => { const i = new Image(); i.src = u; });     // 감염 장면 동안 미리 받아 둔다
   const later = (f, ms) => timers.push(setTimeout(f, ms));
   // 1) 감염: 잠금 화면이 천천히 붉게 어두워지고 경고 창이 뜬다 (광과민 배려: 깜빡임·빠른 떨림 없음)
   const p0 = el('div'); p0.append(el('div', 'fx-scan'));
@@ -4073,7 +4073,7 @@ function unlock(){
     const os = el('div', 'fx-os'); os.innerHTML = 'AGENCY OS v3.0<br>&gt; 요원 확인 중… <i style="animation-delay:.9s"><b>승인</b></i><br><i style="animation-delay:1.5s">&gt; 출근 기록 완료</i><br><i style="animation-delay:2.4s">&gt; 오늘도 지켜보고 있어요</i>';
     const logo = el('img', 'fx-logo'); logo.src = 'ta_logo.png?v=1'; logo.alt = '';
     const tag = el('div', 'fx-tag'); tag.append(el('b', '', '출근하세요.'), el('span', '', '세계를 구하세요.'));
-    const guy = el('div', 'fx-guy'); guy.innerHTML = '<img src="ta_agent.webp?v=1" alt="">';
+    const guy = el('div', 'fx-guy'); guy.innerHTML = '<img src="ta_ceo.webp?v=1" alt="">';
     st.append(el('div', 'fx-sw'), el('div', 'fx-band b1'), el('div', 'fx-band b2'), el('div', 'fx-band b4'), os, logo, word, tag, guy, el('div', 'fx-vig'), el('div', 'fx-flash'));
     fx.append(st);
   }, T0);
