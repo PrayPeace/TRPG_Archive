@@ -416,6 +416,13 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .lb-sheet input,.lb-sheet select{background:#0f1218;border-color:#343a48;color:#fff}
 .lb-shade{position:absolute;inset:0;z-index:7;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .3s}
 .lb-shade.lb-on{opacity:1;pointer-events:auto}
+.lb-bat{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:800}
+.lb-bat .lbb{position:relative;width:25px;height:14px;border:1.5px solid rgba(255,255,255,.75);border-radius:4px;padding:1px;box-sizing:border-box}
+.lb-bat .lbb::after{content:'';position:absolute;right:-4px;top:3.5px;width:2px;height:4px;border-radius:0 1px 1px 0;background:rgba(255,255,255,.75)}
+.lb-bat .lbb i{display:block;height:100%;border-radius:2px;background:#5fd39a}
+.lb-bat .lbb i.lw-mid{background:#f2c14e}.lb-bat .lbb i.lw-low{background:#ff7a70}
+.lb-bat .lbb b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:800;color:#fff;text-shadow:0 0 2px rgba(0,0,0,.9),0 0 1px #000;letter-spacing:-.2px}
+#lBat{gap:7px;margin-right:-10px}
 .lb-wid{margin:0 4px 16px;padding:11px 13px;border-radius:18px;background:rgba(255,255,255,.12);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;flex:none}
 .lb-wid .lw-h{display:flex;font-size:11.5px;font-weight:700;opacity:.75;margin-bottom:6px}
 .lb-wid .lw-r{margin-top:7px}
@@ -471,9 +478,9 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 <div id="lobby" class="hide">
   <div class="lb-phone"><div class="lb-screen" id="lScreen">
     <div class="lb-notch"></div>
-    <div class="lb-sbar"><span id="lTime1">00:00</span><span class="lb-ic">🎲 <span id="lHubName"></span></span></div>
+    <div class="lb-sbar"><span id="lTime1">00:00</span><span class="lb-ic" id="lBat"></span></div>
     <div class="lb-home">
-      <div class="lb-ttl"><span>🎲 TRPG Archive</span><span class="grow"></span><span id="lHomeNote" style="font-weight:500;opacity:.8"></span></div>
+      <div class="lb-ttl"><span>🎲 TRPG Archive</span><span id="lHubName" style="font-weight:500;opacity:.8"></span><span class="grow"></span><span id="lHomeNote" style="font-weight:500;opacity:.8"></span></div>
       <div class="lb-wid hide" id="lCred"></div>
       <div class="lb-grid" id="lGrid"></div>
       <div class="lb-dock" id="lDock"></div>
@@ -2421,7 +2428,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.1';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.2';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -3577,15 +3584,27 @@ async function lobbyLoad(){
       if (!r) r = await (await fetch(L.hub + '?action=hub')).json();
       if (!r.ok || !Array.isArray(r.rooms)) throw new Error(r.error || '');
       L.rooms = r.rooms; L.title = r.title || '';
+      if (r.bat) L.bat = r.bat;
       $('lHomeNote').textContent = '';
     } catch (e) { L.rooms = []; $('lHomeNote').textContent = '방 목록을 못 불러왔어요'; }
   } else {
     L.title = '';
     L.rooms = roomsGet().map(x => ({ name: x.name, rule: x.rule || 'etc', url: scriptUrl(x.url), pw: x.pw, local: true }));
   }
-  $('lHubName').textContent = L.title; $('lHubLine').textContent = L.title ? '🎲 ' + L.title : '';
+  $('lHubName').textContent = L.title ? '· ' + L.title : ''; $('lHubLine').textContent = L.title ? '🎲 ' + L.title : '';
+  batDraw(L.bat);
   lobbyDraw();
   credLoad(false);
+}
+/* 맨 위 상태 줄의 배터리 두 개: Claude(C)와 딥그램(D)의 남은 퍼센트. 누구나 보지만 금액은 마스터 위젯에서만 */
+function batDraw(b){
+  const w = $('lBat'); w.innerHTML = '';
+  [['C', 'Claude API 남은 크레딧', b && b.c], ['D', 'Deepgram 받아쓰기 남은 잔액', b && b.d]].forEach(([k, t, v]) => {
+    if (v == null) return;
+    const s = el('span', 'lb-bat'); s.title = t + ' ' + v + '%';
+    const box = el('span', 'lbb'), i = el('i', v < 20 ? 'lw-low' : v < 50 ? 'lw-mid' : ''); i.style.width = v + '%';
+    box.append(i, el('b', '', String(v))); s.append(k, box); w.append(s);
+  });
 }
 /* 남은 잔액 위젯 (마스터 로그인했을 때만): 딥그램은 실제 잔액, 클로드는 적어 둔 잔액 − 이 프로그램이 쓴 만큼 */
 async function credLoad(force){
@@ -3595,9 +3614,10 @@ async function credLoad(force){
   try {
     const r = await hubPost({ action: 'credits', force: !!force });
     if (!r || !r.ok) { if (!L.kt) { w.classList.add('hide'); return; } throw new Error(r && r.error || ''); }
-    L.cred = r; credDraw();
+    L.cred = r; credDraw(); credBat(r);
   } catch (e) { w.innerHTML = ''; w.append(el('div', 'lw-h', '💳 잔액을 불러오지 못했어요 (엔진 Code.gs가 최신 판인지 확인)')); }
 }
+function credBat(r){ const p = d => d && d.ok && d.top > 0 ? Math.max(0, Math.min(100, Math.round(d.left / d.top * 100))) : null; L.bat = { c: p(r.claude), d: p(r.deepgram) }; batDraw(L.bat); }
 const usd = v => '$' + (Math.round(Number(v) * 100) / 100).toFixed(2);
 function credRow(name, d, sub){
   const r = el('div', 'lw-r'), t = el('div', 'lw-t'); t.append(el('b', '', name));
@@ -3635,7 +3655,7 @@ function credForm(){
         else if (b.value.trim()) body.claudeTop = b.value.trim();
         const r = await hubPost(body);
         if (!r.ok) { msg.err(r.error || '저장하지 못했어요'); go.disabled = false; return; }
-        L.cred = r; credDraw(); sheetClose(); toast('잔액을 새로 읽었어요');
+        L.cred = r; credDraw(); credBat(r); sheetClose(); toast('잔액을 새로 읽었어요');
       } catch (e) { msg.err('로비 방에 연결하지 못했어요'); go.disabled = false; }
     };
   });
