@@ -44,7 +44,7 @@ function rl(t) { const pc = R().pc; return pc === '탐사자' ? t : String(t).re
 const MODEL = 'claude-sonnet-5-5';
 // NPC·장소·단서 자동 정리와 "AI에게 다시 맡기기"에 쓰는 싼 모델. 정리 품질이 아쉬우면 이 줄을 MODEL 과 같게 바꾸면 된다.
 const MODEL_LIGHT = 'claude-haiku-5-5';
-const CODE_VER = '2026-11-20.7';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-20.8';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -855,13 +855,26 @@ function deepgramToken() {
  *  auth: 키·권한 문제(401·403) / bad: 요청이 거부됨(400·413 등)
  * 답이 길어질수록 지연·잘림이 늘어나므로 호출마다 max_tokens를 작게 잡는다. */
 function aiErr(kind, msg) { const e = new Error(msg); e.kind = kind; return e; }
+/* 프롬프트 캐싱: 지시문(system)은 늘 캐시 표시를 붙인다. content를 [바뀌지 않는 앞부분, 매번 바뀌는 뒷부분] 배열로 주면
+ * 앞부분까지 캐시한다. 같은 앞부분으로 5분 안에 다시 부르면 그 부분 입력비가 크게 줄어든다 (짧으면 저절로 캐시되지 않을 뿐 오류는 없다). */
+function cacheBlocks(parts) {
+  const b = parts.filter(x => x != null && String(x) !== '').map(x => ({ type: 'text', text: String(x) }));
+  if (b.length) b[b.length - 1].cache_control = { type: 'ephemeral' };
+  return b;
+}
 function claude(system, content, maxTokens, model) {
   let r; model = model || MODEL;
+  const sys = cacheBlocks([system]);
+  let msg;
+  if (Array.isArray(content) && content.length && typeof content[0] === 'string') {      // 글자 배열만 [앞부분, 뒷부분]으로 본다 (이미지 블록 배열은 그대로 보낸다)
+    const head = cacheBlocks([content[0]]), tail = content.slice(1).filter(x => x != null && String(x) !== '').map(x => ({ type: 'text', text: String(x) }));
+    msg = tail.length ? head.concat(tail) : head;
+  } else msg = content;
   try {
     r = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
       method: 'post', contentType: 'application/json',
       headers: { 'x-api-key': CLAUDE_KEY, 'anthropic-version': '2023-06-01' },
-      payload: JSON.stringify({ model, max_tokens: maxTokens || 4000, system, messages: [{ role: 'user', content }] }),
+      payload: JSON.stringify({ model, max_tokens: maxTokens || 4000, system: sys.length ? sys : undefined, messages: [{ role: 'user', content: msg }] }),
       muteHttpExceptions: true
     });
   } catch (e) {
@@ -901,25 +914,30 @@ function logTokens(model, u, stop) {
     let sh = ss.getSheetByName(SH.TOK);
     if (!sh) sh = ss.insertSheet(SH.TOK);
     if (sh.getLastRow() === 0) { sh.getRange(1, 1, 1, 7).setValues([['시각', '세션', '기능', '모델', '입력 토큰', '출력 토큰', '비고']]); try { sh.setFrozenRows(1); } catch (e) {} }
-    sh.appendRow([now(), String(getConf('session') || ''), aiFeature(), String(model).replace('claude-', ''), Number(u.input_tokens || 0), Number(u.output_tokens || 0), stop === 'max_tokens' ? '길이 초과로 끊김' : '']);
+    if (sh.getMaxColumns() < 9 || !sh.getRange(1, 8).getValue()) { if (sh.getMaxColumns() < 9) sh.insertColumnsAfter(sh.getMaxColumns(), 9 - sh.getMaxColumns()); sh.getRange(1, 8, 1, 2).setValues([['캐시 읽기', '캐시 쓰기']]); }
+    // 입력 토큰 = 캐시 없이 읽은 양 + 캐시에 새로 쓴 양 (둘 다 제값 이상을 낸다). 캐시 읽기는 입력값의 약 1/10~1/20
+    const cw = Number(u.cache_creation_input_tokens || 0), cr = Number(u.cache_read_input_tokens || 0);
+    sh.appendRow([now(), String(getConf('session') || ''), aiFeature(), String(model).replace('claude-', ''), Number(u.input_tokens || 0) + cw, Number(u.output_tokens || 0), stop === 'max_tokens' ? '길이 초과로 끊김' : '', cr, cw]);
     if (sh.getLastRow() > 6000) sh.deleteRows(2, 1000);               // 아주 오래된 기록은 지운다
   } catch (e) {}
 }
 // 마스터 탭: 기능별 사용량 (이번 세션 / 최근 24시간)
 function tokenUsage() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SH.TOK);
-  const out = { session: String(getConf('session') || ''), rows: 0, byS: [], byD: [], tot: { s: [0, 0, 0], d: [0, 0, 0] } };
+  const out = { session: String(getConf('session') || ''), rows: 0, byS: [], byD: [], tot: { s: [0, 0, 0, 0], d: [0, 0, 0, 0] } };
   if (!sh || sh.getLastRow() < 2) return out;
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+  const nc = Math.min(8, sh.getLastColumn());
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, nc).getValues();
   const since = Date.now() - 24 * 3600 * 1000;
   const agg = {}, aggD = {};
   rows.forEach(r => {
     const t = new Date(String(r[0]).replace(' ', 'T')).getTime();
-    const add = (o, tt) => { const k = String(r[2]) + ' · ' + String(r[3]); o[k] = o[k] || [0, 0, 0]; o[k][0]++; o[k][1] += Number(r[4]) || 0; o[k][2] += Number(r[5]) || 0; tt[0]++; tt[1] += Number(r[4]) || 0; tt[2] += Number(r[5]) || 0; };
+    const cr = Number(r[7]) || 0;
+    const add = (o, tt) => { const k = String(r[2]) + ' · ' + String(r[3]); o[k] = o[k] || [0, 0, 0, 0]; o[k][0]++; o[k][1] += Number(r[4]) || 0; o[k][2] += Number(r[5]) || 0; o[k][3] += cr; tt[0]++; tt[1] += Number(r[4]) || 0; tt[2] += Number(r[5]) || 0; tt[3] += cr; };
     if (String(r[1]) === out.session) add(agg, out.tot.s);
     if (!isNaN(t) && t >= since) add(aggD, out.tot.d);
   });
-  const list = o => Object.keys(o).map(k => ({ k, n: o[k][0], i: o[k][1], o: o[k][2] })).sort((a, b) => (b.i + b.o * 5) - (a.i + a.o * 5));
+  const list = o => Object.keys(o).map(k => ({ k, n: o[k][0], i: o[k][1], o: o[k][2], c: o[k][3] })).sort((a, b) => (b.i + b.o * 5 + b.c / 10) - (a.i + a.o * 5 + a.c / 10));
   out.byS = list(agg); out.byD = list(aggD); out.rows = rows.length;
   return out;
 }
@@ -1326,11 +1344,12 @@ function aiLines(rows, keepAll) {
 function extractNotes(g, sess) {
   const transcriptText = aiLines(g);
   if (!transcriptText.replace(/\[\d\d:\d\d\]/g, '').trim()) return { notes: {} };
-  return publicAi(() => notesCall('이 대화에서 장소·NPC·' + R().pc + '·단서·핸드아웃만 정리한다.',
-    notesCommon() + '## 현재 정리(notes) (이름이 나온 항목만 자세히, 나머지는 이름표만. 이름표 항목을 고치려면 id를 그대로 쓰고 바뀐 칸을 모두 적어라)\n' + notesForAiLite(readNotes() || emptyNotes(), transcriptText) + '\n\n' +
-    '## 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcriptText + '\n\n' +
-    '## 출력 형식\n{"notes":{"places":[],"npcs":[],"pcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) +
-    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.', 5000, MODEL_LIGHT));
+  // 캐시를 위해 바뀌지 않는 부분(용어집·캐릭터·정정 메모·출력 형식)을 앞에, 매번 바뀌는 부분(현재 정리·대화)을 뒤에 둔다
+  return publicAi(() => notesCall('이 대화에서 장소·NPC·' + R().pc + '·단서·핸드아웃만 정리한다.', [
+    notesCommon() + '## 출력 형식 (아래 "대화"를 정리한다)\n{"notes":{"places":[],"npcs":[],"pcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) +
+    '\n이야기 진행이 없거나 정리할 것이 없으면 {"notes":{}}로 답하라.\n\n',
+    '## 현재 정리(notes) (이름이 나온 항목만 자세히, 나머지는 이름표만. 이름표 항목을 고치려면 id를 그대로 쓰고 바뀐 칸을 모두 적어라)\n' + notesForAiLite(readNotes() || emptyNotes(), transcriptText) + '\n\n' +
+    '## 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호)\n' + transcriptText + '\n\n위 출력 형식대로 JSON 하나만 출력하라.'], 5000, MODEL_LIGHT));
 }
 // 마스터가 "AI에게 다시 맡기기"한 항목 하나를, 그 이름이 나온 대화 전체를 다시 읽고 새로 정리한다
 function refineItem(sec, id) {
@@ -1468,15 +1487,13 @@ function summarizeGroup(g, sess) {
       '플레이어 잡담(규칙 질문, 농담, 현실 이야기)과 캐릭터로서의 행동·대사를 구분해서, 요약은 이야기 안의 일을 중심으로 캐릭터 이름으로 써라. ' +
       '없는 일을 지어내지 마라. ' + rl(FACT_RULES) + keeperRules() +
       '정정 메모는 사람이 바로잡아 준 사실이니 반드시 따르라. 반드시 JSON 하나만 출력하라.';
-    const user =
+    // 캐시를 위해 바뀌지 않는 부분(마스터 이름·용어집·캐릭터·정정 메모·출력 형식)을 앞에, 매번 바뀌는 부분(줄거리·대화)을 뒤에 둔다
+    const stable =
       '## 마스터 이름\n' + (getConf('keeperName') || '(미지정: 상황 묘사와 NPC 대사를 하는 사람이 마스터다)') + '\n\n' +
       '## 용어집\n' + getConf('glossary') + '\n\n' +
       '## 플레이어 = 캐릭터\n' + (charsText() || '(아직 없음)') + '\n\n' +
       '## 정정 메모 (반드시 따를 것)\n' + correctionsText() + '\n\n' +
-      '## 지금까지의 누적 줄거리 중 최근 부분 (참고용, 다시 쓰지 않는다)\n' + (storyTail(STORY_REF) || '(처음)') + '\n\n' +
-      (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
-      '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호, [시:분] 줄은 그 뒤 발언들의 시각)\n' + transcript + '\n\n' +
-      '## 출력 형식\n' +
+      '## 출력 형식 (아래 "새로 들어온 대화"를 요약한다)\n' +
       '{"summary":"이 대화 구간의 요약. 읽기 쉽게 장소(장면) 기준으로 문단을 나눠라: 문단은 \\"【장소 이름】\\" 한 줄로 시작하고, 이어서 그 장소에서 일어난 일을 시간순으로 \\"- HH:MM 내용\\" 줄들(HH:MM은 그 일이 나온 대화의 시각)로 쓴다. 문단 사이는 빈 줄 하나. ' +
       '장소가 바뀌면 새 문단이고, 같은 장소로 돌아오면 그 장소 문단에 이어 써도 된다. 장소를 알 수 없으면 \\"【장소 미상】\\". ' +
       '길이: 구간 전체 12줄 안팎(최대 16줄), 문단마다 2~5줄. 한 줄은 한두 문장으로 핵심만 쓴다. ' +
@@ -1484,8 +1501,13 @@ function summarizeGroup(g, sess) {
       '줄마다 끝에 근거 발언 번호를 (#12, #15)처럼 붙여라",' +
       '"storyAdd":"이 구간에서 누적 줄거리 뒤에 덧붙일 내용. 중요한 사건·결정·알아낸 사실만 2~4문장(250자 이내)으로. 누적 줄거리를 다시 쓰지 말고 새로 더할 부분만 써라. 이야기 진행이 없으면 빈칸"}\n' +
       '(NPC·장소·단서 정리는 따로 처리하니 여기서는 출력하지 마라.)\n' +
-      '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸으로 하라.';
-    return parseJson(claude(system, user, 6500));
+      '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸으로 하라.' + '\n';
+    const fresh =
+      '## 지금까지의 누적 줄거리 중 최근 부분 (참고용, 다시 쓰지 않는다)\n' + (storyTail(STORY_REF) || '(처음)') + '\n\n' +
+      (card ? '## 지난 회차 정리 카드\n' + card + '\n\n' : '') +
+      '## 새로 들어온 대화 (세션 ' + sess + ', 각 줄 앞 #번호는 발언 번호, [시:분] 줄은 그 뒤 발언들의 시각)\n' + transcript + '\n\n' +
+      '위 출력 형식대로 JSON 하나만 출력하라.';
+    return parseJson(claude(system, [stable, fresh], 6500));
   });
 }
 /* 누적 줄거리 저장소 (설정 시트의 story 칸 하나)
@@ -1824,9 +1846,17 @@ function storePortrait(blob, name) {
   try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
   return 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w600';
 }
+// 구글 계정 토큰을 붙여도 되는 주소인지: https + 구글 드라이브·문서 주소만. (시트에 적힌 아무 주소에나 마스터 토큰을 보내면 그 서버가 마스터 드라이브에 접근할 수 있다)
+function googleHost(src) {
+  const m = /^https:\/\/([^\/?#:@]+)(?:[\/?#]|$)/i.exec(String(src || ''));
+  if (!m) return false;
+  const h = m[1].toLowerCase();
+  return h === 'drive.google.com' || h === 'docs.google.com' || h === 'lh3.googleusercontent.com' || h === 'drive.usercontent.google.com';
+}
 function fetchPortrait(src, tab) {
+  if (!/^https?:\/\//i.test(String(src || ''))) return '';
   let r = UrlFetchApp.fetch(src, { muteHttpExceptions: true, followRedirects: true });
-  if (r.getResponseCode() !== 200) {
+  if (r.getResponseCode() !== 200 && googleHost(src)) {
     r = UrlFetchApp.fetch(src, { muteHttpExceptions: true, followRedirects: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } });
   }
   if (r.getResponseCode() !== 200) return '';

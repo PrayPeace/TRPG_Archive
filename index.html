@@ -1844,10 +1844,10 @@ $('kRuleSave').onclick = async () => { const r = await kpost({ action: 'setRule'
 function tokTable(title, list, tot){
   const w = el('div'); w.append(el('div', 'k', title));
   if (!list.length) { w.append(el('div', 'note', '아직 기록이 없어요')); return w; }
-  const t = el('table', 'toktb'); const h = el('tr'); ['기능 · 모델', '횟수', '입력', '출력'].forEach(x => h.append(el('th', '', x))); t.append(h);
+  const t = el('table', 'toktb'); const h = el('tr'); ['기능 · 모델', '횟수', '입력', '출력', '캐시 읽기'].forEach(x => h.append(el('th', '', x))); t.append(h);
   const f = n => Number(n || 0).toLocaleString();
-  list.forEach(r => { const tr = el('tr'); [r.k, f(r.n), f(r.i), f(r.o)].forEach(x => tr.append(el('td', '', x))); t.append(tr); });
-  const tr = el('tr', 'sum'); ['합계', f(tot[0]), f(tot[1]), f(tot[2])].forEach(x => tr.append(el('td', '', x))); t.append(tr);
+  list.forEach(r => { const tr = el('tr'); [r.k, f(r.n), f(r.i), f(r.o), f(r.c)].forEach(x => tr.append(el('td', '', x))); t.append(tr); });
+  const tr = el('tr', 'sum'); ['합계', f(tot[0]), f(tot[1]), f(tot[2]), f(tot[3])].forEach(x => tr.append(el('td', '', x))); t.append(tr);
   w.append(t); return w;
 }
 $('kTok').onclick = async () => {
@@ -1856,7 +1856,7 @@ $('kTok').onclick = async () => {
     const r = await kpost({ action: 'tokenUsage' });
     box.innerHTML = '';
     if (!r.ok) box.append(el('div', 'note', r.error || '불러오지 못했어요'));
-    else { box.append(tokTable('이번 세션 (세션 ' + r.session + ')', r.byS, r.tot.s), tokTable('최근 24시간', r.byD, r.tot.d)); box.append(el('div', 'note', '출력 토큰은 입력보다 값이 몇 배 비싸요. 금액은 Anthropic 콘솔의 Usage·Cost 화면이 정확해요.')); }
+    else { box.append(tokTable('이번 세션 (세션 ' + r.session + ')', r.byS, r.tot.s), tokTable('최근 24시간', r.byD, r.tot.d)); box.append(el('div', 'note', '출력 토큰은 입력보다 값이 몇 배 비싸요. 캐시 읽기는 입력값의 1/10~1/20만 내요. 금액은 Anthropic 콘솔의 Usage·Cost 화면이 정확해요.')); }
   } catch (e) { box.textContent = '불러오지 못했어요 (' + e.message + ')'; }
   b.disabled = false; b.textContent = '불러오기';
 };
@@ -1968,7 +1968,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-20.7';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-20.8';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
