@@ -6,6 +6,8 @@
 #  ● 되돌리기 (mode=rollback, version=번호): 대상 방을 예전 버전에 고정하고 같은 확인. 시트 기록은 건드리지 않는다
 #  ● 되돌리기 연습 (mode=drill): 연습 방(PRACTICE_ROOMS)에서만. 승격→말→되돌리기→말→다시 승격, 매번 판과 대화 줄 수 확인
 #      운영 방과 연습 방 목록이 겹치면 멈춘다 (tools/release.js)
+#  ● 처음 고정 (mode=pin): 엔진 코드는 그대로 두고 대상 방을 지금 엔진 코드의 버전에 고정. 운영 방이 아직 HEAD일 때 맨 먼저 한 번
+#  ● 엔진 코드를 바꾸기 전에 언제나 확인: 방 목록이 겹치지 않는지, 운영 방이 HEAD가 아닌지 (아니면 엔진을 건드리지 않고 멈춤)
 #
 # 키·비밀번호(Code.gs 맨 위 네 줄)는 엔진에 있던 값을 그대로 두고 나머지만 바꾼다 (tools/engine-merge.js, 못 찾으면 멈춤).
 #
@@ -23,12 +25,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'test = 시험 반영 / promote = 운영 전환 / rollback = 되돌리기 / drill = 되돌리기 연습(연습 방만)'
+        description: 'pin = 처음 고정(엔진 그대로) / test = 시험 반영 / promote = 운영 전환 / rollback = 되돌리기 / drill = 되돌리기 연습(연습 방만)'
         type: choice
-        options: [test, promote, rollback, drill]
+        options: [test, pin, promote, rollback, drill]
         default: test
       target:
-        description: 'promote·rollback 대상 (drill은 언제나 practice)'
+        description: 'pin·promote·rollback 대상 (drill은 언제나 practice)'
         type: choice
         options: [practice, prod]
         default: practice
@@ -72,8 +74,15 @@ jobs:
         run: |
           npm i -g @google/clasp@2.4.2
           printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+      - name: 엔진을 바꾸기 전 확인 (방 목록 분리, 운영 방이 HEAD가 아닌지)
+        if: env.SKIP != '1' && env.MODE != 'rollback' && env.MODE != 'pin'
+        env:
+          ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
+          PROD_ROOMS: ${{ secrets.PROD_ROOMS }}
+          PRACTICE_ROOMS: ${{ secrets.PRACTICE_ROOMS }}
+        run: node tools/release.js check
       - name: 엔진 HEAD를 저장소 판으로 (시험 방에 바로 적용)
-        if: env.SKIP != '1' && env.MODE != 'rollback'
+        if: env.SKIP != '1' && env.MODE != 'rollback' && env.MODE != 'pin'
         env:
           ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
         run: |
@@ -83,7 +92,7 @@ jobs:
           node "$GITHUB_WORKSPACE/tools/engine-merge.js" . "$GITHUB_WORKSPACE/Code.gs"
           clasp push --force
           echo "엔진 HEAD = $CODE_VER (HEAD로 쓰는 시험 방에 적용). 버전에 고정된 방은 그대로예요."
-      - name: 운영 전환 / 되돌리기 / 되돌리기 연습 (방 웹 앱 /exec 응답 판까지 확인)
+      - name: 처음 고정 / 운영 전환 / 되돌리기 / 되돌리기 연습 (방 웹 앱 /exec 응답 판까지 확인)
         if: env.SKIP != '1' && env.MODE != 'test'
         env:
           ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}

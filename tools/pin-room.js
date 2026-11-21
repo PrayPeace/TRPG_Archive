@@ -7,11 +7,17 @@ function pin(manifest, ver) {
   const libs = (manifest.dependencies && manifest.dependencies.libraries) || [];
   const lib = libs.find(l => l.userSymbol === 'TRPG');
   if (!lib) throw new Error('이 방 프로젝트에 라이브러리 TRPG가 없어요');
+  const before = lib.developmentMode ? 'head' : String(lib.version);      // 바꾸기 전 상태 (배포가 중간에 실패하면 이 값으로 되돌린다)
   if (ver === 'head') { lib.developmentMode = true; }
   else { if (!/^\d+$/.test(String(ver))) throw new Error('버전 번호가 이상해요: ' + ver); lib.version = String(ver); lib.developmentMode = false; }
-  return { manifest, before: lib.version, lib };
+  return { manifest, before, lib };
 }
-module.exports = { pin };
+// 지금 상태만 본다 (바꾸지 않음): { dev: 개발 모드(HEAD)인지, version }
+function libState(manifest) {
+  const lib = ((manifest.dependencies && manifest.dependencies.libraries) || []).find(l => l.userSymbol === 'TRPG');
+  return lib ? { dev: !!lib.developmentMode, version: String(lib.version || '') } : null;
+}
+module.exports = { pin, libState };
 if (require.main === module) {
   const [file, ver] = process.argv.slice(2);
   const m = JSON.parse(fs.readFileSync(file, 'utf8'));

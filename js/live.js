@@ -54,8 +54,23 @@ function newUid(){
   const r = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '').slice(0, 12) : Math.random().toString(36).slice(2, 14);
   return Date.now().toString(36) + r;
 }
+/* 기기 보관 두 번째 자리(IndexedDB): localStorage가 꽉 차거나 지워져도 못 보낸 말이 남게 같은 내용을 한 벌 더 둔다.
+ * 다시 읽을 때 이미 보낸 말이 섞여 있어도 서버가 발언ID로 걸러서 두 번 저장되지 않는다. 실패해도 조용히 넘어간다(없던 때와 같음). */
+const qdb = {
+  p: null,
+  open(){ if (this.p) return this.p; this.p = new Promise((ok, no) => { try { const r = indexedDB.open('trpg_q', 1); r.onupgradeneeded = () => r.result.createObjectStore('q'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }); this.p.catch(() => { this.bad = true; }); return this.p; },
+  async put(k, v){ try { const d = await this.open(); await new Promise((ok, no) => { const t = d.transaction('q', 'readwrite'); if (v && v.length) t.objectStore('q').put(v, k); else t.objectStore('q').delete(k); t.oncomplete = ok; t.onerror = t.onabort = () => no(t.error); }); this.bad = false; return true; } catch (_) { this.bad = true; return false; } },
+  async get(k){ try { const d = await this.open(); return await new Promise((ok, no) => { const r = d.transaction('q').objectStore('q').get(k); r.onsuccess = () => ok(r.result || []); r.onerror = () => no(r.error); }); } catch (_) { return []; } }
+};
 function loadQueue(){
   try { queue = JSON.parse(S.get(qKey()) || '[]'); } catch(_) { queue = []; }
+  const k0 = qKey();
+  qdb.get(k0).then(a => {                               // 두 번째 자리에만 남아 있던 말을 되살린다
+    if (k0 !== qKey() || !Array.isArray(a)) return;
+    const mine = new Set(queue.map(x => x.uid)); let n = 0;
+    a.forEach(x => { if (x && x.uid && x.text && !mine.has(x.uid) && !qGone.has(x.uid)) { queue.push(x); n++; } });
+    if (n) { queue.sort((x, y) => (String(x.t) < String(y.t) ? -1 : String(x.t) > String(y.t) ? 1 : 0)); saveQueue(); }
+  });
   // 예전 버전 대기열(t_queue)을 지금 방·이름으로 옮긴다
   const old = S.get('t_queue');
   if (old) {
@@ -68,16 +83,30 @@ function loadQueue(){
  * 이 탭이 서버 저장을 확인한 말(qGone)만 뺀다. 기기 저장이 실패하면(공간 부족 등) 화면에 알린다. */
 const qGone = new Set(); let qStoreErr = false;
 function saveQueue(){
-  if (queue.length > QMAX) { toast('못 보낸 말이 너무 많아 오래된 ' + (queue.length - QMAX) + '줄을 버렸어요'); queue = queue.slice(-QMAX); }
+  // 못 보낸 말이 5,000줄을 넘어도 버리지 않는다: 오래된 것부터 "저장 못 한 말" 목록으로 옮긴다 (복사·내려받기·다시 보내기 가능)
+  if (queue.length > QMAX) { const over = queue.slice(0, queue.length - QMAX); queue = queue.slice(-QMAX); over.forEach(x => qGone.add(x.uid)); failAdd(over, '못 보낸 말이 5,000줄을 넘어 따로 보관'); toast('못 보낸 말이 너무 많아 오래된 ' + over.length + '줄을 "저장 못 한 말"로 옮겼어요 (설정 탭)'); }
   if (cfg.url) {
     let other = []; try { other = JSON.parse(localStorage.getItem(qKey()) || '[]'); } catch (_) {}
     const mine = new Set(queue.map(x => x.uid));
     const all = queue.concat((Array.isArray(other) ? other : []).filter(x => x && x.uid && !mine.has(x.uid) && !qGone.has(x.uid)));
-    try { if (all.length) localStorage.setItem(qKey(), JSON.stringify(all.slice(-QMAX * 2))); else localStorage.removeItem(qKey()); qStoreErr = false; }
-    catch (_) { qStoreErr = true; }
+    let lsOk = true;
+    try { if (all.length) localStorage.setItem(qKey(), JSON.stringify(all)); else localStorage.removeItem(qKey()); }
+    catch (_) { lsOk = false; }
+    qStoreErr = !lsOk && qdb.bad !== false;             // 두 자리 모두 실패했을 때만 "기기 보관 실패"
+    qdb.put(qKey(), all).then(ok => { const e = !lsOk && !ok; if (e !== qStoreErr) { qStoreErr = e; sendState(); } });
   }
+  if (failMem.length) failAdd([], '');                  // 보관하지 못했던 "저장 못 한 말"을 다시 보관해 본다
   sendState();
 }
+/* 다른 탭이 남기고 닫힌 말(1분 넘게 그대로인 것)을 이 탭이 이어받아 보낸다. 두 탭이 같이 보내도 서버가 발언ID로 거른다 */
+function adoptOrphans(){
+  if (!cfg.url) return;
+  let other = []; try { other = JSON.parse(localStorage.getItem(qKey()) || '[]') || []; } catch (_) { return; }
+  const mine = new Set(queue.map(x => x.uid)), old = Date.now() - 60000; let n = 0;
+  other.forEach(x => { if (x && x.uid && x.text && !mine.has(x.uid) && !qGone.has(x.uid) && !(new Date(x.t).getTime() > old)) { queue.push(x); n++; } });
+  if (n) saveQueue();
+}
+setInterval(adoptOrphans, 30000);
 function sendState(){
   const n = queue.length, pill = $('sendPill'), st = $('sendSt');
   if (!pill) return;
@@ -85,13 +114,15 @@ function sendState(){
   if (sendErr && n) { txt = '⚠ 저장 실패 · 미전송 ' + n + '줄'; cls = 'sendErr'; }
   else if (n) { txt = '보내는 중 ' + n + '줄'; cls = 'send'; }
   else if (failGet().length) { txt = '⚠ 저장 못 한 말 ' + failGet().length + '줄 (설정 탭에서 복사)'; cls = 'sendErr'; }
+  else if (gapGet().length) { txt = '⚠ 기록이 빠졌을 수 있는 구간 ' + gapGet().length + '곳'; cls = 'sendErr'; }
   pill.classList.toggle('hide', !txt); pill.className = 'chip net ' + cls + (txt ? '' : ' hide');
   pill.lastChild.textContent = txt; pill.title = sendErr ? '마지막 오류: ' + sendErr + ' (자동으로 다시 보내요)' : '내 말이 시트에 저장됐는지';
   st.className = 'sendst' + (sendErr && n ? ' warn' : '');
   if (qStoreErr && n) { pill.classList.remove('hide'); pill.className = 'chip net sendErr'; pill.lastChild.textContent = '⚠ 기기 보관 실패 · 미전송 ' + n + '줄'; pill.title = '이 기기 저장 공간이 부족해 못 보낸 말을 보관하지 못했어요. 이 창을 닫으면 사라질 수 있으니 연결이 돌아올 때까지 열어 두세요'; }
-  const nf = failGet().length;
-  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (이 기기에 보관 중)' : '미전송 ' + n + '줄 보내는 중…') : (nf ? '' : (sentOnce ? '✔ 내 말 모두 저장됨' : ''));
-  failShow();
+  const nf = failGet().length, ng = gapGet().length;
+  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (' + (qStoreErr ? '⚠ 이 기기에 보관하지 못함: 창을 닫지 마세요' : '이 기기에 보관 중') + ')' : '미전송 ' + n + '줄 보내는 중…')
+    : (nf ? '' : (sentOnce ? '✔ 받아 적은 말은 모두 저장됨' + (ng ? ' · ⚠ 받아쓰기가 끊겨 빠졌을 수 있는 구간 ' + ng + '곳 (설정 탭)' : '') : ''));
+  failShow(); gapShow();
 }
 async function flush(){
   if (sending || authBad || !queue.length || !cfg.url) return;
@@ -102,11 +133,12 @@ async function flush(){
   try {
     const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, pt: ptFor(cfg.url), items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
     if (!r.ok) { if (/비밀번호/.test(r.error || '')) authBad = true; throw new Error(r.error || '저장 실패'); }   // 비밀번호가 바뀌었으면 다시 입장할 때까지 보내지 않는다
+    // 서버가 받지 않은 말은 먼저 "저장 못 한 말" 목록에 옮겨 적은 뒤에 대기열에서 뺀다 (목록 보관이 실패하면 이 창의 메모리에 남고 화면에 계속 보인다)
+    if ((r.tooLong || []).length) { failAdd(batch.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음'); toast('100만 자가 넘는 말 ' + r.tooLong.length + '줄은 저장하지 못했어요. 원문은 "저장 못 한 말"에서 복사할 수 있어요'); }
     const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], r.tooLong || []));
     done.forEach(u => qGone.add(u));
     queue = queue.filter(q => !done.has(q.uid));
     if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
-    if ((r.tooLong || []).length) { failAdd(batch.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음'); toast('100만 자가 넘는 말 ' + r.tooLong.length + '줄은 저장하지 못했어요. 원문은 "저장 못 한 말"에서 복사할 수 있어요'); }
     sendErr = ''; sentOnce = true;
   } catch (e) {
     sendErr = e.name === 'AbortError' ? '서버 응답이 45초 넘게 없음' : (e.message === 'Failed to fetch' ? '인터넷 연결 끊김' : (e.message || '연결 실패'));
@@ -119,28 +151,37 @@ async function flush(){
 setInterval(flush, 4000);
 /* 다른 방 주소로 못 보낸 말 (예: 방을 엔진 주소로 옮기기 전 주소에 남은 말): 그 주소로 직접 보낸다.
  * 보낼 곳은 대기열에 적힌 주소 그대로라서 언제나 원래 방에 들어가고, 서버가 발언ID로 걸러서 두 번 저장되지 않는다. */
-let othersBusy = false; const othersNeed = {};
+let othersBusy = false, othersTurn = 0; const othersNeed = {};
 async function flushOthers(){
   if (othersBusy || sending || !navigator.onLine) return;
-  let key = '';
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey() && (JSON.parse(localStorage.getItem(k) || '[]') || []).length) { key = k; break; } } } catch(_) { return; }
+  // 보낼 수 있는 방을 고른다. 비밀번호가 없는 방은 표시만 하고 건너뛰어서, 그 방 때문에 다른 방의 말이 밀리지 않게 한다 (방마다 차례가 돌아가게 순서를 돌린다)
+  const keys = [];
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey() && (JSON.parse(localStorage.getItem(k) || '[]') || []).length) keys.push(k); } } catch(_) { return; }
+  if (!keys.length) return;
+  keys.sort(); othersTurn++;
+  let key = '', url = '', pw = '', pt = '', items = [], changed = false;
+  for (let j = 0; j < keys.length && !key; j++) {
+    const k = keys[(othersTurn + j) % keys.length], u = k.slice(4); if (!/^https:\/\//.test(u)) continue;
+    const room = roomsGet().find(x => scriptUrl(x.url) === u);
+    // 그 방의 비밀번호나 기기 토큰이 이 기기에 없으면 보내지 않는다 (지금 방 비밀번호를 대신 보내지 않음). 원문은 그대로 보관하고 다시 들어가라고 안내한다
+    const w = room && room.pw ? room.pw : '', t = ptFor(u);
+    if (!w && !t) { if (!othersNeed[k]) { othersNeed[k] = 1; changed = true; } continue; }
+    if (othersNeed[k] && Date.now() - othersNeed[k] < 120000) continue;       // 방금 비밀번호 오류가 난 방은 2분 쉬었다가
+    let a = []; try { a = JSON.parse(localStorage.getItem(k) || '[]') || []; } catch(_) {}
+    if (a.length) { key = k; url = u; pw = w; pt = t; items = a; }
+  }
+  if (changed) otherRooms();
   if (!key) return;
-  const url = key.slice(4); if (!/^https:\/\//.test(url)) return;
-  const room = roomsGet().find(x => scriptUrl(x.url) === url);
-  let items = []; try { items = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
-  if (!items.length) return;
-  // 그 방의 비밀번호나 기기 토큰이 이 기기에 없으면 보내지 않는다 (지금 방 비밀번호를 대신 보내지 않음). 원문은 그대로 보관하고 다시 들어가라고 안내한다
-  const pw = room && room.pw ? room.pw : '', pt = ptFor(url);
-  if (!pw && !pt) { othersNeed[key] = 1; otherRooms(); return; }
   othersBusy = true;
   try {
     const body = { action: 'lines', items: items.slice(0, 100) }; if (pw) body.pw = pw; if (pt) body.pt = pt;
     const r = await fetch(url, { method: 'POST', body: JSON.stringify(body) }).then(x => x.json());
-    if (r && !r.ok && /비밀번호|잠/.test(r.error || '')) { othersNeed[key] = 1; otherRooms(); }
+    if (r && !r.ok && /비밀번호|잠/.test(r.error || '')) { othersNeed[key] = Date.now(); otherRooms(); }
     if (r && r.ok) {
       delete othersNeed[key];
-      if ((r.tooLong || []).length) failAdd(items.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음', url);
-      const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], r.tooLong || []));
+      let kept = true;
+      if ((r.tooLong || []).length) kept = failAdd(items.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음', url);
+      const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], kept ? (r.tooLong || []) : []));     // 실패 목록에 옮겨 적지 못했으면 원래 자리에 그대로 둔다
       let now = []; try { now = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
       now = now.filter(q => !done.has(q.uid));
       if (now.length) localStorage.setItem(key, JSON.stringify(now)); else localStorage.removeItem(key);
@@ -171,6 +212,56 @@ function otherRooms(){
 let ws = null, rec = null, stream = null, running = false, wantStop = false, micStatus = 'off';
 let micWhy = '', micIntent = false;
 let wsGen = 0, starting = false, retryN = 0, tkCache = null, wakeLock = null, dropCount = 0, retryTimer = 0;
+/* 끊긴 동안의 말을 잃지 않기 위한 세 가지:
+ *  ① 확정 전 글(pend): Deepgram이 아직 확정하지 않은 글. 연결이 끊기면 그대로 한 줄로 저장한다.
+ *  ② 소리 임시 보관(abuf): 연결이 끊긴 동안의 마이크 소리를 이 창의 메모리에만 최대 90초 모아 두었다가, 다시 연결되면 이어서 보낸다.
+ *     원래 실시간으로 보내던 바로 그 소리이고, 디스크에 쓰지 않으며, 보낸 뒤나 받아쓰기를 끄면 바로 버린다.
+ *  ③ 누락 가능 구간(gap): 90초를 넘겨 소리를 버렸거나 전송이 막혀 못 보낸 구간. 시각을 이 기기에 적고 대화에도 안내 줄을 남긴다. */
+const ABUF_MS = 90000, GAP_MIN = 5000;
+let pend = '', abuf = [], abufAt = 0, abufLost = false, gapFrom = 0, lastDrain = 0, recMime = '';
+function pushLine(text){ lastActivity = Date.now(); queue.push({ uid: newUid(), name: cfg.name, session: live.session || '', rv: live.resetVer || '', t: new Date().toISOString(), text }); saveQueue(); }
+function commitPend(){ const t = pend.trim(); pend = ''; $('interim').textContent = ''; if (t) pushLine(t); }
+const gapKey = () => 't_gap:' + cfg.url;
+function gapGet(){ if (!cfg.url) return []; try { return JSON.parse(localStorage.getItem(gapKey()) || '[]') || []; } catch(_) { return gapMem; } }
+let gapMem = [];
+function noteGap(from, to, why){
+  if (!from || to - from < GAP_MIN || !cfg.url) return;
+  const hm = t => new Date(t).toTimeString().slice(0, 8), sec = Math.round((to - from) / 1000);
+  const a = gapGet().concat([{ from: new Date(from).toISOString(), to: new Date(to).toISOString(), sec, why, name: cfg.name }]).slice(-50);
+  gapMem = a; try { localStorage.setItem(gapKey(), JSON.stringify(a)); } catch(_) {}
+  // 대화에도 한 줄 남겨서 모두(와 요약)에게 이 구간이 비어 있을 수 있음을 알린다
+  pushLine('※ 받아쓰기 끊김 약 ' + (sec >= 60 ? Math.floor(sec / 60) + '분 ' + (sec % 60) + '초' : sec + '초') + ' (' + hm(from) + '~' + hm(to) + ', ' + why + '). 이 사이 ' + cfg.name + '의 말은 기록되지 않았을 수 있어요');
+}
+function gapShow(){
+  const box = $('gapBox'); if (!box) return;
+  const a = gapGet(); box.classList.toggle('hide', !a.length); if (!a.length) return;
+  box.innerHTML = '';
+  box.append('⚠ 받아쓰기가 끊겨 내 말이 빠졌을 수 있는 구간 ' + a.length + '곳: ' + a.slice(-8).map(g => new Date(g.from).toTimeString().slice(0, 8) + ' 약 ' + g.sec + '초').join(' · ') + '. 대화 탭에도 "※ 받아쓰기 끊김" 줄로 남아 있어요. 빠진 말은 직접 다시 말하거나 적어 주세요. ');
+  const rm = el('button', '', '확인했어요'); rm.onclick = () => { gapMem = []; try { localStorage.removeItem(gapKey()); } catch(_) {} sendState(); }; box.append(rm);
+}
+/* 새 녹음기. 연결이 열려 있으면 바로 보내고, 아니면 메모리에 모은다. 연결마다 새 녹음기가 필요하다(소리 파일의 머리말이 첫 조각에만 있어서). */
+function recStart(){
+  if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_) {} }
+  rec = null; abuf = []; abufAt = Date.now(); abufLost = false;
+  if (!micAlive()) { abufLost = true; return; }
+  let r; try { r = new MediaRecorder(stream, recMime ? { mimeType: recMime } : undefined); } catch(_) { abufLost = true; return; }
+  r.ondataavailable = ev => {
+    if (r !== rec || !ev.data.size) return;
+    const w = ws;
+    if (w && w.readyState === 1 && w._live) {
+      if (w.bufferedAmount < 16000) lastDrain = Date.now();
+      if (w.bufferedAmount > 400000) {                         // 네트워크가 막혀 소리가 밀림: 끊고 새로 연결. 못 보낸 구간은 누락 가능 구간으로 적는다
+        logDrop('전송이 막혀 쌓임(네트워크 정체)'); noteGap(lastDrain || Date.now() - 30000, Date.now(), '전송 정체'); lastDrain = Date.now();
+        try { w.close(); } catch(_) {} return;
+      }
+      try { while (abuf.length) w.send(abuf.shift()); w.send(ev.data); r._sent = true; } catch(_) {}
+    } else if (!abufLost) {
+      if (Date.now() - abufAt <= ABUF_MS) abuf.push(ev.data);
+      else { abuf = []; abufLost = true; }                     // 90초를 넘김: 모아 둔 소리를 버리고, 다시 연결될 때 누락 가능 구간으로 적는다
+    }
+  };
+  rec = r; try { r.start(250); } catch(_) { rec = null; abufLost = true; }
+}
 function micState(cls, text){
   micStatus = cls || 'off';
   $('micBtn').className = 'mic ' + cls;
@@ -228,21 +319,21 @@ async function startMic(isRetry){
     tkCache = { tk, at: tkCache && tkCache.tk === tk ? tkCache.at : Date.now() };
     const p = new URLSearchParams({ model: 'nova-3', language: 'ko', smart_format: 'true', interim_results: 'true', endpointing: '400' });
     (tk.keyterms || []).forEach(k => p.append('keyterm', k));
+    commitPend();                                           // 옛 연결에서 확정되지 못한 글은 버리지 않고 한 줄로 저장
     const my = ++wsGen;                                     // 옛 연결의 늦은 신호가 새 연결을 건드리지 못하게 번호를 매긴다
-    if (ws && ws.readyState <= 1) { try { ws.close(); } catch(_) {} }
+    if (ws && ws.readyState <= 1) { try { ws.close(); } catch(_) {} if (!gapFrom) gapFrom = Date.now(); recStart(); }    // 죽은 연결을 버릴 때도 지금부터의 소리를 모아 둔다
     const w = new WebSocket('wss://api.deepgram.com/v1/listen?' + p.toString(), ['bearer', tk.token]);
     ws = w; let opened = false, ka = 0;
     w.onopen = () => {
       if (my !== wsGen) { try { w.close(); } catch(_) {} return; }
       opened = true; retryN = 0;
-      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
-      rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      rec.ondataavailable = ev => {
-        if (my !== wsGen || !ev.data.size || w.readyState !== 1) return;
-        if (w.bufferedAmount > 400000) { logDrop('전송이 막혀 쌓임(네트워크 정체)'); try { w.close(); } catch(_) {} return; }     // 네트워크가 막혀 오디오가 밀리면 끊고 새로 연결
-        w.send(ev.data);
-      };
-      rec.start(250);
+      recMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
+      // 끊긴 동안 모아 둔 소리가 온전하면(90초 이내) 그 녹음기를 그대로 이어 쓰고 모은 것부터 보낸다. 아니면 새 녹음기로 시작하고 빈 구간을 적는다
+      const keep = rec && rec.state !== 'inactive' && !rec._sent && !abufLost && abuf.length;
+      if (gapFrom && !keep) noteGap(gapFrom, Date.now(), '연결 끊김');
+      gapFrom = 0; lastDrain = Date.now(); w._live = true;
+      if (keep) { try { while (abuf.length) w.send(abuf.shift()); rec._sent = true; } catch(_) {} }
+      else recStart();
       ka = setInterval(() => { if (w.readyState === 1) { try { w.send(JSON.stringify({ type: 'KeepAlive' })); } catch(_) {} } }, 8000);
       running = true; document.title = 'TRPG Archive'; micState('on', '받아쓰는 중 · 멈추기');
       if (dropCount) $('micInfo').textContent = '연결이 ' + dropCount + '번 끊겼다가 자동으로 다시 이어졌어요'; else $('micInfo').textContent = '';
@@ -253,15 +344,17 @@ async function startMic(isRetry){
       let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
       if (m.type !== 'Results') return;
       const t = (m.channel && m.channel.alternatives && m.channel.alternatives[0] || {}).transcript || '';
-      if (m.is_final) { $('interim').textContent = ''; if (t.trim()) { lastActivity = Date.now(); queue.push({ uid: newUid(), name: cfg.name, session: live.session || '', rv: live.resetVer || '', t: new Date().toISOString(), text: t.trim() }); saveQueue(); } }
-      else $('interim').textContent = t ? cfg.name + ': ' + t : '';
+      if (m.is_final) { pend = ''; $('interim').textContent = ''; if (t.trim()) pushLine(t.trim()); }
+      else { pend = t; $('interim').textContent = t ? cfg.name + ': ' + t : ''; }
     };
     w.onclose = ev => {
       clearInterval(ka);
       if (my !== wsGen) return;                              // 이미 새 연결로 넘어간 옛 연결의 종료는 무시
-      if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_){} }
-      rec = null; running = false;
-      if (wantStop) return;
+      w._live = false; commitPend();                         // 확정 전 글을 한 줄로 저장
+      running = false;
+      if (wantStop) { if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_){} } rec = null; abuf = []; return; }
+      if (!gapFrom) gapFrom = Date.now();
+      if (opened || !rec) recStart();                        // 끊긴 동안의 소리를 메모리에 모으기 시작 (열리지도 못한 재시도 중에는 이미 모으는 중이라 그대로)
       if (!opened) tkCache = null;                           // 열리지도 못했으면 토큰이 문제일 수 있으니 새로 받는다
       logDrop('연결 끊김 코드 ' + (ev && ev.code) + (ev && ev.reason ? ' ' + ev.reason : ''));
       micState('conn', '다시 연결 중…');
@@ -284,8 +377,11 @@ function stopAll(why){
   if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch(_){} }
   const w = ws; setTimeout(() => { if (w) { try { w.close(); } catch(_){} } }, 800);
   if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_){} }
+  rec = null; abuf = [];
+  if (gapFrom) { noteGap(gapFrom, Date.now(), '연결 끊김'); gapFrom = 0; }      // 끊긴 채로 껐으면 그 구간은 받아 적지 못했다
+  if (!ws || ws.readyState !== 1) commitPend();              // 연결이 살아 있으면 0.8초 안에 오는 확정 글을 기다리고(닫힐 때 남은 글을 저장), 아니면 지금 저장
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  running = false; $('interim').textContent = '';
+  running = false;
   micState('', '받아쓰기 시작');
   flush();
 }
@@ -419,21 +515,31 @@ $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중�
 
 /* 저장 못 한 말 (서버가 받지 않은 원문). 지워지지 않게 이 기기에 따로 두고, 복사·파일로 내려받을 수 있게 한다. '모두 저장됨'과 구분해 보여 준다 */
 const failKey = url => 't_fail:' + (url || cfg.url);
-function failGet(url){ try { return JSON.parse(localStorage.getItem(failKey(url)) || '[]') || []; } catch(_) { return []; } }
+let failMem = [];                 // 이 기기에 보관하지 못한 "저장 못 한 말" (이 창이 열려 있는 동안만 남는다. 화면에는 계속 보인다)
+function failStored(url){ try { return JSON.parse(localStorage.getItem(failKey(url)) || '[]') || []; } catch(_) { return []; } }
+function failGet(url){ const a = failStored(url); if (url && url !== cfg.url) return a; return a.concat(failMem.filter(m => !a.some(x => x.uid === m.uid))); }
+// 돌려주는 값: 이 기기에 보관했으면 true. 보관하지 못하면 (지금 방의 말은) 메모리에 두고 false
 function failAdd(items, why, url){
-  if (!items || !items.length) return;
-  const a = failGet(url); items.forEach(q => { if (!a.some(x => x.uid === q.uid)) a.push({ uid: q.uid, name: q.name, t: q.t, text: q.text, why }); });
-  try { localStorage.setItem(failKey(url), JSON.stringify(a)); } catch (_) { toast('저장 못 한 말을 이 기기에 보관하지 못했어요. 지금 복사해 두세요'); }
-  sendState();
+  const here = !url || url === cfg.url;
+  const a = failStored(url), add = (items || []).map(q => ({ uid: q.uid, name: q.name, t: q.t, text: q.text, session: q.session, rv: q.rv, why }));
+  (here ? failMem.concat(add) : add).forEach(q => { if (!a.some(x => x.uid === q.uid)) a.push(q); });
+  let ok = true;
+  try { if (a.length) localStorage.setItem(failKey(url), JSON.stringify(a)); if (here) failMem = []; }
+  catch (_) { ok = false; if (here) { add.forEach(q => { if (!failMem.some(x => x.uid === q.uid)) failMem.push(q); }); } if (add.length) toast('저장 못 한 말을 이 기기에 보관하지 못했어요. 이 창을 닫기 전에 설정 탭에서 복사해 두세요'); }
+  if (add.length) sendState();
+  return ok;
 }
 function failText(){ return failGet().map(x => '[' + String(x.t || '').replace('T', ' ').slice(0, 19) + '] ' + x.name + ': ' + x.text).join('\n\n'); }
 function failShow(){
   const box = $('failBox'); if (!box) return;
   const a = failGet(); box.classList.toggle('hide', !a.length); if (!a.length) return;
   box.innerHTML = '';
-  box.append('⚠ 저장 못 한 말 ' + a.length + '줄 (' + (a[0].why || '') + '). 원문은 이 기기에만 있어요. ');
+  box.append('⚠ 저장 못 한 말 ' + a.length + '줄 (' + (a[0].why || '') + '). 원문은 ' + (failMem.length ? '⚠ 이 창의 메모리에만 있어요 (기기 저장 공간 부족). 창을 닫기 전에 복사하거나 내려받아 주세요. ' : '이 기기에만 있어요. '));
+  // 서버가 거절한 것이 아니라 밀려서 옮겨 둔 말은 다시 보낼 수 있다
+  const back = a.filter(x => !/100만 자/.test(x.why || '')).slice(0, Math.max(0, QMAX - queue.length));
+  if (back.length) { const rs = el('button', '', '다시 보내기 (' + back.length + '줄)'); rs.onclick = () => { const ids = new Set(back.map(x => x.uid)); back.forEach(x => { qGone.delete(x.uid); if (!queue.some(q => q.uid === x.uid)) queue.push({ uid: x.uid, name: x.name, session: x.session || '', rv: x.rv || '', t: x.t, text: x.text }); }); failMem = failMem.filter(x => !ids.has(x.uid)); const rest = failStored().filter(x => !ids.has(x.uid)); try { if (rest.length) localStorage.setItem(failKey(), JSON.stringify(rest)); else localStorage.removeItem(failKey()); } catch(_) {} saveQueue(); flush(); }; box.append(rs, ' '); }
   const cp = el('button', '', '복사'); cp.onclick = async () => { try { await navigator.clipboard.writeText(failText()); toast('복사했어요'); } catch (_) { toast('복사하지 못했어요. 내려받기를 써 주세요'); } };
   const dl = el('button', '', '내려받기'); dl.onclick = () => { const b = new Blob([failText()], { type: 'text/plain' }); const u = URL.createObjectURL(b); const x = document.createElement('a'); x.href = u; x.download = '저장_못_한_말.txt'; x.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); };
-  const rm = el('button', '', '목록 비우기'); rm.dataset.label = '목록 비우기'; if (typeof twoStep === 'function') twoStep(rm, async () => { try { localStorage.removeItem(failKey()); } catch (_) {} sendState(); });
+  const rm = el('button', '', '목록 비우기'); rm.dataset.label = '목록 비우기'; if (typeof twoStep === 'function') twoStep(rm, async () => { failMem = []; try { localStorage.removeItem(failKey()); } catch (_) {} sendState(); });
   box.append(cp, ' ', dl, ' ', rm);
 }

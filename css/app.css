@@ -182,6 +182,22 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 .nxi b{display:block;font-size:14.5px;line-height:1.5}
 .nxi .why{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.55}
 .nxi.p1{border-color:rgba(232,184,74,.55)}
+.nxnow{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:10px 14px;margin-bottom:10px}
+.nxnow.ai{border-style:dashed}
+.nxh{display:flex;gap:10px;align-items:baseline;margin-bottom:6px;flex-wrap:wrap}
+.nxh2{font-size:12.5px;font-weight:700;color:var(--dim);margin-top:2px}
+.nxr{display:flex;gap:10px;padding:4px 0;font-size:13.5px;line-height:1.5}
+.nxr .k{flex:none;width:8.5em;color:var(--dim);font-size:12.5px}
+.nxr .v{flex:1;min-width:0;overflow-wrap:anywhere}
+.nxr.go{cursor:pointer}
+.nxr.go:hover .v{text-decoration:underline}
+.nxold{border:1px solid rgba(232,184,74,.55);border-radius:10px;padding:8px 12px;font-size:13px;line-height:1.5}
+.nxg{font-size:11px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-right:4px}
+.nxmore summary{cursor:pointer;font-size:13px;color:var(--dim);padding:6px 2px}
+.nxmore{display:grid;gap:10px}
+.nxmore[open] summary{margin-bottom:8px}
+.nxmore .nxi{margin-bottom:10px}
+@media (max-width:560px){.nxr{flex-direction:column;gap:0}.nxr .k{width:auto}}
 .nk-장소{background:rgba(110,170,255,.2);color:#a9c9ff}.nk-인물{background:rgba(255,214,102,.2);color:#ffd98a}.nk-단서{background:rgba(200,150,255,.2);color:#d9b8ff}.nk-행동{background:rgba(120,220,160,.18);color:#9fe3bd}.nk-준비{background:rgba(255,150,130,.18);color:#ffb7a8}
 /* 정리 검색·칩 */
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
@@ -549,3 +565,8 @@ html[data-theme=etc] #rBg .rb-pat{background:radial-gradient(ellipse 70% 45% at 
   #netPill.on span:last-child{display:none}
   #netPill.on{padding:4px 7px}
 }
+
+.know-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 0;border-bottom:1px solid var(--line);margin-bottom:6px}
+.know-top input{flex:1;min-width:140px;max-width:320px}
+.know-top button.act{color:var(--gold2);border-color:rgba(232,184,74,.55)}
+.kquick{margin:6px 0;flex-wrap:wrap;gap:6px}
