@@ -21,7 +21,7 @@ async function pollOnce(){
     if (r.jumped) resetLog();                       // 너무 오래 끊겨 있었으면 최근 300줄부터 다시
     if (!lastId) hasOlder = r.from > 0;
     addLogLines(r.lines, { quiet: !lastId });
-    if (r.lines.length) { lastId = Math.max(lastId, r.lines[r.lines.length - 1].id); lastNewAt = Date.now(); }
+    if (r.lines.length) { const ll = r.lines[r.lines.length - 1]; lastId = Math.max(lastId, ll.last || ll.id); lastNewAt = Date.now(); }      // last: 나뉘어 저장된 긴 말의 마지막 조각 번호
     else if (!allLines.length) renderLog();
     renderWho(r.presence);
     renderSumState(v);
@@ -99,10 +99,11 @@ async function flush(){
   try {
     const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, pt: ptFor(cfg.url), items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
     if (!r.ok) { if (/비밀번호/.test(r.error || '')) authBad = true; throw new Error(r.error || '저장 실패'); }   // 비밀번호가 바뀌었으면 다시 입장할 때까지 보내지 않는다
-    const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || []));
+    const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], r.tooLong || []));
     done.forEach(u => qGone.add(u));
     queue = queue.filter(q => !done.has(q.uid));
     if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
+    if ((r.tooLong || []).length) toast('100만 자가 넘는 말 ' + r.tooLong.length + '줄은 저장하지 못했어요');
     sendErr = ''; sentOnce = true;
   } catch (e) {
     sendErr = e.name === 'AbortError' ? '서버 응답이 45초 넘게 없음' : (e.message === 'Failed to fetch' ? '인터넷 연결 끊김' : (e.message || '연결 실패'));
@@ -113,6 +114,31 @@ async function flush(){
   if (!sendErr && queue.length) setTimeout(flush, 200);
 }
 setInterval(flush, 4000);
+/* 다른 방 주소로 못 보낸 말 (예: 방을 엔진 주소로 옮기기 전 주소에 남은 말): 그 주소로 직접 보낸다.
+ * 보낼 곳은 대기열에 적힌 주소 그대로라서 언제나 원래 방에 들어가고, 서버가 발언ID로 걸러서 두 번 저장되지 않는다. */
+let othersBusy = false;
+async function flushOthers(){
+  if (othersBusy || sending || !navigator.onLine) return;
+  let key = '';
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey() && (JSON.parse(localStorage.getItem(k) || '[]') || []).length) { key = k; break; } } } catch(_) { return; }
+  if (!key) return;
+  const url = key.slice(4); if (!/^https:\/\//.test(url)) return;
+  const room = roomsGet().find(x => scriptUrl(x.url) === url);
+  let items = []; try { items = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
+  if (!items.length) return;
+  othersBusy = true;
+  try {
+    const r = await fetch(url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: (room && room.pw) || cfg.pw, pt: ptFor(url), items: items.slice(0, 100) }) }).then(x => x.json());
+    if (r && r.ok) {
+      const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], r.tooLong || []));
+      let now = []; try { now = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
+      now = now.filter(q => !done.has(q.uid));
+      if (now.length) localStorage.setItem(key, JSON.stringify(now)); else localStorage.removeItem(key);
+      if (done.size) otherRooms();
+    }
+  } catch(_) {} finally { othersBusy = false; }
+}
+setInterval(flushOthers, 15000);
 // 창을 닫을 때: 대기열은 그대로 두고 마지막으로 한 번 던져 본다 (저장됐는지 모르니 다음 접속 때 다시 보내고, 서버가 중복을 거른다)
 window.addEventListener('pagehide', ev => {
   if (!cfg.url || !navigator.sendBeacon) return;
@@ -126,7 +152,7 @@ function otherRooms(){
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey()) { const n = JSON.parse(localStorage.getItem(k) || '[]').length; if (n) { total += n; keys.push(k); } } } } catch(_) {}
   box.classList.toggle('hide', !total); box.innerHTML = '';
   if (!total) return;
-  box.append('다른 방 주소로 못 보낸 말이 ' + total + '줄 있어요. 그 방으로 다시 들어가면 자동으로 보내요. ');
+  box.append('다른 방 주소로 못 보낸 말이 ' + total + '줄 있어요. 원래 방 주소로 자동으로 보내는 중이에요. ');
   const b = el('button', '', '버리기'); b.dataset.label = '버리기'; twoStep(b, async () => { keys.forEach(k => S.del(k)); otherRooms(); }); box.append(b);
 }
 

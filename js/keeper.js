@@ -43,6 +43,17 @@ $('kDiag').onclick = async () => {
   } catch (e) { box.textContent = '진단 실패: ' + e.message; }
   finally { $('kDiag').disabled = false; }
 };
+/* 요약이 한 구간에서 계속 실패할 때: 그 구간 원문을 보여 주고 다시 시도하거나, 원문만 남기고 넘어간다 */
+let stuckFrom = null;
+function stuckShow(st){
+  $('kStRow').classList.toggle('hide', !st); stuckFrom = st ? st.from : null;
+  if (!st) return;
+  $('kStTxt').textContent = '⚠ 요약이 #' + (st.from + 1) + '~#' + st.to + ' 구간에서 ' + st.fails + '번 실패했어요' + (st.error ? ' (' + st.error + ')' : '') + '. 대화 기록은 그대로 저장되고 있어요.';
+  $('kStLines').textContent = st.lines.map(l => '#' + l.id + ' ' + l.name + ': ' + l.text + (l.len > l.text.length ? ' …(' + l.len + '자)' : '')).join('\n') + (st.more ? '\n…' : '');
+}
+$('kStRetry').onclick = async () => { $('kStRetry').disabled = true; const r = await kpost({ action: 'pendingRetry' }); $('kStRetry').disabled = false; $('kOut').textContent = r.ok ? (r.message || '다시 시도했어요') : r.error; refreshData(); };
+$('kStSkip').dataset.label = '원문만 남기고 넘어가기';
+twoStep($('kStSkip'), async () => { const r = await kpost({ action: 'pendingSkip', from: stuckFrom }); $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); });
 $('kNfRetry').onclick = async () => { $('kNfRetry').disabled = true; const r = await kpost({ action: 'notesRetry' }); $('kNfRetry').disabled = false; $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
 $('kRuleSave').onclick = async () => { const r = await kpost({ action: 'setRule', rule: $('kRule').value }); $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
 function tokTable(title, list, tot){
@@ -172,7 +183,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.21';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.22';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };

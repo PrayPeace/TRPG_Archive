@@ -939,6 +939,7 @@ $('thSave').onclick = async () => {
 
 function renderAll(d){
   data = d; colorMap = d.colors || {}; keeperName = d.keeperName || ''; applyRule(d.rule);
+  stuckShow(d.stuck);
   { const nf = Number(d.notesFail || 0); $('kNfRow').classList.toggle('hide', !nf); $('kNfTxt').textContent = '⚠ NPC·장소·단서 정리 중 실패해서 보관된 작업 ' + nf + '건 (원문은 그대로 있어요)'; }
   if (d.rule && d.rule.key) { const thNew = JSON.stringify(d.theme || {}); if (TH.rule !== d.rule.key || JSON.stringify(TH.t) !== thNew) { applyTheme(d.rule.key, d.theme); if (document.activeElement && !document.activeElement.id.startsWith('th')) thForm(); } thCache(cfg.url, d.rule.key, d.theme); }
   if (d.roomTitle != null) { const nm0 = (roomsGet().find(x => scriptUrl(x.url) === cfg.url) || {}); $('roomName').textContent = nm0.named ? nm0.name : (d.roomTitle || nm0.name || '방'); if (!nm0.url) roomRemember(d.roomTitle); else if (!nm0.named && d.roomTitle && nm0.name !== d.roomTitle) roomRemember(d.roomTitle); }

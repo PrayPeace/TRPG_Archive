@@ -1,0 +1,20 @@
+# 엔진 시험: PR과 main에서 가짜 Apps Script로 tests/를 돌린다 (비밀값 필요 없음)
+name: 엔진 시험
+on:
+  pull_request:
+    paths: [Code.gs, tests/**, tools/**, .github/workflows/**]
+  push:
+    branches: [main]
+    paths: [Code.gs, tests/**, tools/**]
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: cp Code.gs /tmp/Code.js && node --check /tmp/Code.js
+      - run: node tests/run.js

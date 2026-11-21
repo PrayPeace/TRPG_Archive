@@ -107,7 +107,11 @@ flowchart LR
 
 ### 엔진 자동 배포 (GitHub Actions)
 
-`main`의 `Code.gs`가 바뀌면 `.github/workflows/deploy-engine.yml`이 clasp로 엔진 코드를 새 판으로 바꿉니다. 맨 위 네 줄(키·비밀번호)은 엔진에 있던 값을 그대로 두고 나머지만 바꿉니다(`tools/engine-merge.js`, 네 줄 중 하나라도 못 찾으면 멈춤). 저장소 비밀값 `CLASPRC_JSON`, `ENGINE_SCRIPT_ID`(필수), `ENGINE_DEPLOY_ID`(엔진을 웹 앱으로 쓸 때)를 넣어야 동작하고, 없으면 건너뜁니다.
+- **시험 반영**(main의 `Code.gs`가 바뀌면 자동): `tests/` 시험을 모두 통과해야 엔진 코드(HEAD)를 새 판으로 바꿉니다. 라이브러리를 HEAD(개발 모드)로 쓰는 **시험 방**에만 바로 적용됩니다.
+- **운영 전환**(Actions에서 손으로 `promote`): 새 라이브러리 버전을 만들고 `PROD_ROOM_SCRIPT_IDS`의 운영 방을 그 버전에 고정합니다.
+- **되돌리기**(`rollback` + 버전 번호): 운영 방을 예전 버전에 다시 고정합니다. 코드만 바뀌고 시트 기록은 그대로입니다.
+- 맨 위 네 줄(키·비밀번호)은 엔진에 있던 값을 그대로 두고 나머지만 바꿉니다(`tools/engine-merge.js`, 못 찾으면 멈춤). 저장소의 자리표시자가 엔진의 키를 덮어쓰지 않습니다.
+- 엔진 방식(`?room=`) 방의 자동 정리 트리거는 언제나 엔진 HEAD로 돌기 때문에, 시험·운영을 나누려면 운영 방은 라이브러리 방식으로 두는 것을 권합니다.
 
 ## 파일
 
@@ -123,7 +127,8 @@ js/lobby.js       로비(폰 화면) · 잠금 해제 컷인
 js/main.js        시작
 Code.gs           Apps Script 엔진 (API, 시트 DB, AI 호출, 트리거)
 Room.gs           방 시트에 붙이는 연결 코드
-tools/            엔진 자동 배포 도구
+tools/            엔진 자동 배포 도구 (키 줄 옮겨 붙이기, 운영 방 버전 고정)
+tests/            가짜 Apps Script로 엔진 시험 (node tests/run.js)
 lobby.json        사이트 첫 화면이 열 로비 방 주소
 export/hwpx/      한글(.hwpx) 내보내기 뼈대 (python-hwpx, Apache-2.0)
 og.png, icon.png  링크 미리보기 썸네일, 아이콘
