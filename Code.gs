@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.18';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.19';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -95,6 +95,7 @@ const NOTE_CHUNK = 45000;        // 정리 JSON을 셀 하나(5만 자 제한)�
 
 /* ───────────── 시트 머리글 ───────────── */
 const HEADERS = {
+  '오류기록': ['시각', '이름', '판', '오류'],
   '캐릭터기록': ['시각', '세션', '탭', '플레이어', '이름', '체력', '이성', '마력', '행운'],
   '키퍼자료': ['마스터 정리본 JSON (칸 A) · 마스터 전용', '마스터 정리본 JSON (칸 B) · 마스터 전용'],
   '키퍼원문': ['조각ID', '출처', '순번', '글자수', '본문', '추가 시각', '나눈 원래 조각'],
@@ -678,6 +679,7 @@ function doPost(e) {
     // ── 플레이어 누구나
     switch (b.action) {
       case 'lines':      return out(addLines(b));
+      case 'clientErr':  return out(clientErr(b));
       case 'bye':        try { touchPresence(String(b.name || ''), 'off', 'bye', false, true); } catch (err) {} return out({ ok: true });
       case 'noteHandoff': return out(noteHandoff(b.sec, b.item));
       case 'pcBuild':    return out(pcBuild(b.player));
@@ -803,6 +805,16 @@ function newRoom(name, rule, pw) {
   if (cs) cs.getRange(1, 1, rows.length, 2).setNumberFormat('@').setValues(rows);
   return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name, ruleKey: rule,
     message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
+}
+/* 플레이어 화면에서 난 오류를 '오류기록' 탭에 남긴다 (마스터가 원인을 찾을 수 있게). 기기당 짧게, 최근 500줄만 */
+function clientErr(b) {
+  const c = roomCache(), k = 'cerr:' + String(b.name || '').slice(0, 20);
+  const n = Number(c.get(k) || 0); if (n >= 20) return { ok: true, skip: true };       // 한 사람이 10분에 20건까지만
+  c.put(k, String(n + 1), 600);
+  const s = ensureSheet('오류기록');
+  s.appendRow([now(), enc(String(b.name || '').slice(0, 40)), enc(String(b.ver || '').slice(0, 20)), enc(String(b.msg || '').slice(0, 500))]);
+  if (s.getLastRow() > 520) s.deleteRows(2, s.getLastRow() - 501);
+  return { ok: true };
 }
 /* 방 테마: 마스터가 고른 값만 설정 탭 theme(JSON)에 저장. 비어 있으면 화면이 룰에 맞는 기본 테마를 쓴다 */
 const THEMES = ['coc', 'ta', 'uw', 'sg', 'etc'];

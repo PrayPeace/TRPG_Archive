@@ -15,8 +15,37 @@ function addLogLines(lines, opts){
   lines.forEach(l => { if (lineIds.has(l.id)) return; lineIds.add(l.id); allLines.push(l); added++; if (!minLoaded || l.id < minLoaded) minLoaded = l.id; });
   if (!added) return;
   if (!opts.quiet) lastActivity = Date.now();
+  const prevLast = allLines.length > added ? logTail : null;
   allLines.sort(cmpLine);
-  renderLog(opts.keepTop);
+  // 흔한 경우(새 줄이 모두 맨 뒤에 붙음)는 전체를 다시 그리지 않고 끝에만 붙인다 (긴 캠페인에서도 가볍게)
+  const fresh = allLines.slice(-added);
+  if (!opts.keepTop && prevLast && $('log').childElementCount && cmpLine(fresh[0], prevLast) > 0 && fresh.every(l => lines.indexOf(l) >= 0)) appendLog(fresh);
+  else renderLog(opts.keepTop);
+}
+let logTail = null;      // 화면에 마지막으로 그린 줄
+function lineSpan(l){ const sp = el('span'); sp.dataset.id = l.id; sp.title = '#' + l.id + ' · ' + String(l.time).slice(11, 19); sp.append(linkify(l.text)); return sp; }
+function groupEl(g, mineOnly){
+  const d = el('div', 'line'); d.dataset.name = g.name;
+  if (mineOnly && g.name !== cfg.name) d.classList.add('hide');
+  d.append(el('span', 't', String(g.lines[0].time).slice(11, 19)));
+  const body = el('div', 'tx');
+  const n = el('span', 'n', g.name); n.dataset.who = g.name; n.style.color = colorOf(g.name); body.append(n);
+  g.lines.forEach((l, i) => { if (i) body.append(' '); body.append(lineSpan(l)); });
+  d.append(body); d._last = g.lines[g.lines.length - 1]; return d;
+}
+function appendLog(fresh){
+  const box = $('log'), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80, mineOnly = $('onlyMine').checked;
+  fresh.forEach(l => {
+    const lastEl = box.lastElementChild, prev = logTail;
+    if (prev && l.session === prev.session && lastEl && lastEl.classList.contains('line') && lastEl.dataset.name === l.name && lastEl._last && tms(l.time) - tms(lastEl._last.time) <= GAP_MS) {
+      const body = lastEl.querySelector('.tx'); body.append(' ', lineSpan(l)); lastEl._last = l;
+    } else {
+      if (!prev || l.session !== prev.session) box.append(el('div', 'shdr', '세션 ' + l.session));
+      box.append(groupEl({ name: l.name, session: l.session, lines: [l] }, mineOnly));
+    }
+    logTail = l;
+  });
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 function groupLines(list){
   const out = []; let g = null, sess = null;
@@ -37,19 +66,9 @@ function renderLog(keepTop){
   const frag = document.createDocumentFragment();
   groupLines(allLines).forEach(g => {
     if (g.hdr != null) { frag.append(el('div', 'shdr', '세션 ' + g.hdr)); return; }
-    const d = el('div', 'line'); d.dataset.name = g.name;
-    if (mineOnly && g.name !== cfg.name) d.classList.add('hide');
-    const f = g.lines[0];
-    d.append(el('span', 't', String(f.time).slice(11, 19)));
-    const body = el('div', 'tx');
-    const n = el('span', 'n', g.name); n.dataset.who = g.name; n.style.color = colorOf(g.name); body.append(n);
-    g.lines.forEach((l, i) => {
-      const sp = el('span'); sp.dataset.id = l.id; sp.title = '#' + l.id + ' · ' + String(l.time).slice(11, 19);
-      sp.append(linkify(l.text)); if (i) body.append(' '); body.append(sp);
-    });
-    d.append(body); frag.append(d);
+    frag.append(groupEl(g, mineOnly));
   });
-  box.append(frag);
+  box.append(frag); logTail = allLines[allLines.length - 1] || null;
   if (keepTop) box.scrollTop = box.scrollHeight - oldH + oldTop;
   else if (atBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = oldTop;
@@ -63,7 +82,7 @@ async function loadOlder(){
     if (r.lines.length) addLogLines(r.lines, { quiet: true, keepTop: true }); else renderLog(true);
   } catch (e) { toast('이전 대화를 못 불러왔어요: ' + e.message); if (b) { b.disabled = false; b.textContent = '▲ 이전 대화 더 보기'; } }
 }
-function resetLog(){ allLines = []; lineIds = new Set(); lastId = 0; minLoaded = 0; hasOlder = false; $('log').innerHTML = ''; }
+function resetLog(){ allLines = []; lineIds = new Set(); lastId = 0; minLoaded = 0; hasOlder = false; logTail = null; $('log').innerHTML = ''; }
 $('onlyMine').onchange = () => { const m = $('onlyMine').checked; [...$('log').querySelectorAll('.line')].forEach(d => d.classList.toggle('hide', m && d.dataset.name !== cfg.name)); };
 async function copyText(btn, text){
   const label = btn.textContent;
