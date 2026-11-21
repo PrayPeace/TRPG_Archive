@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.29';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.30';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1435,15 +1435,20 @@ function myRecord(sess, me, force) {
     const body = clean(r.body).replace(/^-{20,}\s*([^-\s].*)$/gm, '-[$1]-').replace(/^-{20,}\s*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();      // 옛 구분선 모양으로 써 와도 -[장소]-로
     if (body.length < 40) return { ok: false, error: 'AI가 기록을 거의 쓰지 않았어요. 다시 눌러 주세요' };
     const g = r.glance && typeof r.glance === 'object' ? r.glance : {}, mm = r.memo && typeof r.memo === 'object' ? r.memo : {};
-    let players = inp.chars.map(c => c.player).filter(Boolean);
-    if (!players.length) players = inp.who.filter(w => w !== inp.keeper && !/^배포연습$/.test(w));        // 캐릭터 표가 비었으면 이 세션에서 말한 사람(마스터 빼고)
+    // 머리말: 둘째 줄 "KP: 마스터 / PL: 플레이어들"(내보내는 사람은 빼요: 본인은 당연히 참여), 셋째 줄 "캐릭터(나), 캐릭터(플레이어)" (캐릭터 서고 스크립트가 이 두 줄을 읽어요)
+    const notMe = w => w && w !== me && w !== inp.keeper;
+    let players = inp.chars.map(c => c.player).filter(notMe);
+    if (!inp.chars.length) players = inp.who.filter(w => notMe(w) && !/^배포연습$/.test(w));        // 캐릭터 표가 비었으면 이 세션에서 말한 사람(마스터·나 빼고)
+    players = players.filter((w, i) => players.indexOf(w) === i);
+    const pcLine = inp.chars.filter(c => c.player !== inp.keeper).map(c => c.name + '(' + (me && c.player === me ? '나' : c.player || '?') + ')').join(', ');
+    const mine = t => me ? t.split('(' + me + ')').join('(나)') : t;
     const o = { sess, date: inp.date, me, title: clean(r.title || (inp.rule.abbr ? inp.rule.abbr + ' ' : '') + inp.room).trim().slice(0, 120),
       kp: 'KP: ' + (inp.keeper || '?') + ' / PL: ' + (players.length ? players.join(', ') : '?'),
-      pcs: arr(r.pcs, 12, 200), setting: clean(r.setting).trim().slice(0, 80),
-      glance: { one: clean(g.one).trim().slice(0, 160), ending: clean(g.ending).trim().slice(0, 200), mine: clean(g.mine).trim().slice(0, 200), keys: clean(g.keys).trim().slice(0, 300) },
+      pcLine, pcs: arr(r.pcs, 12, 200).map(mine), setting: clean(r.setting).trim().slice(0, 80),
+      glance: { one: clean(g.one).trim().slice(0, 160), ending: clean(g.ending).trim().slice(0, 200), mine: mine(clean(g.mine).trim().slice(0, 200)), keys: clean(g.keys).trim().slice(0, 300) },
       body: body.slice(0, 40000), ending: clean(r.ending).trim().slice(0, 300), epilogue: arr(r.epilogue, 20, 400),
       memo: { npcs: arr(mm.npcs, 40), places: arr(mm.places, 40, 80), clues: arr(mm.clues, 40), mine: arr(mm.mine, 5), check: arr(mm.check, 10),
-        quotes: myRecQuotes(mm.quotes, inp.said), dice: arr(mm.dice, 12), relations: arr(mm.relations, 10), carry: arr(mm.carry, 6) },
+        quotes: myRecQuotes(mm.quotes, inp.said), dice: arr(mm.dice, 12).map(mine), relations: arr(mm.relations, 10), carry: arr(mm.carry, 6) },
       play: myRecPlay(inp.start, inp.end),
       bms: inp.bms.slice(0, 30), at: now() };
     if (!o.memo.clues.length) o.memo.clues = (n.clues || []).map(x => '[' + ((x.status || '미해결') === '해결' ? '해결' : '미해결') + '] ' + String(x.text || '').slice(0, 160)).slice(0, 30);
@@ -1459,7 +1464,7 @@ function myRecord(sess, me, force) {
     return Object.assign({ ok: true, reused: false }, o);
   } finally { c.remove(bk); }
 }
-const MYREC_VER = '2';
+const MYREC_VER = '3';
 
 function saveColor(name, color) {
   if (!name || !/^#[0-9a-fA-F]{6}$/.test(String(color || ''))) return { ok: false, error: '색이 올바르지 않아요' };

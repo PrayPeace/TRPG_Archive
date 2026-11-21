@@ -72,7 +72,14 @@ async function docToHwpx(doc, title){
 async function buildExport(o){
   const d = data; const doc = [];
   const title = (d.roomTitle || $('roomName').textContent || 'TRPG') + ' 기록';
-  doc.push({ t: 'h1', text: title }, { t: 'p', text: (RULEUI.name || '') + ' · 내보낸 때 ' + new Date().toLocaleString('ko-KR') });
+  doc.push({ t: 'h1', text: title });
+  // 둘째 줄 KP/PL(나는 빼요), 셋째 줄 캐릭터(나)… : 캐릭터 서고 스크립트가 이 머리말로 세션 로그를 적어요
+  const kp = String(d.keeperName || '').trim(), me = String((typeof cfg !== 'undefined' && cfg.name) || '').trim();
+  const chs = (d.characters || []).filter(c => c.name && c.player !== kp);
+  const pls = [...new Set(chs.map(c => c.player).filter(p => p && p !== me))];
+  doc.push({ t: 'p', text: 'KP: ' + (kp || '?') + ' / PL: ' + (pls.join(', ') || '?') });
+  if (chs.length) doc.push({ t: 'p', text: chs.map(c => c.name + '(' + (me && c.player === me ? '나' : c.player || '?') + ')').join(', ') });
+  doc.push({ t: 'p', text: (RULEUI.name || '') + ' · 내보낸 때 ' + new Date().toLocaleString('ko-KR') });
   const sessOk = s => o.sess === 'all' || String(s) === String(o.sess);
   if (o.story && d.story) { doc.push({ t: 'h2', text: '누적 줄거리' }); String(d.story).split('\n').filter(x => x.trim()).forEach(x => doc.push({ t: 'p', text: x })); }
   if (o.sums) {
@@ -124,6 +131,7 @@ function myRecDoc(recs){
     if (k === 0) { title = r.title || '세션 기록'; H('h1', title); }
     else { P(''); P(r.sess + '번째 세션!'); }
     P(r.kp || '');
+    if (r.pcLine) P(r.pcLine);
     if (k === 0 || r.pcs.join() !== recs[k - 1].pcs.join()) (r.pcs || []).forEach(P);
     P('플레이: ' + myRecPlayText(r) + ' · 세션 ' + r.sess + '회차' + (r.setting ? ' · ' + r.setting : ''));
     const g = r.glance || {};
