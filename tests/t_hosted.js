@@ -25,19 +25,7 @@ ok('등록 안 된 시트 거부', !P({ action: 'ping', pw: 'x' }, '1CCCCCCCCCCC
 { const c = E(); let err = ''; try { run(c, 'roomCache().put("z","1",10)'); } catch (e) { err = e.message; }
   ok('방을 모르면 캐시를 쓰지 않고 멈춤', /방 시트를 찾지 못했/.test(err) && !Object.keys(st.cache).some(k => k.startsWith('x:')), err); }
 ok('캐시 키는 모두 방 ID로 시작', Object.keys(st.cache).every(k => k.startsWith(A) || k.startsWith(B) || !k.includes(':')), Object.keys(st.cache).filter(k => !(k.startsWith(A) || k.startsWith(B))).slice(0, 3).join(','));
-// A 방이 저장 잠금을 오래 잡고 있어도 B 방 받아쓰기는 저장됨 (엔진 방식: 방마다 잠금)
-{
-  const cA = E(); run(cA, `roomUse('${A}'); var __L = roomLock(); __L.tryLock(1000);`);   // A: 요약 반영 중(잠금 잡음)
-  const t0 = Date.now();
-  const rb = P({ action: 'lines', pw: 'pwB', items: mkItems('bn', 30, '2') }, B);
-  const tb = Date.now() - t0;
-  ok('A가 잠금을 잡고 있어도 B 저장', rb.ok && rb.saved.length === 30, 'B 저장 ' + rb.saved.length + '줄 ' + tb + 'ms');
-  const t1 = Date.now(); const ra = P({ action: 'lines', pw: 'pwA', items: mkItems('an', 1, '2') }, A);
-  ok('같은 A 방 저장은 A 잠금을 기다림(못 잡으면 실패로 알려 기기에 남김)', !ra.ok || (ra.saved || []).length === 0, JSON.stringify(ra).slice(0, 120) + ' ' + (Date.now() - t1) + 'ms');
-  run(cA, '__L.releaseLock()');
-  const ra2 = P({ action: 'lines', pw: 'pwA', items: mkItems('an', 1, '2') }, A);
-  ok('A 잠금이 풀리면 A 저장', ra2.ok && ra2.saved.length === 1);
-}
+// (잠금은 t_lock.js, A 방 AI 지연과 B 방 대기 시간은 t_tickall.js)
 // tickAll: A 요약이 느려도(가짜 AI 지연) B도 같은 차례에 처리, 방별 처리 시간
 {
   st.aiDelay = null;
@@ -46,7 +34,8 @@ ok('캐시 키는 모두 방 ID로 시작', Object.keys(st.cache).every(k => k.s
   run(c, 'tickAll()');
   const t = run(c, '__t');
   const pa = Number(run(exec(st, A), "getConf('processedId')")), pb = Number(run(exec(st, B), "getConf('processedId')"));
-  ok('tickAll 한 번에 두 방 모두 정리', pa === 81 && pb === 80, 'A 처리 ' + pa + '/81, B ' + pb + '/80, 방별 ms ' + JSON.stringify(t));
+  const ta = run(exec(st, A), 'totalLines()'), tb2 = run(exec(st, B), 'totalLines()');
+  ok('tickAll 한 번에 두 방 모두 정리', pa === ta && pb === tb2 && ta > 0 && tb2 > 0, 'A 처리 ' + pa + '/' + ta + ', B ' + pb + '/' + tb2 + ', 방별 ms ' + JSON.stringify(t));
 }
 // 기존 Room.gs 주소(라이브러리 방식)도 그대로
 ok('기존 방식 주소도 그대로', post(exec(st, A), { action: 'ping', pw: 'pwA' }).ok);
