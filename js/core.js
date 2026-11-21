@@ -22,11 +22,15 @@ const hp = new URLSearchParams(location.hash.slice(1));
 if (hp.get('s')) S.set('t_url', hp.get('s'));
 if (hp.get('p')) S.set('t_pw', hp.get('p'));
 if (hp.get('s') || hp.get('p')) history.replaceState(null, '', location.pathname + location.search);
+/* 웹 앱 주소를 한 모양으로 맞춘다. 엔진 하나로 여러 방을 돌리는 방식이면 주소 끝의 ?room=시트ID 를 남긴다(나머지 ?·# 뒤는 버림) */
 function scriptUrl(v){
   v = (v || '').trim(); if (!v) return '';
-  if (v.startsWith('http')) return v.replace(/\/(dev|exec)?\/?$/, '/exec').replace(/\/exec\/exec$/, '/exec');
-  return 'https://script.google.com/macros/s/' + v + '/exec';
+  if (!v.startsWith('http')) return 'https://script.google.com/macros/s/' + v + '/exec';
+  const rm = v.match(/[?&]room=([A-Za-z0-9_\-]{20,80})/);
+  const base = v.replace(/[?#].*$/, '').replace(/\/(dev|exec)?\/?$/, '/exec').replace(/\/exec\/exec$/, '/exec');
+  return rm ? base + '?room=' + rm[1] : base;
 }
+function withQ(url, q){ return url + (url.includes('?') ? '&' : '?') + q; }
 // kt: 마스터 로그인 토큰. 기본은 이 탭에만(sessionStorage), "로그인 유지"를 켰을 때만 이 기기에(localStorage) 둔다. 마스터 비밀번호 자체는 저장하지 않는다.
 const cfg = { url: scriptUrl(S.get('t_url')), pw: S.get('t_pw') || '', name: S.get('t_name') || '', kt: SS.get('t_kt') || S.get('t_kt') || '' };
 
@@ -46,7 +50,7 @@ async function readCall(url, pw, action, params){
     if (readPost === true) return r;
     readPost = false;
   }
-  return (await fetch(url + '?' + new URLSearchParams(p).toString())).json();
+  return (await fetch(withQ(url, new URLSearchParams(p).toString()))).json();
 }
 async function api(action, params){ return readCall(cfg.url, cfg.pw, action, params); }
 async function post(body){

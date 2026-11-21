@@ -221,7 +221,7 @@ function hubConnectForm(){
       const url = scriptUrl(u.value.trim()); if (!url) { msg.err('주소를 넣어 주세요'); return; }
       go.disabled = true; msg.ok('확인 중…');
       try {
-        const r = await (await fetch(url + '?action=hub')).json();
+        const r = await (await fetch(withQ(url, 'action=hub'))).json();
         if (!r.ok) throw new Error('이 방의 Code.gs가 예전 판이에요. 최신 Code.gs를 붙이고 새 버전으로 배포해 주세요');
         L.hub = url; S.set('t_hub', scriptId(url)); hubLoginForm();
       } catch (e) { msg.err(String(e.message || '').includes('Code.gs') ? e.message : '그 주소에 연결하지 못했어요. 웹 앱 주소가 맞는지 확인해 주세요'); go.disabled = false; }
@@ -341,10 +341,10 @@ function connectForm(i){
     go.onclick = async () => {
       let raw = u.value.trim(); const mm = raw.match(/#(.*)$/); if (mm) { const hh = new URLSearchParams(mm[1]); if (hh.get('s')) raw = hh.get('s'); }
       const url = scriptUrl(raw);
-      if (!/^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec$/.test(url)) { msg.err('…/exec 로 끝나는 웹 앱 주소를 넣어 주세요'); return; }
+      if (!/^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec(\?room=[A-Za-z0-9_\-]{20,80})?$/.test(url)) { msg.err('…/exec 로 끝나는 웹 앱 주소를 넣어 주세요'); return; }
       go.disabled = true; msg.ok('그 방에 연결해 보는 중…');
       try {
-        const res = await (await fetch(url + '?action=hub')).json();
+        const res = await (await fetch(withQ(url, 'action=hub'))).json();
         if (!res || !('ok' in res)) throw new Error('x');
         const a = L.rooms.filter((x, j) => j !== i && scriptUrl(x.url) !== url);
         const item = Object.assign({}, r || {}, { url, name: (r && r.name) || (nm && nm.value.trim()) || res.title || '새 방', rule: res.rule || (r && r.rule) || 'etc' });

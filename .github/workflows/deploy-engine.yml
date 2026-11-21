@@ -1,0 +1,67 @@
+# 엔진 자동 배포: main의 Code.gs가 바뀌면 Apps Script 엔진 프로젝트의 코드를 새 판으로 바꾼다.
+# 키·비밀번호(맨 위 네 줄)는 엔진에 있던 값을 그대로 두고, 나머지만 바꾼다 (tools/engine-merge.js).
+# 처음 한 번 설정 (PC에서):
+#   1) https://script.google.com/home/usersettings 에서 "Google Apps Script API" 켜기
+#   2) npm i -g @google/clasp@2.4.2 → clasp login → 홈 폴더의 .clasprc.json 내용을 통째로 복사
+#   3) 저장소 Settings → Secrets and variables → Actions 에 추가
+#        CLASPRC_JSON      : 2)에서 복사한 내용
+#        ENGINE_SCRIPT_ID  : 엔진 프로젝트 설정(⚙)의 스크립트 ID
+#        ENGINE_DEPLOY_ID  : (선택) 엔진을 웹 앱으로 배포해 쓰는 경우 그 배포 ID. 있으면 새 판으로 배포까지 한다
+name: 엔진 자동 배포
+on:
+  push:
+    branches: [main]
+    paths: [Code.gs, tools/engine-merge.js, .github/workflows/deploy-engine.yml]
+  workflow_dispatch:
+concurrency: { group: engine-deploy, cancel-in-progress: false }
+permissions: { contents: read }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 비밀값 확인
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$ENGINE_SCRIPT_ID" ]; then
+            echo "::warning::CLASPRC_JSON 또는 ENGINE_SCRIPT_ID 비밀값이 없어서 엔진 배포를 건너뛰어요"; echo "SKIP=1" >> "$GITHUB_ENV"; fi
+      - name: 문법 검사
+        if: env.SKIP != '1'
+        run: |
+          cp Code.gs /tmp/Code.js && node --check /tmp/Code.js
+          node -e "const {merge}=require('./tools/engine-merge.js');const s=require('fs').readFileSync('Code.gs','utf8');merge(s,s);"
+      - name: clasp 준비
+        if: env.SKIP != '1'
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
+        run: |
+          npm i -g @google/clasp@2.4.2
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          mkdir -p "$RUNNER_TEMP/engine"
+          cd "$RUNNER_TEMP/engine"
+          printf '{"scriptId":"%s","rootDir":".","fileExtension":"gs"}' "$ENGINE_SCRIPT_ID" > .clasp.json
+      - name: 엔진에서 받아 와서 새 판으로 바꾸기
+        if: env.SKIP != '1'
+        run: |
+          cd "$RUNNER_TEMP/engine"
+          clasp pull
+          node "$GITHUB_WORKSPACE/tools/engine-merge.js" . "$GITHUB_WORKSPACE/Code.gs"
+          clasp push --force
+      - name: (선택) 엔진 웹 앱 새 판 배포
+        if: env.SKIP != '1'
+        env:
+          ENGINE_DEPLOY_ID: ${{ secrets.ENGINE_DEPLOY_ID }}
+        run: |
+          if [ -n "$ENGINE_DEPLOY_ID" ]; then
+            cd "$RUNNER_TEMP/engine"
+            clasp deploy -i "$ENGINE_DEPLOY_ID" -d "GitHub ${GITHUB_SHA::7}"
+          else echo "ENGINE_DEPLOY_ID가 없어서 웹 앱 배포는 건너뜀 (라이브러리 HEAD로 쓰는 방은 이미 새 코드로 돌아요)"; fi
+      - name: 정리
+        if: always()
+        run: rm -f ~/.clasprc.json; rm -rf "$RUNNER_TEMP/engine"

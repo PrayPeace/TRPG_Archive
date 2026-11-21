@@ -53,7 +53,7 @@ function bareRoomName(full) {
 // 지금 방의 이름을 규칙에 맞게 고친다 (setup·룰 바꾸기 때). 방 이름은 그대로, 앞부분과 룰 약자만 맞춘다
 function fixRoomName() {
   try {
-    const ss = SpreadsheetApp.getActive(), cur = String(ss.getName() || '');
+    const ss = SS(), cur = String(ss.getName() || '');
     const bare = bareRoomName(cur) || cur;
     // 로비 전용 시트(이름이 "로비"로 시작)는 룰 약자 없이 "🎲TRPG Archive · 로비"
     const want = /^로비/.test(bare) ? '🎲TRPG Archive · ' + bare : roomFileName(ruleKey(), bare);
@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.20';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.21';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -106,7 +106,7 @@ const HEADERS = {
 // 예전 버전이 만든 시트라 새로 생긴 칸의 머리글이 비어 있으면 채운다 (기존 내용은 건드리지 않는다).
 const _ensured = {};
 function ensureSheet(name) {
-  const ss = SpreadsheetApp.getActive();
+  const ss = SS();
   let s = ss.getSheetByName(name);
   const h = HEADERS[name];
   if (!s) {
@@ -157,7 +157,7 @@ function fixTrigger() {
 }
 // roomPwFirst: (라이브러리로 쓸 때) 방 시트의 연결 코드가 넘겨주는 이 방 비밀번호. 비어 있으면 건드리지 않는다
 function setup(roomPwFirst) {
-  const ss = SpreadsheetApp.getActive();
+  const ss = SS();
   if (!ss) { Logger.log('여기는 시트가 없는 엔진 프로젝트예요. setup은 엔진에서 실행하지 말고, 각 방 시트의 Apps Script(Room.gs)에서 실행해 주세요. 엔진은 저장만 하면 돼요.'); return; }
   const make = (name, header) => {
     let s = ss.getSheetByName(name);
@@ -203,7 +203,7 @@ function setup(roomPwFirst) {
     L.getRange(2, 6, last - 1, 1).setNumberFormat('@').setValues(f);
   }
 
-  fixTrigger();
+  if (!_hosted) fixTrigger();                       // 엔진 방식이면 엔진의 tickAll이 돈다
 
   // 외부 요청·캐시 권한을 미리 받아 두기 위한 호출
   UrlFetchApp.fetch('https://api.anthropic.com', { muteHttpExceptions: true });
@@ -227,7 +227,7 @@ function pwWarnings() {
 
 /* ───────────── 설정 저장소 (한 번 읽어서 실행 내내 씀) ───────────── */
 let _conf = null;
-function confSheet() { return SpreadsheetApp.getActive().getSheetByName(SH.CONF); }
+function confSheet() { return SS().getSheetByName(SH.CONF); }
 function confLoad(force) {
   if (_conf && !force) return _conf;
   const v = confSheet().getDataRange().getValues();
@@ -254,13 +254,86 @@ function bump(key) { setConf(key, String(Number(getConf(key) || 0) + 1)); }
 function confJson(key, fallback) { try { const v = getConf(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
 function setJson(key, obj) { setConf(key, obj == null ? '' : JSON.stringify(obj)); }
 function now() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm:ss'); }
-function sheet(name) { return SpreadsheetApp.getActive().getSheetByName(name); }
+function sheet(name) { return SS().getSheetByName(name); }
 
 /* ───────────── 라이브러리로 써도 방끼리 섞이지 않게 ─────────────
  * 이 코드는 방 시트에 통째로 붙여도 되고, "엔진" 프로젝트 하나에 두고 방 시트에서 라이브러리(TRPG)로 불러도 된다.
  * 라이브러리로 쓰면 캐시와 스크립트 잠금은 모든 방이 같이 쓰므로, 캐시 이름 앞에 시트 ID를 붙인다. */
 let _ssId = null;
-function ssId() { if (_ssId == null) { try { _ssId = SpreadsheetApp.getActive().getId(); } catch (e) { _ssId = 'x'; } } return _ssId; }
+/* ───────────── 엔진 하나로 여러 방 (호스팅 방식) ─────────────
+ * 예전 방식: 방 시트마다 Room.gs를 붙여 웹 앱으로 배포하고, Room.gs가 이 엔진을 라이브러리로 부른다. (그대로 계속 동작)
+ * 새 방식: 이 엔진 프로젝트 자체를 웹 앱으로 배포하고, 주소 끝에 ?room=시트ID 를 붙여 방을 고른다.
+ *   - 엔진 스크립트 속성 hostedRooms(시트 ID 목록)에 있는 방만 열 수 있다. 목록은 hostRoom()이 채운다.
+ *   - 방 시트에 붙은 코드(라이브러리)로 온 요청은 room 값을 보지 않는다: 언제나 그 시트 자신이다.
+ *   - 자동 요약은 엔진의 tickAll 트리거 하나가 등록된 방을 돌아가며 한다. 새 방을 만들어도 배포가 필요 없다. */
+let _room = null, _hosted = false;
+function SS() { return _room || SpreadsheetApp.getActive(); }
+function roomReset() { _conf = null; _ssId = null; _prog = null; _pwLocked = false; _publicAi = 0; Object.keys(_ensured).forEach(k => { delete _ensured[k]; }); }
+function engineProps() { return PropertiesService.getScriptProperties(); }
+function hostedIds() { try { const a = JSON.parse(engineProps().getProperty('hostedRooms') || '[]'); return Array.isArray(a) ? a.map(String) : []; } catch (e) { return []; } }
+function sheetIdOf(v) { const m = String(v || '').match(/[-\w]{25,}/); return m ? m[0] : ''; }
+function roomUse(id) {
+  id = sheetIdOf(id);
+  if (!id || hostedIds().indexOf(id) < 0) return false;
+  const ss = SpreadsheetApp.openById(id);
+  roomReset(); _room = ss; _hosted = true;
+  return true;
+}
+function engineUrl() { return String(engineProps().getProperty('engineUrl') || ''); }
+function hostedUrl(id) { const u = engineUrl(); return u ? u + '?room=' + id : ''; }
+// 웹 요청이 들어오면 먼저 방을 정한다. 문제가 있으면 돌려줄 답, 없으면 null
+function hostGate(room) {
+  if (SpreadsheetApp.getActive()) { if (_room) roomReset(); _room = null; _hosted = false; return null; }     // 방 시트에 붙은 코드로 온 요청: room 값은 쓰지 않는다
+  try {
+    const u = ScriptApp.getService().getUrl();
+    if (u && /\/exec$/.test(u) && engineUrl() !== u) engineProps().setProperty('engineUrl', u);     // 엔진 웹 앱 주소를 기억해 둔다 (새 방 주소를 만들 때 씀)
+  } catch (e) {}
+  if (!room) return { ok: false, engine: true, error: '엔진 주소예요. 방을 고르려면 주소 끝에 ?room=시트ID 가 있어야 해요' };
+  if (!roomUse(room)) return { ok: false, rp: 1, error: '엔진에 등록되지 않은 방이에요. 방 시트에서 hostThisRoom을 실행해 주세요' };
+  return null;
+}
+/* 방 하나를 엔진에 등록한다 (방 시트의 Room.gs에서 hostThisRoom 실행 → 여기로 온다). 시트·기본값을 맞추고 엔진 주소를 알려 준다 */
+function hostRoom(id) {
+  id = sheetIdOf(id || (SpreadsheetApp.getActive() && SpreadsheetApp.getActive().getId()));
+  if (!id) return { ok: false, error: '시트 ID를 찾지 못했어요' };
+  const l = LockService.getScriptLock(); l.waitLock(20000);
+  try { const ids = hostedIds(); if (ids.indexOf(id) < 0) { ids.push(id); engineProps().setProperty('hostedRooms', JSON.stringify(ids.slice(-200))); } }
+  finally { l.releaseLock(); }
+  const url = hostedUrl(id);
+  Logger.log(url ? '이 방의 새 주소: ' + url : '등록했어요. 엔진을 웹 앱으로 배포한 뒤 엔진 주소를 브라우저로 한 번 열면, 방 주소가 정해져요 (엔진 주소?room=' + id + ')');
+  return { ok: true, id, url };
+}
+function unhostRoom(id) {
+  id = sheetIdOf(id); const ids = hostedIds().filter(x => x !== id);
+  engineProps().setProperty('hostedRooms', JSON.stringify(ids));
+  return { ok: true, left: ids.length };
+}
+// 엔진에서 한 번 실행: 등록된 방을 5분마다 돌아가며 자동 정리하는 트리거를 건다
+function engineSetup() {
+  ScriptApp.getProjectTriggers().forEach(t => { const h = t.getHandlerFunction(); if (h === 'tickAll' || h === 'tickAllMore') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('tickAll').timeBased().everyMinutes(5).create();
+  UrlFetchApp.fetch('https://api.anthropic.com', { muteHttpExceptions: true });     // 외부 요청 권한을 미리 받는다
+  Logger.log('엔진 자동 정리 트리거를 걸었어요. 등록된 방: ' + hostedIds().length + '개' + (engineUrl() ? '' : ' · 엔진을 웹 앱으로 배포하고 주소를 한 번 열어 주세요'));
+}
+const TICK_ALL_MS = 4 * 60 * 1000;      // 한 번에 이만큼만 돌고, 남은 방은 다음 차례에 (실행 한도 6분)
+function tickAll() {
+  const t0 = Date.now(), ids = hostedIds(), pr = engineProps();
+  if (!ids.length) return;
+  const start = Number(pr.getProperty('tickAllAt') || 0) % ids.length;
+  let done = 0;
+  for (; done < ids.length; done++) {
+    if (Date.now() - t0 > TICK_ALL_MS) break;
+    const id = ids[(start + done) % ids.length];
+    try { if (roomUse(id)) tick(); } catch (e) { Logger.log(id + ': ' + e); }
+  }
+  pr.setProperty('tickAllAt', String((start + done) % ids.length));          // 시간이 모자라 못 돈 방부터 다음에 시작
+  roomReset(); _room = null; _hosted = false;
+}
+function tickAllMore() {
+  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'tickAllMore') ScriptApp.deleteTrigger(t); });
+  tickAll();
+}
+function ssId() { if (_ssId == null) { try { _ssId = SS().getId(); } catch (e) { _ssId = 'x'; } } return _ssId; }
 function roomCache() {
   const c = CacheService.getScriptCache(), p = ssId().slice(0, 60) + ':';
   return {
@@ -677,6 +750,7 @@ function ptIssue() {
 function doGet(e) {
   const p = e.parameter || {};
   try {
+    const g = hostGate(p.room); if (g) return out(g);
     // 로비(폰 화면)의 방 목록은 비밀번호 없이 읽는다: 방 이름·룰·주소만 있고, 들어가려면 그 방의 비밀번호가 필요하다
     if (p.action === 'hub') return out(hubList());
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
@@ -707,6 +781,7 @@ function doPost(e) {
   let b;
   try { b = JSON.parse(e.postData.contents); } catch (err) { return out({ ok: false, error: '잘못된 요청' }); }
   try {
+    const g = hostGate(b.room || (e.parameter || {}).room); if (g) return out(g);
     // 로비의 ⚙ 설정: 방 비밀번호 없이 마스터 비밀번호만으로 로그인 (틀린 횟수 잠금은 keeperLogin이 그대로 한다)
     if (b.action === 'hubLogin') return out(keeperLogin(b.kpw));
     const who = roleOf(b.pw, b.kt, b.pt);
@@ -749,7 +824,7 @@ function doPost(e) {
       case 'setRule':    return out(setRule(b.rule));
       case 'tokenUsage': return out(Object.assign({ ok: true }, tokenUsage()));
       case 'hubSave':    return out(hubSave(b.rooms));
-      case 'hubGet':     return out({ ok: true, rooms: hubClean(confJson('hubRooms', [])), title: roomTitle(), self: ScriptApp.getService().getUrl() || '' });
+      case 'hubGet':     return out({ ok: true, rooms: hubClean(confJson('hubRooms', [])), title: roomTitle(), self: _hosted ? hostedUrl(ssId()) : (ScriptApp.getService().getUrl() || '') });
       case 'hubNewRoom': return out(hubNewRoom(b.name, b.rule, b.pw));
       case 'credits':    return out(credits(!!b.force));
       case 'creditsSet': return out(creditsSet(b));
@@ -870,14 +945,14 @@ function readLines(sinceId, maxRows) {
 }
 function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 
-function roomTitle() { try { return bareRoomName(SpreadsheetApp.getActive().getName()).slice(0, 40); } catch (e) { return ''; } }
+function roomTitle() { try { return bareRoomName(SS().getName()).slice(0, 40); } catch (e) { return ''; } }
 /* 새 방: 이 스프레드시트를 복사한다 (붙어 있는 Apps Script도 같이 복사됨). 복사본에서 앱 기록 탭을 모두 비우고 룰만 정해 둔다.
  * 지금 방의 기록은 그대로 남는다. 복사본은 주인이 한 번 열어서 setup 실행 → 웹 앱 배포를 해야 쓸 수 있다 (구글 정책상 자동으로는 못 함). */
 function newRoom(name, rule, pw) {
   name = String(name || '').trim().slice(0, 40);
   if (!name) return { ok: false, error: '새 방 이름을 적어 주세요' };
   rule = RULES[rule] ? rule : ruleKey();
-  const ss = SpreadsheetApp.getActive();
+  const ss = SS();
   const f = DriveApp.getFileById(ss.getId()).makeCopy(roomFileName(rule, name));
   const c = SpreadsheetApp.openById(f.getId());
   Object.keys(SH).forEach(k => { const sh = c.getSheetByName(SH[k]); if (sh) sh.clear(); });     // 대화·요약·정리·마스터 자료·토큰기록 등 앱 탭은 모두 비운다
@@ -885,7 +960,14 @@ function newRoom(name, rule, pw) {
   const rows = [['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]];
   if (pw) rows.push(['roomPw', enc(String(pw))]);                  // 로비에서 정한 방 비밀번호 (Code.gs의 ROOM_PW보다 우선)
   if (cs) cs.getRange(1, 1, rows.length, 2).setNumberFormat('@').setValues(rows);
-  return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name, ruleKey: rule,
+  let play = '';
+  if (_hosted) {                                                   // 엔진 방식: 새 방을 바로 등록하고 시트를 맞춘다 → 배포 없이 바로 쓸 수 있다
+    hostRoom(c.getId());
+    const keep = _room;
+    try { roomUse(c.getId()); setup(''); } finally { roomReset(); _room = keep; }
+    play = hostedUrl(c.getId());
+  }
+  return { ok: true, url: c.getUrl(), play, name, file: roomFileName(rule, name), rule: RULES[rule].name, ruleKey: rule,
     message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
 }
 /* 플레이어 화면에서 난 오류를 '오류기록' 탭에 남긴다 (마스터가 원인을 찾을 수 있게). 기기당 짧게, 최근 500줄만 */
@@ -924,7 +1006,7 @@ function setRule(k) {
 }
 /* ───────────── 로비: 이 방을 "로비"로 쓰면, 여기에 다른 방 목록을 적어 둔다 ─────────────
  * [{name, rule, url}] 최대 30개. 방 비밀번호는 적지 않는다 (들어갈 때 각자 입력). */
-const HUB_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec$/;
+const HUB_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/[^\/]+\/)?macros\/s\/[A-Za-z0-9_\-]{10,}\/exec(?:\?room=[A-Za-z0-9_\-]{20,80})?$/;
 const SHEET_URL_RE = /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_\-]{20,}(?:\/[^\s"'<>]*)?$/;
 // url: 방의 웹 앱 주소 (아직 배포 전이면 빈칸) · sheet: 그 방의 구글 시트 주소 (마스터에게만 보낸다)
 function hubClean(list) {
@@ -943,7 +1025,7 @@ function hubNewRoom(name, rule, pw) {
   const r = newRoom(name, rule, pw);
   if (!r.ok) return r;
   const rooms = hubClean(confJson('hubRooms', []));
-  rooms.push({ name: r.name, rule: r.ruleKey, url: '', sheet: r.url });
+  rooms.push({ name: r.name, rule: r.ruleKey, url: r.play || '', sheet: r.url });
   const saved = hubSave(rooms);
   return Object.assign(r, { rooms: saved.rooms });
 }
@@ -1038,7 +1120,7 @@ function evidence(uids, ids, rv, ctx, session) {
 }
 
 function allData() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = SS();
   const sums = ss.getSheetByName(SH.SUM).getDataRange().getValues().slice(1)
     .map((r, i) => ({ id: i + 2, session: String(r[0]), from: String(r[1]), to: String(r[2]), text: decS(r[3]), seg: String(r[5] || '') }));
   const chars = ss.getSheetByName(SH.CHAR).getDataRange().getValues().slice(1)
@@ -1234,7 +1316,7 @@ function aiFeature() {
 function logTokens(model, u, stop) {
   try {
     if (!u) return;
-    const ss = SpreadsheetApp.getActive();
+    const ss = SS();
     let sh = ss.getSheetByName(SH.TOK);
     if (!sh) sh = ss.insertSheet(SH.TOK);
     if (sh.getLastRow() === 0) { sh.getRange(1, 1, 1, 7).setValues([['시각', '세션', '기능', '모델', '입력 토큰', '출력 토큰', '비고']]); try { sh.setFrozenRows(1); } catch (e) {} }
@@ -1327,7 +1409,7 @@ function dgBalance(force) {
 }
 // 마스터 탭: 기능별 사용량 (이번 세션 / 최근 24시간)
 function tokenUsage() {
-  const sh = SpreadsheetApp.getActive().getSheetByName(SH.TOK);
+  const sh = SS().getSheetByName(SH.TOK);
   const out = { session: String(getConf('session') || ''), rows: 0, byS: [], byD: [], tot: { s: [0, 0, 0, 0], d: [0, 0, 0, 0] } };
   if (!sh || sh.getLastRow() < 2) return out;
   const nc = Math.min(8, sh.getLastColumn());
@@ -1384,13 +1466,13 @@ function serverErr(where, e) {
 /* 마스터 탭 '진단': 실제 방에서 핵심 규칙 점검 + 지금 상태를 한 번에 보여 준다 (AI 호출 없음) */
 function diag() {
   const core = selfTestCore();
-  let trig = -1; try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'tick').length; } catch (e) {}
-  const pend = confJson('pending', null), es = SpreadsheetApp.getActive().getSheetByName('오류기록');
+  let trig = -1; try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === (_hosted ? 'tickAll' : 'tick')).length; } catch (e) {}
+  const pend = confJson('pending', null), es = SS().getSheetByName('오류기록');
   const errs = es && es.getLastRow() > 1 ? es.getRange(Math.max(2, es.getLastRow() - 4), 1, Math.min(5, es.getLastRow() - 1), 4).getValues().reverse().map(r => [String(r[0]), decS(r[1]), String(r[2]), decS(r[3]).slice(0, 200)]) : [];
   let last = null; try { last = JSON.parse(roomCache().get('lastTick') || 'null'); } catch (e) {}
   return { ok: core.ok, core: core.log, ver: CODE_VER, info: {
     lines: totalLines(), processed: Number(getConf('processedId') || 0), pendingError: pend && pend.lastError || '',
-    notesQ: notesQ().length, notesFail: notesFail().length, triggers: trig, lastTick: last, errors: errs, errorRows: es ? Math.max(0, es.getLastRow() - 1) : 0 } };
+    notesQ: notesQ().length, notesFail: notesFail().length, triggers: trig, hosted: _hosted, lastTick: last, errors: errs, errorRows: es ? Math.max(0, es.getLastRow() - 1) : 0 } };
 }
 
 
@@ -1421,8 +1503,9 @@ function sumWait(rows, keeper, pending) {
 // 밀렸을 때: 다음 5분 정각을 기다리지 않고 1분 뒤에 이어서 정리한다 (진전이 있을 때만 이어 예약 → 계속 실패하면 반복하지 않는다)
 function scheduleMore() {
   try {
-    if (ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'tickMore')) return;
-    ScriptApp.newTrigger('tickMore').timeBased().after(60 * 1000).create();
+    const h = _hosted ? 'tickAllMore' : 'tickMore';           // 엔진 방식이면 엔진이 1분 뒤 등록된 방을 한 바퀴 더 돈다
+    if (ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === h)) return;
+    ScriptApp.newTrigger(h).timeBased().after(60 * 1000).create();
   } catch (e) { Logger.log('이어서 정리 예약 실패: ' + e); }
 }
 function tickMore() {
@@ -1539,7 +1622,7 @@ function srcToUids(notes, idMap) {
  * 중간에 실패하면 다음 실행이 같은 AI 결과로 남은 단계만 마저 한다 → AI를 다시 부르지 않고, 중복도 없다. */
 const STAGE_HEADER = ['구간키', '요약 반영', '줄거리 반영', '정리 반영', 'AI 결과 (나눠 저장)'];
 function stageSheet() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = SS();
   let s = ss.getSheetByName(SH.STAGE);
   if (!s) { s = ss.insertSheet(SH.STAGE); s.appendRow(STAGE_HEADER); }
   return s;
@@ -2129,7 +2212,7 @@ function charSource(url) {
   try { src = SpreadsheetApp.openByUrl(String(url || '').trim()); }
   catch (e) { throw new Error('캐릭터시트를 열지 못했어요. 주소가 맞는지, 마스터 구글 계정이 열 수 있는 시트인지 확인해 주세요'); }
   // 지금 방 문서이거나, 다른 TRPG Archive 방 문서(설정 탭 + 마스터 전용 탭이 있음)면 같은 보호(내부 탭 막기·수식 검사)를 한다
-  const same = src.getId() === SpreadsheetApp.getActive().getId() ||
+  const same = src.getId() === SS().getId() ||
     (!!src.getSheetByName(SH.CONF) && [SH.KB, SH.KSRC, SH.KLOG, SH.ROLLS].some(n => src.getSheetByName(n)));
   return { src, same };
 }
@@ -2477,7 +2560,7 @@ function addImage(data, mime, caption) {
  * 진행 중이던 요약·정정은 저장 직전에 초기화 번호와 작업 표시를 확인하므로 지운 기록을 되살리지 못한다. */
 function clearLog(all) {
   return withLock(30000, () => {
-    const ss = SpreadsheetApp.getActive();
+    const ss = SS();
     const wipe = name => { const s = ss.getSheetByName(name); if (s.getLastRow() > 1) s.deleteRows(2, s.getLastRow() - 1); };
     wipe(SH.LINES); wipe(SH.SUM); stageSheet(); wipe(SH.STAGE);
     // 지운 회의록을 바탕으로 만든 것들도 함께 지운다: 마스터 기록(현황판·NPC 제안·시상식·피드백), 판정 로그, 캐릭터 수치 기록, 공개한 카드
@@ -3576,7 +3659,7 @@ function kFeedback(session, full) {
  * 비밀번호·API 키의 값은 로그에 적지 않는다.
  * ═══════════════════════════════════════════════════════════════════════════ */
 function selfTest() {
-  const ss = SpreadsheetApp.getActive(), log = [];
+  const ss = SS(), log = [];
   let fails = 0;
   const check = (label, pass, extra) => { if (!pass) fails++; log.push((pass ? 'PASS' : 'FAIL') + ' · ' + label + (extra ? ' · ' + extra : '')); };
   const s = ss.insertSheet('자가점검_' + Date.now());
@@ -3645,8 +3728,8 @@ function selfTest() {
     check("'" + n + "' 시트 머리글 " + HEADERS[n].length + '칸', HEADERS[n].every((t, i) => String(h[i]) === t), '다르면 setup을 다시 실행해 주세요');
   });
   let trig = 0;
-  try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'tick').length; } catch (e) {}
-  check('5분 자동 정리 트리거 1개', trig === 1, trig === 1 ? '' : '지금 ' + trig + '개 → setup을 실행해 주세요');
+  try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === (_hosted ? 'tickAll' : 'tick')).length; } catch (e) {}
+  check('5분 자동 정리 트리거 1개', trig === 1, trig === 1 ? '' : '지금 ' + trig + '개 → ' + (_hosted ? '엔진에서 engineSetup' : 'setup') + '을 실행해 주세요');
   const pw = pwWarnings();
   check('비밀번호 설정', !pw.filter(w => !/10자/.test(w)).length, pw.join(' / '));
   if (pw.some(w => /10자/.test(w))) log.push('참고 · ' + pw.filter(w => /10자/.test(w))[0]);
@@ -3686,7 +3769,7 @@ function selfTestCore() {
   check('요약: 줄이 한 구간만큼 쌓이면 기다리지 않는다', sumWait([line('철수', 1)], '키퍼', WINDOW_LINES) === false);
   // 4) 읽기 요청
   check('읽기: 모르는 요청은 처리 안 함', readAction({ action: 'nope' }) === null);
-  if (SpreadsheetApp.getActive()) check('읽기: ping', !!(readAction({ action: 'ping' }) || {}).ok);
+  if (SS()) check('읽기: ping', !!(readAction({ action: 'ping' }) || {}).ok);
   else log.push('건너뜀 · 읽기: ping (시트에 붙은 방에서 실행하면 점검해요)');
   log.push(fails ? '결과: FAIL ' + fails + '건' : '결과: 모두 PASS');
   Logger.log(log.join('\n'));
