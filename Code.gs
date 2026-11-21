@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.28';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.29';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -100,7 +100,8 @@ const HEADERS = {
   '키퍼자료': ['마스터 정리본 JSON (칸 A) · 마스터 전용', '마스터 정리본 JSON (칸 B) · 마스터 전용'],
   '키퍼원문': ['조각ID', '출처', '순번', '글자수', '본문', '추가 시각', '나눈 원래 조각'],
   '키퍼기록': ['ID', '시각', '초기화번호', '세션', '종류', '제목', '입력', '결과', '자료번호'],
-  '판정기록': ['순번', '세션', '이름', '기술', '목표', '값', '결과', '원문']
+  '판정기록': ['순번', '세션', '이름', '기술', '목표', '값', '결과', '원문'],
+  '세션기록': ['세션', '입력 지문', '만든 때', '기록 JSON']
 };
 // 없으면 만들어서 돌려준다 (코드만 바꾸고 setup을 아직 안 돌린 경우에도 동작하게).
 // 예전 버전이 만든 시트라 새로 생긴 칸의 머리글이 비어 있으면 채운다 (기존 내용은 건드리지 않는다).
@@ -851,6 +852,7 @@ function doPost(e) {
       case 'correct':    return out(correct(b.text, b.name));
       case 'bookmark':   return out(bookmark(b));
       case 'nextSteps':  return out(nextSteps(!!b.force));
+      case 'myRecord':   return out(myRecord(String(b.session || ''), String(b.me || ''), !!b.force));
       case 'portrait':   return out(savePortraitUpload(b.tab, b.data));
       case 'process':    return out(processNow(true));            // "지금 요약": 방 비밀번호만 있으면 누구나 (새 대화가 없으면 AI를 부르지 않는다)
       case 'klogin':     return out(keeperLogin(b.kpw));          // 마스터 비밀번호 → 12시간짜리 로그인 토큰
@@ -1310,6 +1312,155 @@ function nextSteps(force) {
   } finally { c.remove('nextBusy'); }
 }
 
+/* ───────────── 📜 세션 기록 (대장 스타일) ─────────────
+ * 한 세션의 요약·정리·캐릭터·북마크(공개 자료만)를 읽고, 대장이 한글 파일에 써 온 형식의 기록을 만든다.
+ * 형식: 머리말(룰 시나리오 / KP·PL / PC(PL): 직업) → 장소마다 구분선 → 줄표 깊이로 사건 → [대괄호]는 확인된 사실·얻은 것·판정 결과 → 결말.
+ * 아카이브 메모(실제 날짜, 한 줄 요약, 북마크, 미해결 단서, NPC, 내 PC가 한 일)는 따로 돌려준다.
+ * 같은 입력이면 저장해 둔 결과를 다시 쓴다(요금 절약). 마스터 전용 자료는 읽지 않는다(publicAi). */
+function myRecInput(sess) {
+  const sums = sheet(SH.SUM);
+  const rows = sums.getLastRow() >= 2 ? sums.getRange(2, 1, sums.getLastRow() - 1, 4).getValues() : [];
+  const parts = rows.filter(r => String(r[0]) === sess).map(r => ({ from: String(r[1]), to: String(r[2]), text: decS(r[3]) }))
+    .filter(x => x.text && !/^\s*-?\s*\(잡담 위주, 진행 없음\)\s*$/.test(x.text));
+  const ls = sheet(SH.LINES), last = ls.getLastRow();
+  let date = '', start = '', end = ''; const who = [], said = [];
+  const ts = t => t instanceof Date ? Utilities.formatDate(t, TZ, 'yyyy-MM-dd HH:mm:ss') : String(t || '');
+  if (last >= 2) { const v = ls.getRange(2, 2, last - 1, 4).getValues(); for (let i = 0; i < v.length; i++) if (String(v[i][1]) === sess) {
+    const t = ts(v[i][0]); if (!start) start = t; end = t; if (!date) date = t.slice(0, 10);
+    const w = decS(v[i][2]).trim(); if (w && who.indexOf(w) < 0 && who.length < 20) who.push(w);
+    const x = decS(v[i][3]).trim(); if (w && x && !/^※/.test(x)) said.push({ who: w, text: x });
+  } }
+  const n = readNotes() || emptyNotes();
+  const chars = sheet(SH.CHAR).getDataRange().getValues().slice(1).map(r => { let c = {}; try { c = JSON.parse(decS(r[2]) || '{}'); } catch (e) {} c = cardClean(c); return { player: decS(r[1]), name: c.name || decS(r[0]), job: c.occupation, san: c.san, hp: c.hp, luck: c.luck }; }).filter(c => c.name);
+  const bms = confJson('bookmarks', []).filter(x => String(x.session) === sess).map(x => ({ text: String(x.text).replace(/\s*\(#[^)]*\)/g, ''), by: x.by || '' }));
+  return { sess, date, start, end, who, said, parts, notes: n, chars, bms, keeper: getConf('keeperName') || '', room: roomTitle(), rule: ruleInfo() };
+}
+// 명대사 고르기용: 이 세션의 실제 대사 중 너무 짧거나 긴 것은 빼고, 고르게 최대 n줄
+function myRecQuoteCands(said, n) {
+  const c = said.filter(x => x.text.length >= 8 && x.text.length <= 120);
+  if (c.length <= n) return c;
+  const out = []; for (let i = 0; i < n; i++) out.push(c[Math.floor(i * c.length / n)]);
+  return out;
+}
+const myRecNorm = t => String(t || '').replace(/[\s"'“”‘’「」『』.,!?~…·\-]/g, '');
+// AI가 고른 명대사가 정말 이 세션에서 그 사람이 한 말인지 서버가 확인한다 (말 바꾸기·지어내기 막기)
+function myRecQuotes(qs, said) {
+  const out = [];
+  (Array.isArray(qs) ? qs : []).forEach(q => {
+    if (!q || out.length >= 3) return;
+    const text = String(q.text || '').trim().replace(/^["“]|["”]$/g, ''), who = String(q.who || '').trim(), k = myRecNorm(text);
+    if (k.length < 4 || text.length > 140) return;
+    const hit = said.find(x => (!who || x.who === who) && myRecNorm(x.text).indexOf(k) >= 0);
+    if (hit && !out.some(o => o.text === text)) out.push({ who: hit.who, text });
+  });
+  return out;
+}
+// 실제로 논 시간 (첫 말 ~ 마지막 말)
+function myRecPlay(start, end) {
+  if (!start || !end) return null;
+  const p = t => { const m = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)/.exec(t); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]).getTime() : NaN; };
+  const mins = Math.round((p(end) - p(start)) / 60000);
+  if (!(mins >= 0)) return null;
+  return { start: start.slice(11, 16), end: end.slice(11, 16), endDate: end.slice(0, 10), mins };
+}
+function myRecord(sess, me, force) {
+  if (!/^\d{1,5}$/.test(sess)) return { ok: false, error: '세션을 골라 주세요' };
+  const rv0 = String(getConf('resetVer') || '0'), inp = myRecInput(sess);
+  if (!inp.parts.length) return { ok: true, empty: true, error: '세션 ' + sess + '에는 아직 요약이 없어요. "지금 요약"을 누른 뒤 다시 해 주세요' };
+  me = String(me || '').trim().slice(0, 30);
+  const nm = x => x.name || x.title || '';
+  const n = inp.notes;
+  const myPc = me ? (inp.chars.find(c => c.player === me) || {}).name || '' : '';
+  const pcs = inp.chars.map(c => c.name + '(' + (c.player || '?') + '): ' + [c.job, c.san ? '이성 ' + c.san : '', c.hp ? '체력 ' + c.hp : ''].filter(Boolean).join(', ')).join('\n');
+  const npcs = (n.npcs || []).map(x => '- ' + nm(x) + (x.affil ? ' (' + x.affil + ')' : '') + (x.traits ? ': ' + String(x.traits).slice(0, 100) : '') + (x.relation ? ' / ' + String(x.relation).slice(0, 100) : '')).join('\n');
+  const places = (n.places || []).map(x => '- ' + nm(x) + (x.desc ? ': ' + String(x.desc).slice(0, 100) : '') + (x.found ? ' / 발견: ' + String(x.found).slice(-200) : '')).join('\n');
+  const clues = (n.clues || []).map(x => '- [' + (x.status || '미해결') + '] ' + String(x.text || '').slice(0, 160)).join('\n');
+  const sumsTxt = inp.parts.map(x => '(' + x.from.slice(11, 16) + '~' + x.to.slice(11, 16) + ')\n' + x.text.replace(/\s*\(#[^)]*\)/g, '')).join('\n\n');
+  const prev = sess !== '1' ? storyTail(1200) : '';
+  const fresh = '## 방\n' + inp.room + ' · 룰 ' + inp.rule.name + ' (약자 ' + (inp.rule.abbr || '') + ')\n## 세션\n' + sess + '회차' + (inp.date ? ' · ' + inp.date : '') +
+    '\n## 마스터(KP)\n' + (inp.keeper || '(모름)') + '\n## 탐사자(PC이름(플레이어): 직업, 지금 수치)\n' + (pcs || '(없음)') +
+    (prev ? '\n\n## 지난 이야기 (참고만, 이번 기록에 옮기지 마라)\n' + prev : '') +
+    '\n\n## 이번 세션 요약 (시간순, 【장소】로 나뉨)\n' + sumsTxt +
+    '\n\n## 장소 정리\n' + (places || '(없음)') + '\n\n## NPC 정리\n' + (npcs || '(없음)') + '\n\n## 단서 정리\n' + (clues || '(없음)') +
+    '\n\n## 플레이어가 북마크한 장면 (본문의 그 장면 줄 끝에 " 📌"를 붙인다)\n' + (inp.bms.map(b => '- ' + b.text).join('\n') || '(없음)') +
+    '\n\n## 실제 대사 일부 (명대사는 여기서만 고르고, 글자를 바꾸지 말고 그대로 옮긴다)\n' + (myRecQuoteCands(inp.said, 150).map(x => x.who + ': ' + x.text.slice(0, 120)).join('\n') || '(없음)') +
+    '\n\n## 이 기록을 내보내는 사람\n' + (me || '(모름)') + (myPc ? ' · 그 사람의 PC: ' + myPc : ' · 그 사람의 PC는 캐릭터 표에서 찾지 못함');
+  const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, MYREC_VER + '|' + rv0 + '|' + fresh, Utilities.Charset.UTF_8));
+  const sh = ensureSheet('세션기록');
+  const old = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues() : [];
+  let rowAt = -1;
+  for (let i = 0; i < old.length; i++) if (String(old[i][0]) === sess) { rowAt = i + 2; if (String(old[i][1]) === hash && !force) { try { return Object.assign({ ok: true, reused: true }, JSON.parse(decS(old[i][3]))); } catch (e) {} } }
+  const c = roomCache(), bk = 'myRecBusy:' + sess;
+  if (c.get(bk)) return { ok: false, busy: true, error: '다른 사람이 이 세션 기록을 만드는 중이에요. 1~2분 뒤 다시 눌러 주세요' };
+  c.put(bk, '1', 300);
+  try {
+    const sys = 'TRPG 세션의 공개 기록(요약·정리·캐릭터·북마크)을 읽고, 이 모임의 마스터가 오래 써 온 "세션 기록" 형식 그대로 한 세션의 기록을 쓰는 서기다. ' +
+      '기록에 있는 사실만 쓴다. 요약·정리에 없는 사건·판정·수치·대사를 지어내지 마라. 요약에 "(추측)"이 붙은 것은 사실로 바꾸지 말고 "(추측)"을 남겨라. NPC의 말은 "~라고 함"으로 적어라. ' +
+      '"※ 받아쓰기 끊김" 같은 기계 안내와 근거 번호(#12)는 옮기지 마라. 한국어로.';
+    const stable = '## 형식 규칙 (이대로 흉내 낸다)\n' +
+      '본문(body)은 이 모임 마스터가 써 온 키워드 메모 형식이다.\n' +
+      '1. 첫 줄은 도입 한두 줄 (배경과 이번 세션이 어떻게 시작했는지). 이어서 빈 줄 없이 본문.\n' +
+      '2. 이야기 속 날짜가 바뀌면 줄표로 감싼 한 줄: "-1922년 10월 27일 금요일-". 이야기 속 시각이 나오면: "-오후 3시-". 결정적 순간 외침도 같은 모양으로 쓸 수 있다: "-지금이야!-".\n' +
+      '3. 장소가 바뀔 때마다 장소 줄 한 줄: "-[산타모니카 탐정 사무소]-" (줄표와 대괄호로 감싼 장소 이름, 문서에서 가운데 정렬된다). 요약의 【장소】를 따른다. 순서는 날짜 → 시각 → 장소.\n' +
+      '4. 사건은 줄 맨 앞 줄표 개수로 깊이를 나타낸다: "-" 큰 사건, "--" 그 안의 세부, "---" 더 세부. 전투는 "--순서: A-B-C" 한 줄 뒤에 피해를 이어 적는다.\n' +
+      '5. 문체는 키워드 메모: 완성된 문장 대신 "~함", "~음", "~중", 명사로 끝낸다. 조사는 줄여도 된다. 감정·분위기 묘사는 거의 쓰지 않는다. NPC의 중요한 말은 큰따옴표로 짧게 옮긴다.\n' +
+      '6. 대괄호 [ ]는 확인된 사실·단서·얻은 물건·판정 결과에만 쓴다. 예: "[택시도 사라짐.]", "관찰력[어려운 성공]", "[38구경 권총, 마체테]".\n' +
+      '7. 기록에 있는 숫자는 빠뜨리지 않는다: 피해 "4뎀", 판정 결과(대성공·극단적 성공·대실패), 이성 소모·회복, 행운 소모.\n' +
+      '8. 본문 끝에 구분선을 따로 두지 않는다. 결말·후일담은 body에 쓰지 말고 따로 적는다.\n' +
+      '9. 이모지·굵게·제목 기호(#, ■)는 쓰지 않는다. 꾸밈 없이 평평한 글. 예외: 플레이어가 북마크한 장면의 줄 끝에만 " 📌".\n\n' +
+      '## 예시 (형식만 참고. 내용은 지어낸 것이니 절대 옮기지 마라)\n' +
+      '{"title":"CoC 안개 낀 등대","pcs":["엘리 하퍼(소금빵): 기자. 겁이 많지만 끈질김.","토머스 레인(프레이피스): 의사. 냉정함."],"setting":"1920s 매사추세츠 해안",' +
+      '"glance":{"one":"사흘째 꺼진 등대를 조사하다 등대지기의 일지를 찾음.","ending":"진행 중. 등대 꼭대기는 다음 회차에.","mine":"토머스(프레이피스): 잠긴 문 자물쇠를 땀.","keys":"[젖은 발자국] → [등대지기의 일지] → [녹슨 열쇠]"},' +
+      '"body":"등대지기의 실종 소식을 듣고 섬으로 건너옴.\\n-1924년 9월 3일 수요일-\\n-오후 4시-\\n-[선착장]-\\n-어부 노인이 맞이함. 등대 불이 사흘째 꺼짐.\\n--노인은 등대지기가 밤마다 노래했다고 함.\\n---심리학[실패]: 노인의 속내 모름.\\n-[등대 1층]-\\n-문이 안에서 잠김. 토머스가 자물쇠 땀.\\n--관찰력[성공]: [바닥에 젖은 발자국, 바다 쪽으로.] 📌\\n-엘리 계단에서 미끄러짐. 2뎀.\\n[등대지기의 일지, 녹슨 열쇠]",' +
+      '"ending":"진행 중. 다음 회차에 등대 꼭대기로.","epilogue":[],' +
+      '"memo":{"npcs":["어부 노인: 선착장에서 맞이함. 등대지기가 노래했다고 함."],"places":["선착장","등대 1층"],"clues":["[해결] 등대 문이 잠긴 이유: 안에서 잠금. (등대 1층에서 앎)","[미해결] 바다로 이어진 젖은 발자국의 주인. (등대 1층에서 얻음 → 아직 안 쓰임)"],' +
+      '"mine":["잠긴 문의 자물쇠를 따서 등대에 들어감."],"quotes":[{"who":"소금빵","text":"저 불 꺼진 거 우리 탓 아니죠?"}],' +
+      '"dice":["엘리 하퍼(소금빵): 받은 피해 2","토머스 레인(프레이피스): 관찰력 성공 · 심리학 실패"],"relations":["토머스 ↔ 어부 노인: 처음엔 경계 → 일지 이야기 뒤 조금 믿음"],' +
+      '"carry":["다음 회차로: 등대 꼭대기, 발자국의 주인"],"check":["노인의 이름이 기록에 없음."]}}\n\n' +
+      '## 출력 형식 (JSON 하나만, 위 예시와 같은 키)\n' +
+      'title: "룰약자 시나리오(방) 제목". pcs: 탐사자마다 "PC이름(플레이어): 직업. 한 줄 특징." (플레이어 이름은 주어진 그대로). setting: 시대·장소 한 마디 (모르면 빈칸).\n' +
+      'glance: one=한 줄 요약(40자 안팎), ending=결말 한 줄, mine=내보내는 사람의 PC가 한 가장 큰 일 한 줄("PC이름(플레이어): ~", PC를 모르면 빈칸), keys=열쇠 단서의 흐름 "[A] → [B] → [C]".\n' +
+      'body: 위 형식 규칙의 본문 (줄바꿈은 \\n). ending: 생환/로스트/진행 중 + 한마디 (세션이 이야기 중간에 끝났으면 "진행 중. 다음 회차에 ~"). epilogue: 후일담 줄들 (기록에 있을 때만, 없으면 빈 배열).\n' +
+      'memo.npcs: "이름: 역할·한 일. → 운명(기록에 있을 때만)". 비중이 작은 NPC는 한 줄에 "A / B / C"로 묶는다. memo.places: 이번에 간 장소 이름. memo.clues: "[해결] ~" 또는 "[미해결] ~" (단서 정리의 상태와 요약을 근거로). ' +
+      'memo.clues에는 기록에 있으면 얻은 곳 → 쓴 곳을 괄호로 붙인다 ("(등대 1층에서 얻음 → 선착장에서 노인에게 보여 줌)", 안 쓰였으면 "→ 아직 안 쓰임"). ' +
+      'memo.mine: 내보내는 사람의 PC가 한 일 2~3줄 (기록에 있는 것만, PC를 모르면 빈 배열). ' +
+      'memo.quotes: 이번 세션 명대사 0~3개 {"who":말한 사람 이름(대사 목록의 이름 그대로),"text":대사 그대로}. "실제 대사 일부"에 있는 말만, 글자 하나 바꾸지 말 것. 웃기거나 결정적이거나 캐릭터다운 말. 마땅한 게 없으면 빈 배열. ' +
+      'memo.dice: PC마다 한 줄, 요약에 나온 판정·피해·이성·행운만 ("PC이름(플레이어): 대성공 1(관찰력) · 대실패 1(회피) · 받은 피해 4 · 이성 -3"). 요약에 판정 기록이 없는 PC는 빼고, 하나도 없으면 빈 배열. ' +
+      'memo.relations: 이번에 눈에 띄게 달라진 관계만 "A ↔ B: 전 → 후" (없으면 빈 배열). ' +
+      'memo.carry: 캠페인 이어 보기. 지난 이야기의 미해결이 이번에 풀린 것("지난 회차 [X] → 이번에 풀림: ~"), 다음 회차로 넘어가는 것("다음 회차로: ~"). 2~4줄, 없으면 빈 배열. ' +
+      'memo.check: 기록이 헷갈리거나 빠진 곳, 이름이 섞인 곳 (사람이 확인할 것, 없으면 빈 배열).';
+    const r = publicAi(() => parseJson(claude(sys, [stable, fresh], 12000)));
+    const clean = t => String(t == null ? '' : t).replace(/\r/g, '').replace(/\s*\(#\d[^)]*\)/g, '').replace(/^※ 받아쓰기 끊김.*(\n|$)/gm, '');
+    const arr = (a, n, len) => (Array.isArray(a) ? a : []).map(x => clean(x).trim().slice(0, len || 300)).filter(Boolean).slice(0, n);
+    const body = clean(r.body).replace(/^-{20,}\s*([^-\s].*)$/gm, '-[$1]-').replace(/^-{20,}\s*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();      // 옛 구분선 모양으로 써 와도 -[장소]-로
+    if (body.length < 40) return { ok: false, error: 'AI가 기록을 거의 쓰지 않았어요. 다시 눌러 주세요' };
+    const g = r.glance && typeof r.glance === 'object' ? r.glance : {}, mm = r.memo && typeof r.memo === 'object' ? r.memo : {};
+    let players = inp.chars.map(c => c.player).filter(Boolean);
+    if (!players.length) players = inp.who.filter(w => w !== inp.keeper && !/^배포연습$/.test(w));        // 캐릭터 표가 비었으면 이 세션에서 말한 사람(마스터 빼고)
+    const o = { sess, date: inp.date, me, title: clean(r.title || (inp.rule.abbr ? inp.rule.abbr + ' ' : '') + inp.room).trim().slice(0, 120),
+      kp: 'KP: ' + (inp.keeper || '?') + ' / PL: ' + (players.length ? players.join(', ') : '?'),
+      pcs: arr(r.pcs, 12, 200), setting: clean(r.setting).trim().slice(0, 80),
+      glance: { one: clean(g.one).trim().slice(0, 160), ending: clean(g.ending).trim().slice(0, 200), mine: clean(g.mine).trim().slice(0, 200), keys: clean(g.keys).trim().slice(0, 300) },
+      body: body.slice(0, 40000), ending: clean(r.ending).trim().slice(0, 300), epilogue: arr(r.epilogue, 20, 400),
+      memo: { npcs: arr(mm.npcs, 40), places: arr(mm.places, 40, 80), clues: arr(mm.clues, 40), mine: arr(mm.mine, 5), check: arr(mm.check, 10),
+        quotes: myRecQuotes(mm.quotes, inp.said), dice: arr(mm.dice, 12), relations: arr(mm.relations, 10), carry: arr(mm.carry, 6) },
+      play: myRecPlay(inp.start, inp.end),
+      bms: inp.bms.slice(0, 30), at: now() };
+    if (!o.memo.clues.length) o.memo.clues = (n.clues || []).map(x => '[' + ((x.status || '미해결') === '해결' ? '해결' : '미해결') + '] ' + String(x.text || '').slice(0, 160)).slice(0, 30);
+    if (!o.memo.npcs.length) o.memo.npcs = (n.npcs || []).map(x => nm(x) + (x.affil ? '(' + x.affil + ')' : '') + (x.traits ? ': ' + String(x.traits).slice(0, 60) : '')).filter(Boolean).slice(0, 30);
+    const saved = withLock(20000, () => {
+      confLoad(true); if (String(getConf('resetVer') || '0') !== rv0) return false;
+      const v = JSON.stringify(o);
+      if (rowAt > 0 && String(sh.getRange(rowAt, 1).getValue()) === sess) sh.getRange(rowAt, 1, 1, 4).setNumberFormat('@').setValues([[sess, hash, o.at, enc(v)]]);
+      else sh.appendRow([sess, hash, o.at, enc(v)]);
+      return true;
+    });
+    if (!saved) return { ok: false, stale: true, error: '만드는 사이 기록이 초기화됐어요. 새로 고친 뒤 다시 해 주세요' };
+    return Object.assign({ ok: true, reused: false }, o);
+  } finally { c.remove(bk); }
+}
+const MYREC_VER = '2';
+
 function saveColor(name, color) {
   if (!name || !/^#[0-9a-fA-F]{6}$/.test(String(color || ''))) return { ok: false, error: '색이 올바르지 않아요' };
   return withLock(20000, () => {
@@ -1417,7 +1568,7 @@ const AI_FEATURES = [
   ['compactStory', '줄거리 다듬기'], ['correct', 'AI 정정'], ['cardFor', '캐릭터시트 읽기'], ['addImage', '이미지 분석'],
   ['kOcr', '마스터: 자료 글자 읽기'], ['kDigestStep', '마스터: 시나리오 정리'], ['kTruthPolish', '마스터: 진상 다듬기'], ['kNpc', '마스터: NPC 대사'],
   ['kRoll', '마스터: 판정 도움'], ['kBoard', '마스터: 단서 보드'], ['kRecap', '마스터: 지난 회차'], ['kAwardsCompare', '마스터: 시상 비교'],
-  ['kAwards', '마스터: 시상'], ['kFeedback', '마스터: 피드백'], ['selfTestAi', '연결 확인'], ['nextSteps', '다음 할 일']
+  ['kAwards', '마스터: 시상'], ['kFeedback', '마스터: 피드백'], ['selfTestAi', '연결 확인'], ['nextSteps', '다음 할 일'], ['myRecord', '세션 기록(내 스타일)']
 ];
 function aiFeature() {
   const st = String((new Error()).stack || '');
@@ -2774,7 +2925,7 @@ function clearLog(all) {
     const wipe = name => { const s = ss.getSheetByName(name); if (s.getLastRow() > 1) s.deleteRows(2, s.getLastRow() - 1); };
     wipe(SH.LINES); wipe(SH.SUM); stageSheet(); wipe(SH.STAGE);
     // 지운 회의록을 바탕으로 만든 것들도 함께 지운다: 마스터 기록(현황판·NPC 제안·시상식·피드백), 판정 로그, 캐릭터 수치 기록, 공개한 카드
-    [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
+    [SH.KLOG, SH.ROLLS, SH.CSNAP, '세션기록'].forEach(n => { ensureSheet(n); wipe(n); });
     setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}'); setConf('bookmarks', ''); setConf('nextSteps', '');
     setConf('processedId', '0'); storyWrite('', []);
     setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setConf('notesFail', ''); setJson('pcAuto', null); setJson('sumDone', null); setConf('winCap', '');

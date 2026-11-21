@@ -30,14 +30,14 @@ function saveBlob(blob, name){
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
 }
-// 문서 = [{t:'h1'|'h2'|'h3'|'p', text}]
+// 문서 = [{t:'h1'|'h2'|'h3'|'p', text, align?:'center'}]
 function docToTxt(doc){
   return doc.map(b => b.t === 'h1' ? '■ ' + b.text + '\n' + '='.repeat(30) : b.t === 'h2' ? '\n■ ' + b.text : b.t === 'h3' ? '\n[' + b.text + ']' : b.text).join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 function docToDocx(doc){
   const F = '<w:rFonts w:ascii="Malgun Gothic" w:hAnsi="Malgun Gothic" w:eastAsia="맑은 고딕" w:cs="Malgun Gothic"/>';
   const sz = { h1: 32, h2: 26, h3: 22, p: 21 }, after = { h1: 200, h2: 120, h3: 60, p: 60 }, before = { h1: 0, h2: 280, h3: 160, p: 0 };
-  const paras = doc.flatMap(b => String(b.text).split('\n').map(line => '<w:p><w:pPr><w:spacing w:before="' + before[b.t] + '" w:after="' + after[b.t] + '" w:line="300" w:lineRule="auto"/></w:pPr><w:r><w:rPr>' + F +
+  const paras = doc.flatMap(b => String(b.text).split('\n').map(line => '<w:p><w:pPr>' + (b.align === 'center' ? '<w:jc w:val="center"/>' : '') + '<w:spacing w:before="' + before[b.t] + '" w:after="' + after[b.t] + '" w:line="300" w:lineRule="auto"/></w:pPr><w:r><w:rPr>' + F +
     (b.t !== 'p' ? '<w:b/>' : '') + (b.t === 'h1' ? '<w:color w:val="2E4A7A"/>' : '') + '<w:sz w:val="' + sz[b.t] + '"/><w:szCs w:val="' + sz[b.t] + '"/></w:rPr><w:t xml:space="preserve">' + xmlEsc(line) + '</w:t></w:r></w:p>')).join('');
   const docXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + paras +
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418" w:header="851" w:footer="992" w:gutter="0"/></w:sectPr></w:body></w:document>';
@@ -55,13 +55,13 @@ async function docToHwpx(doc, title){
   const td = new TextDecoder();
   let sec = td.decode(got['Contents/section0.xml']);
   const cp = { h1: 7, h2: 8, h3: 6, p: 0 };
-  const lines = doc.flatMap(b => String(b.text).split('\n').map(line => ({ cp: cp[b.t], line })));
+  const lines = doc.flatMap(b => String(b.text).split('\n').map(line => ({ cp: cp[b.t], line, pp: b.align === 'center' ? 20 : 0 })));
   const first = lines.shift() || { cp: 0, line: '' };
   const run = l => '<hp:run charPrIDRef="' + l.cp + '">' + (l.line ? '<hp:t>' + xmlEsc(l.line) + '</hp:t>' : '<hp:t/>') + '</hp:run>';
   // 첫 문단(쪽 설정이 들어 있음)의 빈 글자 칸에 첫 줄을 넣고, 나머지는 문단으로 덧붙인다
   sec = sec.replace('<hp:run charPrIDRef="0"><hp:t/></hp:run>', run(first)).replace(/<hp:linesegarray>.*?<\/hp:linesegarray>/, '');
   let id = 1;
-  sec = sec.replace('</hs:sec>', lines.map(l => '<hp:p id="' + (id++) + '" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">' + run(l) + '</hp:p>').join('') + '</hs:sec>');
+  sec = sec.replace('</hs:sec>', lines.map(l => '<hp:p id="' + (id++) + '" paraPrIDRef="' + l.pp + '" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">' + run(l) + '</hp:p>').join('') + '</hs:sec>');
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   const hpf = td.decode(got['Contents/content.hpf']).replace('<opf:title/>', '<opf:title>' + xmlEsc(title) + '</opf:title>').replace(/(name="(?:CreatedDate|ModifiedDate)" content="text">)[^<]*/g, '$1' + now);
   const prv = doc.map(b => b.text).join('\r\n').slice(0, 1000);
@@ -103,6 +103,62 @@ async function buildExport(o){
   }
   return { doc, title };
 }
+/* 📜 세션 기록 (대장 스타일): 서버 AI가 쓴 기록 + 아카이브 메모를 문서로. 여러 세션이면 "N번째 세션!" 줄로 잇는다
+ * 글자 모양: 이야기 속 날짜 줄 = h2, 장소 줄 -[장소]- = h3 가운데, 시각 줄·작은 제목 = h3, 나머지 본문 (대장 본보기와 같은 짜임) */
+function myRecKind(line){
+  if (/^-\d{3,4}년.*-$/.test(line)) return { t: 'h2' };
+  if (/^-\[.+\]-$/.test(line)) return { t: 'h3', align: 'center' };
+  if (/^-[^-].{0,40}-$/.test(line)) return { t: 'h3' };
+  return { t: 'p' };
+}
+function myRecPlayText(r){
+  const p = r.play;
+  if (!p) return r.date || '날짜 모름';
+  const h = Math.floor(p.mins / 60), mm = p.mins % 60;
+  return (r.date || '') + ' ' + p.start + '~' + (p.endDate && p.endDate !== r.date ? p.endDate.slice(5) + ' ' : '') + p.end + ' (' + (h ? h + '시간' + (mm ? ' ' : '') : '') + (mm || !h ? mm + '분' : '') + ')';
+}
+function myRecDoc(recs){
+  const doc = [], P = text => doc.push({ t: 'p', text }), H = (t, text) => doc.push({ t, text });
+  let title = '';
+  recs.forEach((r, k) => {
+    if (k === 0) { title = r.title || '세션 기록'; H('h1', title); }
+    else { P(''); P(r.sess + '번째 세션!'); }
+    P(r.kp || '');
+    if (k === 0 || r.pcs.join() !== recs[k - 1].pcs.join()) (r.pcs || []).forEach(P);
+    P('플레이: ' + myRecPlayText(r) + ' · 세션 ' + r.sess + '회차' + (r.setting ? ' · ' + r.setting : ''));
+    const g = r.glance || {};
+    H('h3', '▣ 한눈에');
+    if (g.one) P('한 줄: ' + g.one);
+    P('결말: ' + (g.ending || r.ending || '기록 없음'));
+    if (g.mine) P(g.mine);
+    if (g.keys) P('열쇠 단서: ' + g.keys);
+    P('');
+    String(r.body || '').split('\n').forEach(x => doc.push(Object.assign({ text: x.trim() }, myRecKind(x.trim()))));
+    P('결말: ' + (r.ending || g.ending || '기록 없음'));
+    if ((r.epilogue || []).length) { P('-후일담-'); r.epilogue.forEach(P); }
+    const m = r.memo || {};
+    H('h2', '===== 아카이브 메모' + (recs.length > 1 ? ' (세션 ' + r.sess + ')' : '') + ' =====');
+    if ((m.npcs || []).length) { H('h3', '등장 NPC'); m.npcs.forEach(P); }
+    if ((m.places || []).length) { H('h3', '장소'); P(m.places.join(' · ')); }
+    if ((m.clues || []).length) { H('h3', '단서 정리'); m.clues.forEach(P); }
+    if ((r.bms || []).length) { H('h3', '📌 북마크'); r.bms.forEach(b => P(String(b.text).replace(/^\s*-\s*/, '') + (b.by ? ' (' + b.by + ')' : ''))); }
+    if ((m.quotes || []).length) { H('h3', '명대사'); m.quotes.forEach(q => P('"' + q.text + '" (' + q.who + ')')); }
+    if ((m.dice || []).length) { H('h3', '주사위 · 피해 · 이성'); m.dice.forEach(P); }
+    if ((m.relations || []).length) { H('h3', '관계 변화'); m.relations.forEach(P); }
+    if ((m.carry || []).length) { H('h3', '캠페인 이어 보기'); m.carry.forEach(P); }
+    if ((m.mine || []).length) { H('h3', '한 일 · ' + (g.mine && g.mine.indexOf(':') > 0 ? g.mine.split(':')[0] : (r.me || '내') + ' PC')); m.mine.forEach(P); }
+    if ((m.check || []).length) { H('h3', '확인할 것 (기록에 없거나 헷갈린 곳)'); m.check.forEach(P); }
+  });
+  return { doc, title };
+}
+async function myRecGet(sess, force, say){
+  for (let i = 0; i < 3; i++) {
+    const r = await post({ action: 'myRecord', session: sess, me: cfg.name, force: !!force });
+    if (r.ok || !r.busy) return r;
+    say('세션 ' + sess + ': 다른 사람이 만드는 중이라 기다려요…'); await new Promise(res => setTimeout(res, 40000));
+  }
+  return { ok: false, error: '다른 사람이 계속 만드는 중이에요. 조금 뒤 다시 눌러 주세요' };
+}
 $('exportBtn').onclick = async () => {
   if (!data) return;
   let sessions = [];
@@ -134,6 +190,33 @@ $('exportBtn').onclick = async () => {
     [...row.children].forEach(x => x.disabled = false);
   };
   [['txt', '텍스트 (.txt)'], ['docx', '워드 (.docx)'], ['hwpx', '한글 (.hwpx)']].forEach(([f, t]) => { const b = el('button', f === 'hwpx' ? 'pri' : '', t); b.onclick = () => go(f, b); row.append(b); });
+  // 📜 내 스타일 세션 기록: 위 체크와 따로. AI가 요약·정리·캐릭터·북마크(공개 자료만)를 읽고 써 온 기록 형식으로 정리한다
+  const mr = el('div'); mr.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px solid var(--line)'; m.append(mr);
+  mr.append(el('h3', '', '📜 세션 기록 (내 스타일)'), el('div', 'note', '고른 세션의 요약·정리를 그동안 써 온 세션 기록 형식(KP/PL 머리말, 날짜·시각 줄, 가운데 정렬 -[장소]-, 줄표, [단서], 결말)으로 AI가 정리해요. 머리말에 실제로 논 시간과 ▣ 한눈에, 맨 아래 아카이브 메모(NPC와 운명, 단서의 길과 해결·미해결, 북마크, 실제 대사에서 확인한 명대사, 주사위·피해·이성, 관계 변화, 캠페인 이어 보기, 내 PC가 한 일, 확인할 것)를 붙여요. 세션마다 1~3분, 처음 한 번만 AI 요금이 들고(세션당 몇백 원) 같은 내용이면 저장된 것을 다시 써요.'));
+  const fl = el('label'); fl.style.cssText = 'display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0'; const fi = el('input'); fi.id = 'myRec_force'; fi.type = 'checkbox'; fi.style.width = 'auto'; fl.append(fi, '저장된 것을 쓰지 않고 새로 만들기'); mr.append(fl);
+  const row2 = el('div', 'row'); row2.style.flexWrap = 'wrap'; mr.append(row2);
+  const msg2 = el('div', 'note'); msg2.style.marginTop = '8px'; mr.append(msg2);
+  const go2 = async fmt => {
+    const list = ss.value === 'all' ? sessions.slice() : [ss.value];
+    if (!list.length) { msg2.textContent = '세션이 없어요'; return; }
+    [...row2.children].forEach(x => x.disabled = true);
+    const recs = [], skipped = [];
+    try {
+      for (let i = 0; i < list.length; i++) {
+        msg2.textContent = 'AI가 세션 ' + list[i] + ' 기록을 쓰는 중… (' + (i + 1) + '/' + list.length + ', 세션마다 1~2분)';
+        const r = await myRecGet(list[i], fi.checked, t => { msg2.textContent = t; });
+        if (r.ok && !r.empty) recs.push(r); else if (r.empty) skipped.push(list[i]); else throw new Error('세션 ' + list[i] + ': ' + (r.error || '만들지 못했어요'));
+      }
+      if (!recs.length) throw new Error('요약이 있는 세션이 없어요. "지금 요약"을 누른 뒤 다시 해 주세요');
+      const { doc, title } = myRecDoc(recs);
+      const fname = ((data.roomTitle || title) + ' 세션기록' + (ss.value === 'all' ? '' : ' ' + ss.value + '회차')).replace(/[\\/:*?"<>|]/g, '_');
+      if (fmt === 'txt') saveBlob(new Blob(['﻿' + doc.map(b => b.text).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' }), fname + '.txt');
+      else saveBlob(await docToHwpx(doc, title), fname + '.hwpx');
+      msg2.textContent = '✔ 받았어요 (' + fname + '.' + fmt + ')' + (skipped.length ? ' · 요약이 없어 뺀 세션: ' + skipped.join(', ') : '') + (recs.every(r => r.reused) ? ' · 저장된 기록을 다시 썼어요 (요금 없음)' : '');
+    } catch (e) { msg2.textContent = '만들지 못했어요: ' + (e.message || e); }
+    [...row2.children].forEach(x => x.disabled = false);
+  };
+  [['hwpx', '한글 (.hwpx)'], ['txt', '텍스트 (.txt)']].forEach(([f, t]) => { const b = el('button', f === 'hwpx' ? 'pri' : '', t); b.id = 'myRec_' + f; b.onclick = () => go2(f); row2.append(b); });
   const x = el('button', '', '닫기'); x.onclick = closeModal; x.style.marginTop = '12px'; m.append(x);
   $('modal').classList.remove('hide');
 };
