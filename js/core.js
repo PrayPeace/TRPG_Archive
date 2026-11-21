@@ -34,10 +34,14 @@ const cfg = { url: scriptUrl(S.get('t_url')), pw: S.get('t_pw') || '', name: S.g
 /* 읽기 요청. 비밀번호가 주소에 남지 않게 POST 본문으로 보낸다.
  * 엔진이 아직 예전 판이면(답에 rp 표시가 없음) 이 화면에서는 예전처럼 GET 주소로 보낸다. */
 let readPost = null;
+/* 기기 토큰(pt): 비밀번호로 처음 들어오면 서버가 준다. 비밀번호를 여러 번 틀리는 공격으로 입장이 잠겨도 이 토큰이 있는 기기는 그대로 쓴다. 주소(GET)에는 싣지 않는다. */
+function ptFor(url){ return (url && S.get('t_pt:' + url)) || ''; }
+function ptKeep(url, r){ if (url && r && r.pt) { S.set('t_pt:' + url, r.pt); delete r.pt; } return r; }
 async function readCall(url, pw, action, params){
   const p = { action, pw }; Object.entries(params || {}).forEach(([k, v]) => { p[k] = String(v); });
   if (readPost !== false) {
-    const r = await (await fetch(url, { method: 'POST', body: JSON.stringify(p) })).json();
+    const pt = ptFor(url);
+    const r = ptKeep(url, await (await fetch(url, { method: 'POST', body: JSON.stringify(pt ? Object.assign({ pt }, p) : p) })).json());
     if (r && r.rp) { readPost = true; delete r.rp; return r; }
     if (readPost === true) return r;
     readPost = false;
@@ -47,8 +51,9 @@ async function readCall(url, pw, action, params){
 async function api(action, params){ return readCall(cfg.url, cfg.pw, action, params); }
 async function post(body){
   body.pw = body.pw || cfg.pw;
+  if (!body.pt) { const pt = ptFor(cfg.url); if (pt) body.pt = pt; }
   const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify(body) });
-  return r.json();
+  return ptKeep(cfg.url, await r.json());
 }
 /* 마스터 요청. 보낸 뒤에 마스터를 잠갔거나 회의록이 초기화됐으면(K.epoch가 바뀜) 늦게 도착한 답은 쓰지 않는다.
  * 마스터 토큰은 요청 본문(POST)으로만 보낸다. 주소(GET)에는 싣지 않는다. */
@@ -194,7 +199,7 @@ function reportErr(msg){
   try {
     if (errSent >= 5 || !cfg.url || !cfg.pw || $('app').classList.contains('hide')) return; errSent++;
     const ver = typeof APP_VER !== 'undefined' ? APP_VER : '';
-    fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'clientErr', pw: cfg.pw, name: cfg.name || '', ver, msg: String(msg).slice(0, 500) }) }).catch(() => {});
+    fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'clientErr', pw: cfg.pw, pt: ptFor(cfg.url), name: cfg.name || '', ver, msg: String(msg).slice(0, 500) }) }).catch(() => {});
   } catch (_) {}
 }
 window.addEventListener('error', e => reportErr((e.message || '오류') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '')));

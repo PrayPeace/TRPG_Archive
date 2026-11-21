@@ -24,6 +24,25 @@ async function keeperCall(body, busyText, okText){
 twoStep($('kSession'), () => keeperCall({ action: 'newSession' }, '이전 대화 정리 후 새 세션을 엽니다… (최대 3분)', r => { live.session = r.session; $('sessPill').textContent = '세션 ' + r.session; return '세션 ' + r.session + ' 시작'; }));
 twoStep($('kClear'), () => keeperCall({ action: 'clearLog' }, '지우는 중…'));
 twoStep($('kReset'), () => keeperCall({ action: 'resetAll' }, '초기화 중…'));
+$('kDiag').onclick = async () => {
+  const box = $('kDiagBox'); $('kDiag').disabled = true; box.textContent = '진단 중… (몇 초)';
+  try {
+    const r = await kpost({ action: 'diag' });
+    if (!r.core) { box.textContent = r.error || '이 엔진은 아직 진단을 몰라요. 엔진에 새 Code.gs를 붙여 넣어 주세요'; return; }
+    const i = r.info || {}, lt = i.lastTick;
+    const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? '방금' : m + '분 전'; };
+    const out = [(r.ok ? '✅ 핵심 규칙 모두 통과' : '❌ 핵심 규칙 실패 있음') + ' · 엔진 ' + r.ver + (r.ver !== APP_VER ? ' (화면 ' + APP_VER + '와 다름)' : ''),
+      '대화 ' + i.lines + '줄 · 요약 끝난 곳 ' + i.processed + '줄' + (i.lines > i.processed ? ' (대기 ' + (i.lines - i.processed) + '줄)' : ''),
+      '자동 정리 트리거 ' + (i.triggers < 0 ? '확인 불가' : i.triggers + '개' + (i.triggers === 1 ? '' : ' ⚠ setup 다시 실행 필요')),
+      lt ? '마지막 자동 실행: ' + ago(lt.at) + ' · ' + (lt.what || '') + ' · ' + Math.round((lt.ms || 0) / 1000) + '초' : '마지막 자동 실행: 기록 없음 (6시간 안)',
+      '정리 대기 ' + i.notesQ + '건 · 정리 실패 보관 ' + i.notesFail + '건'];
+    if (i.pendingError) out.push('⚠ 요약이 막힌 이유: ' + i.pendingError);
+    if (i.errors && i.errors.length) { out.push('최근 오류 (오류기록 탭 ' + i.errorRows + '줄):'); i.errors.forEach(e => out.push(' · ' + e[0].slice(5, 16) + ' ' + e[1] + ' — ' + e[3])); }
+    (r.core || []).filter(x => /^FAIL/.test(x)).forEach(x => out.push(x));
+    box.textContent = out.join('\n');
+  } catch (e) { box.textContent = '진단 실패: ' + e.message; }
+  finally { $('kDiag').disabled = false; }
+};
 $('kNfRetry').onclick = async () => { $('kNfRetry').disabled = true; const r = await kpost({ action: 'notesRetry' }); $('kNfRetry').disabled = false; $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
 $('kRuleSave').onclick = async () => { const r = await kpost({ action: 'setRule', rule: $('kRule').value }); $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
 function tokTable(title, list, tot){
@@ -153,7 +172,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.19';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.20';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };

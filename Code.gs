@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.19';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.20';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -241,6 +241,7 @@ function confLoad(force) {
 function getConf(key) { const c = confLoad()[key]; return c ? c.val : null; }
 function setConf(key, val) {
   val = val == null ? '' : String(val);
+  pollStale();
   let c = confLoad()[key];
   if (!c) { confLoad(true); c = _conf[key]; }
   const s = confSheet();
@@ -264,6 +265,7 @@ function roomCache() {
   const c = CacheService.getScriptCache(), p = ssId().slice(0, 60) + ':';
   return {
     get: k => c.get(p + k), put: (k, v, t) => c.put(p + k, v, t), remove: k => c.remove(p + k),
+    putAll: (o, t) => { const r = {}; Object.keys(o).forEach(k => { r[p + k] = o[k]; }); c.putAll(r, t); },
     getAll: ks => { const o = c.getAll(ks.map(k => p + k)), r = {}; Object.keys(o).forEach(k => { r[k.slice(p.length)] = o[k]; }); return r; }
   };
 }
@@ -632,10 +634,44 @@ function csv(v) { return String(v || '').split(',').map(s => s.trim()).filter(Bo
 
 /* 누가 보낸 요청인지: 'keeper'(마스터 로그인 토큰이 유효함) / 'room'(방 비밀번호가 맞음) / null
  * 마스터 비밀번호는 여기서 보지 않는다. 마스터 비밀번호를 받는 곳은 로그인(keeperLogin) 하나뿐이다. */
-function roleOf(pw, kt) {
+function roleOf(pw, kt, pt) {
+  _pwLocked = false;
   if (kt && tokenOk(kt)) return 'keeper';
-  if (pw != null && pw !== '' && pw === roomPw()) return 'room';
+  if (pt && ptOk(pt)) return 'room';                     // 이미 들어와 있는 기기: 비밀번호 잠금과 상관없이 통과
+  if (pw == null || pw === '') return null;
+  const c = roomCache();
+  if (Number(c.get('pw_lock') || 0) > Date.now()) { _pwLocked = true; return null; }
+  if (pw === roomPw()) return 'room';
+  const n = Number(c.get('pw_fail') || 0) + 1;           // 잠금 없이 센다: 동시에 틀리면 한두 번 덜 셀 수 있지만 막는 데는 충분하다
+  if (n >= PW_FAIL_MAX) { c.put('pw_lock', String(Date.now() + PW_LOCK_MS), 1200); c.remove('pw_fail'); _pwLocked = true; }
+  else c.put('pw_fail', String(n), 600);
   return null;
+}
+let _pwLocked = false;
+const PW_FAIL_MAX = 30;                 // 10분 안에 방 비밀번호를 이만큼 틀리면
+const PW_LOCK_MS = 10 * 60 * 1000;      // 비밀번호 입장만 이만큼 막는다 (기기 토큰이 있는 사람은 그대로)
+const PT_TTL = 30 * 24 * 3600 * 1000;   // 기기 토큰 유지 기간
+function pwBadMsg() {
+  return _pwLocked ? '비밀번호 시도가 너무 많아 10분 동안 비밀번호 입장을 막았어요. 이미 들어와 있는 사람은 그대로 쓸 수 있어요' : '방 비밀번호가 틀렸어요';
+}
+/* 플레이어 기기 토큰: 비밀번호로 처음 들어올 때(ping·data) 하나 주고, 시트에는 해시만 남긴다.
+ * 방 비밀번호를 바꾸면 예전 토큰은 모두 쓸 수 없게 된다(p가 달라짐). */
+function ptTag() { return sha('p:' + roomPw()).slice(0, 12); }
+function ptOk(pt) {
+  const h = sha(pt), t = Date.now(), g = ptTag();
+  return confJson('ptok', []).some(x => x && x.h === h && x.p === g && Number(x.exp) > t);
+}
+function ptIssue() {
+  const pt = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  try {
+    withLock(10000, () => {
+      const t = Date.now(), g = ptTag();
+      const list = confJson('ptok', []).filter(x => x && x.p === g && Number(x.exp) > t).slice(-299);
+      list.push({ h: sha(pt), p: g, exp: t + PT_TTL });
+      setJson('ptok', list);
+    });
+  } catch (e) { return ''; }
+  return pt;
 }
 
 function doGet(e) {
@@ -644,7 +680,7 @@ function doGet(e) {
     // 로비(폰 화면)의 방 목록은 비밀번호 없이 읽는다: 방 이름·룰·주소만 있고, 들어가려면 그 방의 비밀번호가 필요하다
     if (p.action === 'hub') return out(hubList());
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
-    if (!roleOf(p.pw, null)) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
+    if (!roleOf(p.pw, null)) return out({ ok: false, error: pwBadMsg(), locked: _pwLocked || undefined });
     const r = readAction(p); if (r) return out(r);
     return out({ ok: false, error: '알 수 없는 요청' });
   } catch (err) { return out({ ok: false, error: String(err && err.message || err) }); }
@@ -673,9 +709,14 @@ function doPost(e) {
   try {
     // 로비의 ⚙ 설정: 방 비밀번호 없이 마스터 비밀번호만으로 로그인 (틀린 횟수 잠금은 keeperLogin이 그대로 한다)
     if (b.action === 'hubLogin') return out(keeperLogin(b.kpw));
-    const who = roleOf(b.pw, b.kt);
-    if (!who) return out({ ok: false, error: '방 비밀번호가 틀렸어요', rp: 1 });
-    const rd = readAction(b); if (rd) { rd.rp = 1; return out(rd); }      // rp: 이 엔진은 읽기를 POST로 받는다는 표시
+    const who = roleOf(b.pw, b.kt, b.pt);
+    if (!who) return out({ ok: false, error: pwBadMsg(), locked: _pwLocked || undefined, rp: 1 });
+    const rd = readAction(b);
+    if (rd) {
+      rd.rp = 1;                                                           // rp: 이 엔진은 읽기를 POST로 받는다는 표시
+      if ((b.action === 'ping' || b.action === 'data') && !(b.pt && ptOk(b.pt))) { const pt = ptIssue(); if (pt) rd.pt = pt; }
+      return out(rd);
+    }
     // ── 플레이어 누구나
     switch (b.action) {
       case 'lines':      return out(addLines(b));
@@ -722,6 +763,7 @@ function doPost(e) {
       case 'image':      return out(addImage(b.data, b.mime, b.caption));
       case 'setTheme':   return out(setTheme(b.theme));
       case 'notesRetry': return out(notesRetry());
+      case 'diag':       return out(diag());
       case 'keeperName': withLock(20000, () => { setConf('keeperName', String(b.name || '').trim().slice(0, 40)); bump('notesVer'); }); return out({ ok: true });
       case 'clearLog':   return out(clearLog(false));
       case 'resetAll':   return out(clearLog(true));
@@ -747,8 +789,7 @@ function addLines(b) {
   return withLock(25000, () => {
     const rv = getConf('resetVer') || '0', cur = getConf('session') || '1', switchedAt = Number(getConf('sessionAt') || 0);
     const s = sheet(SH.LINES), last = s.getLastRow();
-    const seen = new Set();
-    if (last >= 2) s.getRange(2, 6, last - 1, 1).getValues().forEach(r => { if (r[0]) seen.add(decS(r[0])); });
+    const seen = uidIndexGet(last - 1, s);
     const rows = [], saved = [], dup = [], dropped = [];
     let id = Math.max(0, last - 1);
     items.forEach(it => {
@@ -771,11 +812,52 @@ function addLines(b) {
     if (rows.length) {
       s.getRange(last + 1, 2, rows.length, 5).setNumberFormat('@');     // "1/2" 같은 말이 날짜로 바뀌지 않게 글자 칸으로
       s.getRange(last + 1, 1, rows.length, 6).setValues(rows);
+      uidIndexAdd(last - 1, rows.map(r => decS(r[5])));
+      pollStale();
     }
     return { ok: true, saved, dup, dropped, added: rows.length };
   });
 }
 
+/* 발언ID 목록을 캐시에 조각(약 90KB)으로 담아 둔다. 대화를 저장할 때마다 대화 탭의 ID 칸 전체를 읽지 않게.
+ * 캐시의 줄 수가 시트와 다르거나(초기화·캐시 만료) 조각이 빠졌으면 예전처럼 시트에서 다시 읽어 채운다. (잠금 안에서 부른다) */
+const UID_CHUNK = 1500;                // 발언ID는 64자까지라 1500개면 캐시 한 칸(100KB) 안에 들어간다
+function uidIndexGet(count, s) {
+  const c = roomCache();
+  try {
+    const meta = JSON.parse(c.get('uidMeta') || 'null');
+    if (meta && meta.count === count) {
+      const keys = []; for (let i = 0; i < meta.chunks; i++) keys.push('uid' + i);
+      const got = keys.length ? c.getAll(keys) : {};
+      if (keys.every(k => got[k] != null)) { const set = new Set(); keys.forEach(k => { if (got[k]) got[k].split('\n').forEach(u => set.add(u)); }); return set; }
+    }
+  } catch (e) {}
+  const set = new Set(), list = [];
+  if (count > 0) s.getRange(2, 6, count, 1).getValues().forEach(r => { if (r[0]) { const u = decS(r[0]); set.add(u); list.push(u); } });
+  uidIndexPut(list, count);
+  return set;
+}
+function uidIndexPut(list, count) {
+  try {
+    const c = roomCache(), chunks = Math.ceil(list.length / UID_CHUNK);
+    for (let i = 0; i < chunks; i++) c.put('uid' + i, list.slice(i * UID_CHUNK, (i + 1) * UID_CHUNK).join('\n'), 21600);
+    c.put('uidMeta', JSON.stringify({ count, chunks, n: list.length }), 21600);
+  } catch (e) { try { roomCache().remove('uidMeta'); } catch (x) {} }
+}
+function uidIndexAdd(prevCount, uids) {
+  try {
+    const c = roomCache(), meta = JSON.parse(c.get('uidMeta') || 'null');
+    if (!meta || meta.count !== prevCount) { c.remove('uidMeta'); return; }
+    let n = meta.n, last = Math.floor(Math.max(0, n - 1) / UID_CHUNK);
+    let list = n ? (c.get('uid' + last) || '').split('\n').filter(Boolean) : [];
+    if (n && list.length !== n - last * UID_CHUNK) { c.remove('uidMeta'); return; }      // 마지막 조각이 사라졌으면 다음에 다시 읽기
+    if (list.length >= UID_CHUNK) { last++; list = []; }
+    const put = {};
+    uids.forEach(u => { list.push(u); n++; put['uid' + last] = list.join('\n'); if (list.length >= UID_CHUNK) { last++; list = []; } });
+    c.putAll(put, 21600);
+    c.put('uidMeta', JSON.stringify({ count: prevCount + uids.length, chunks: Math.ceil(n / UID_CHUNK), n }), 21600);
+  } catch (e) { try { roomCache().remove('uidMeta'); } catch (x) {} }
+}
 function rowToLine(r) { return { id: Number(r[0]), time: String(r[1]), session: String(r[2]), name: decS(r[3]), text: decS(r[4]), uid: decS(r[5]) }; }
 function readLines(sinceId, maxRows) {
   const s = sheet(SH.LINES);
@@ -880,16 +962,30 @@ function versions() {
   };
 }
 
+/* 새로 고침(poll)은 몇 초마다 모두가 부른다. 설정 탭·대화 줄 수를 3초 동안 캐시에 담아 여러 명이 물어도 시트를 한 번만 읽는다.
+ * 설정이 바뀌거나(setConf) 대화가 저장되면(addLines) 캐시를 바로 지운다. */
+function pollState() {
+  const c = roomCache();
+  try { const hit = c.get('pollState'); if (hit) return JSON.parse(hit); } catch (e) {}
+  const v = versions();
+  try { c.put('pollState', JSON.stringify(v), 3); } catch (e) {}
+  return v;
+}
+function pollStale() { try { roomCache().remove('pollState'); } catch (e) {} }
 function poll(since) {
-  const total = totalLines();
+  const v = pollState(), total = Number(v.total || 0);
+  let who = [];
+  if (since > 0 && since === total) {                             // 새 대화 없음 (가장 흔한 경우): 대화 탭을 읽지 않고 바로 답
+    try { who = presence(); } catch (e) {}
+    return { ok: true, v, lines: [], presence: who, from: since, jumped: false };
+  }
   let jumped = false;
   // 처음 접속이거나 너무 많이 밀렸으면 최근 300줄만 (앞부분은 "이전 대화 더 보기")
   if (since <= 0 || total - since > 600) { jumped = since > 0; since = Math.max(0, total - 300); }
   if (since > total) since = total;  // 시트가 비워졌는데 예전 번호로 물어본 경우
   const lines = readLines(since, 600);
-  let who = [];
   try { who = presence(); } catch (e) {}
-  return { ok: true, v: versions(), lines, presence: who, from: since, jumped };
+  return { ok: true, v, lines, presence: who, from: since, jumped };
 }
 
 function history(before, limit) {
@@ -1262,13 +1358,41 @@ function parseJson(text) {
 
 /* ───────────── 5분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
 function tick() {
+  const t0 = Date.now();
   try {
     const q = quietSkip();
+    tickMark(t0, q === 'idle' ? '쉬는 방' : q ? '요약 건너뜀' : '요약');
     if (q === 'idle') return;                                    // 쉬는 방: 캐릭터시트 다시 읽기도 건너뛴다 (세션이 시작되면 다시 돈다)
-    if (!q) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); }
-  } catch (e) { Logger.log(e); }
-  try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); }
+    if (!q) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); if (r && !r.ok && !r.busy && r.error) serverErr('자동 요약', r.error); }
+  } catch (e) { Logger.log(e); serverErr('자동 요약', e); }
+  try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); serverErr('캐릭터시트 읽기', e); }
+  tickMark(t0);
 }
+// 마지막 자동 실행 시각·걸린 시간·결과 (진단에서 보여 준다)
+function tickMark(t0, what) {
+  try { const c = roomCache(), o = JSON.parse(c.get('lastTick') || '{}'); o.at = t0; o.ms = Date.now() - t0; if (what) o.what = what; c.put('lastTick', JSON.stringify(o), 21600); } catch (e) {}
+}
+// 서버 쪽 오류도 '오류기록' 탭에 남긴다 (같은 오류가 몰리면 10분에 10건까지)
+function serverErr(where, e) {
+  try {
+    const c = roomCache(), n = Number(c.get('serr') || 0); if (n >= 10) return; c.put('serr', String(n + 1), 600);
+    const s = ensureSheet('오류기록');
+    s.appendRow([now(), enc('(서버) ' + where), CODE_VER, enc(String(e && (e.stack || e.message) || e).slice(0, 500))]);
+    if (s.getLastRow() > 520) s.deleteRows(2, s.getLastRow() - 501);
+  } catch (x) {}
+}
+/* 마스터 탭 '진단': 실제 방에서 핵심 규칙 점검 + 지금 상태를 한 번에 보여 준다 (AI 호출 없음) */
+function diag() {
+  const core = selfTestCore();
+  let trig = -1; try { trig = ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'tick').length; } catch (e) {}
+  const pend = confJson('pending', null), es = SpreadsheetApp.getActive().getSheetByName('오류기록');
+  const errs = es && es.getLastRow() > 1 ? es.getRange(Math.max(2, es.getLastRow() - 4), 1, Math.min(5, es.getLastRow() - 1), 4).getValues().reverse().map(r => [String(r[0]), decS(r[1]), String(r[2]), decS(r[3]).slice(0, 200)]) : [];
+  let last = null; try { last = JSON.parse(roomCache().get('lastTick') || 'null'); } catch (e) {}
+  return { ok: core.ok, core: core.log, ver: CODE_VER, info: {
+    lines: totalLines(), processed: Number(getConf('processedId') || 0), pendingError: pend && pend.lastError || '',
+    notesQ: notesQ().length, notesFail: notesFail().length, triggers: trig, lastTick: last, errors: errs, errorRows: es ? Math.max(0, es.getLastRow() - 1) : 0 } };
+}
+
 
 /* 자동 요약을 이번엔 쉴지: 새 대화가 조금뿐이거나(SUM_MIN_CHARS 미만) 마스터 발언이 없으면 쉰다.
  * 그래도 마지막 자동 요약에서 SUM_MAX_WAIT가 지났거나, 새 대화가 아예 없거나(AI를 부르지 않음), 정리 대기가 있으면 평소처럼 돈다.
