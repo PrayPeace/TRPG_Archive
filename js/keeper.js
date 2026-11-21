@@ -183,7 +183,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.27';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.28';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['now', '지금 장면'], ['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -887,7 +887,7 @@ async function kUpload(fileInput){
   const f = K.kbF, files = [...fileInput.files], pasted = f.paste.trim(), label = f.source.trim(), docUrl = String(f.doc || '').trim();
   if (!files.length && !pasted && !docUrl) { kProg('파일을 고르거나, 구글 문서 링크를 넣거나, 글을 붙여 넣어 주세요', true); return; }
   K.stop = false; K.uploading = true; K.upNote = '';
-  const jobs = [], notes = [], gen = K.gen; let ocrCalls = 0;      // gen: 올리기를 시작할 때의 자료 번호 (도중에 전체 지우기가 있었으면 서버가 받지 않는다)
+  const jobs = [], notes = []; let gen = K.gen, ocrCalls = 0;      // gen: 올리기를 시작할 때의 자료 번호 (도중에 전체 지우기가 있었으면 서버가 받지 않는다)
   const stopBtn = $('kUpStop'); if (stopBtn) { stopBtn.classList.remove('hide'); stopBtn.disabled = false; stopBtn.textContent = '멈추기'; }
   try {
     if (pasted) jobs.push({ source: label || '붙여 넣은 글', text: pasted });
@@ -929,8 +929,14 @@ async function kUpload(fileInput){
       const parts = chunkText(job.text, 7000);
       for (let i = 0; i < parts.length; i += 6) {
         kProg('"' + job.source + '" 올리는 중 ' + Math.min(parts.length, i + 6) + '/' + parts.length + '조각');
-        const r = await kpost({ action: 'kSrcAdd', source: job.source, parts: parts.slice(i, i + 6), gen });
-        if (!r.ok) throw new Error(r.error || '올리기 실패');
+        let r = await kpost({ action: 'kSrcAdd', source: job.source, parts: parts.slice(i, i + 6), gen });
+        if (!r.ok && r.stale && !added) {
+          // 이 화면이 자료를 받아 온 뒤(올리기 전에) 누가 "전체 지우기"를 했다: 이번 올리기는 아직 한 조각도 들어가지 않았으니
+          // 섞일 것이 없다. 새 자료 번호를 받아 한 번만 다시 보낸다. (올리는 도중에 지웠으면 그대로 멈춘다)
+          await kLoad(); K.uploading = true; gen = K.gen;
+          r = await kpost({ action: 'kSrcAdd', source: job.source, parts: parts.slice(i, i + 6), gen });
+        }
+        if (!r.ok) { if (r.stale) kLoad(); throw new Error(r.error || '올리기 실패'); }
         added += r.added;
       }
     }
