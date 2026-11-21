@@ -21,3 +21,5 @@ function tickMore()  { return TRPG.tickMore(); }
 function setup()     { return TRPG.setup(ROOM_PW_FIRST); }
 function fixTrigger(){ return TRPG.fixTrigger(); }
 function selfTest()  { return TRPG.selfTest(); }
+function selfTestCore(){ return TRPG.selfTestCore(); }   // 비용·마스터 격리·요약 건너뛰기 규칙 점검 (AI 호출 없음)
+function selfTestAi()  { return TRPG.selfTestAi(); }     // Claude·Deepgram 연결 점검

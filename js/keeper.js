@@ -24,6 +24,7 @@ async function keeperCall(body, busyText, okText){
 twoStep($('kSession'), () => keeperCall({ action: 'newSession' }, '이전 대화 정리 후 새 세션을 엽니다… (최대 3분)', r => { live.session = r.session; $('sessPill').textContent = '세션 ' + r.session; return '세션 ' + r.session + ' 시작'; }));
 twoStep($('kClear'), () => keeperCall({ action: 'clearLog' }, '지우는 중…'));
 twoStep($('kReset'), () => keeperCall({ action: 'resetAll' }, '초기화 중…'));
+$('kNfRetry').onclick = async () => { $('kNfRetry').disabled = true; const r = await kpost({ action: 'notesRetry' }); $('kNfRetry').disabled = false; $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
 $('kRuleSave').onclick = async () => { const r = await kpost({ action: 'setRule', rule: $('kRule').value }); $('kOut').textContent = r.ok ? r.message : r.error; refreshData(); };
 function tokTable(title, list, tot){
   const w = el('div'); w.append(el('div', 'k', title));
@@ -152,7 +153,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.17';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.18';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };

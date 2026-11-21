@@ -128,6 +128,26 @@ $('tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(
 let modalOnClose = null;
 function closeModal(){ $('modal').classList.add('hide'); $('modalBody').innerHTML = ''; $('modalBody').className = 'm'; $('modalBody').style.position = ''; const f = modalOnClose; modalOnClose = null; if (f) f(); }
 $('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+/* 접근성: 창이 열리면 대화상자로 알리고 첫 입력칸에 초점, Escape로 닫기, 닫으면 연 버튼으로 초점을 돌려준다 */
+(function(){
+  const md = $('modal'); let opener = null, lastOut = null;
+  document.addEventListener('focusin', e => { if (!md.contains(e.target)) lastOut = e.target; });
+  md.setAttribute('role', 'dialog'); md.setAttribute('aria-modal', 'true');
+  new MutationObserver(() => {
+    const open = !md.classList.contains('hide');
+    if (open && !opener) {
+      opener = (document.activeElement && !md.contains(document.activeElement) ? document.activeElement : lastOut) || document.body;
+      const h = $('modalBody').querySelector('h3'); if (h) { h.id = h.id || 'modalTitle'; md.setAttribute('aria-labelledby', h.id); }
+      let n = 0; $('modalBody').querySelectorAll('label').forEach(lb => { const f = lb.nextElementSibling; if (!lb.htmlFor && f && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName)) { f.id = f.id || 'mf' + (++n) + '_' + Date.now(); lb.htmlFor = f.id; } });   // 라벨과 칸 잇기
+      let fine = false; try { fine = matchMedia('(pointer: fine)').matches; } catch (_) {}
+      if (fine) setTimeout(() => { const f = $('modalBody').querySelector('input:not([type=hidden]),textarea,select,button'); if (f && !md.contains(document.activeElement)) f.focus(); }, 0);
+    } else if (!open && opener) { const o = opener; opener = null; try { if (document.contains(o)) o.focus(); } catch (_) {} }
+  }).observe(md, { attributes: true, attributeFilter: ['class'] });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !md.classList.contains('hide')) { closeModal(); return; }
+    const t = e.target; if ((e.key === 'Enter' || e.key === ' ') && t && t.classList && t.classList.contains('lk') && t.onclick) { e.preventDefault(); t.click(); }
+  });
+})();
 function openForm(title, fields, values, onSave, opts){
   const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
   m.append(el('h3', '', title));

@@ -61,7 +61,7 @@ flowchart LR
 | `Room.gs` | 방마다 시트에 붙은 스크립트 | `doGet`/`doPost`/`tick` 등을 `TRPG.*`로 넘기는 20줄짜리 연결 코드 |
 
 - 방은 라이브러리를 **HEAD(개발 모드)**로 참조하므로 엔진의 `Code.gs`만 저장하면 모든 방에 바로 반영됩니다. 재배포가 필요 없습니다.
-- 라이브러리 안에서 `SpreadsheetApp.getActive()`는 호출한 방의 시트를 가리킵니다. 반면 `CacheService`와 스크립트 속성은 엔진 하나를 모든 방이 공유하므로 캐시 키에 시트 ID를 붙여 방끼리 섞이지 않게 했습니다(`roomCache()`). 잠금은 문서 잠금(`getDocumentLock`)을 씁니다.
+- 라이브러리 안에서 `SpreadsheetApp.getActive()`는 호출한 방의 시트를 가리킵니다. 반면 `CacheService`와 스크립트 속성은 엔진 하나를 모든 방이 공유하므로 캐시 키에 시트 ID를 붙여 방끼리 섞이지 않게 했습니다(`roomCache()`). 잠금은 웹 요청과 트리거가 같은 것을 잡도록 스크립트 잠금 하나를 씁니다.
 
 ### 3. 외부 AI
 

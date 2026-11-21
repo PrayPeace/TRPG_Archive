@@ -54,9 +54,18 @@ function loadQueue(){
   }
   saveQueue();
 }
+/* 같은 방을 두 탭에서 열어도 서로의 미전송 말을 지우지 않게: 저장할 때 저장소에 있는 다른 탭의 말을 합친다.
+ * 이 탭이 서버 저장을 확인한 말(qGone)만 뺀다. 기기 저장이 실패하면(공간 부족 등) 화면에 알린다. */
+const qGone = new Set(); let qStoreErr = false;
 function saveQueue(){
   if (queue.length > QMAX) { toast('못 보낸 말이 너무 많아 오래된 ' + (queue.length - QMAX) + '줄을 버렸어요'); queue = queue.slice(-QMAX); }
-  if (cfg.url) S.set(qKey(), JSON.stringify(queue));
+  if (cfg.url) {
+    let other = []; try { other = JSON.parse(localStorage.getItem(qKey()) || '[]'); } catch (_) {}
+    const mine = new Set(queue.map(x => x.uid));
+    const all = queue.concat((Array.isArray(other) ? other : []).filter(x => x && x.uid && !mine.has(x.uid) && !qGone.has(x.uid)));
+    try { if (all.length) localStorage.setItem(qKey(), JSON.stringify(all.slice(-QMAX * 2))); else localStorage.removeItem(qKey()); qStoreErr = false; }
+    catch (_) { qStoreErr = true; }
+  }
   sendState();
 }
 function sendState(){
@@ -68,6 +77,7 @@ function sendState(){
   pill.classList.toggle('hide', !txt); pill.className = 'chip net ' + cls + (txt ? '' : ' hide');
   pill.lastChild.textContent = txt; pill.title = sendErr ? '마지막 오류: ' + sendErr + ' (자동으로 다시 보내요)' : '내 말이 시트에 저장됐는지';
   st.className = 'sendst' + (sendErr && n ? ' warn' : '');
+  if (qStoreErr && n) { pill.classList.remove('hide'); pill.className = 'chip net sendErr'; pill.lastChild.textContent = '⚠ 기기 보관 실패 · 미전송 ' + n + '줄'; pill.title = '이 기기 저장 공간이 부족해 못 보낸 말을 보관하지 못했어요. 이 창을 닫으면 사라질 수 있으니 연결이 돌아올 때까지 열어 두세요'; }
   st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (이 기기에 보관 중)' : '미전송 ' + n + '줄 보내는 중…') : (sentOnce ? '✔ 내 말 모두 저장됨' : '');
 }
 async function flush(){
@@ -80,6 +90,7 @@ async function flush(){
     const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
     if (!r.ok) { if (/비밀번호/.test(r.error || '')) authBad = true; throw new Error(r.error || '저장 실패'); }   // 비밀번호가 바뀌었으면 다시 입장할 때까지 보내지 않는다
     const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || []));
+    done.forEach(u => qGone.add(u));
     queue = queue.filter(q => !done.has(q.uid));
     if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
     sendErr = ''; sentOnce = true;

@@ -223,6 +223,7 @@ function linkify(text){
     if (ref.id && String(ref.id).indexOf('char:') === 0) a.onclick = e => { e.stopPropagation(); showTab('chars'); };
     else if (ref.id) a.onclick = e => { e.stopPropagation(); openDetail(ref.sec, ref.id); };
     else { a.style.cursor = 'default'; a.title = '장소 목록에 아직 없는 방이에요'; }
+    if (a.onclick) { a.tabIndex = 0; a.setAttribute('role', 'button'); }      // 키보드로도 열 수 있게 (Enter·Space)
     frag.append(a); last = m.index + m[0].length;
   }
   if (last < text.length) frag.append(text.slice(last));
@@ -919,6 +920,7 @@ $('thSave').onclick = async () => {
 
 function renderAll(d){
   data = d; colorMap = d.colors || {}; keeperName = d.keeperName || ''; applyRule(d.rule);
+  { const nf = Number(d.notesFail || 0); $('kNfRow').classList.toggle('hide', !nf); $('kNfTxt').textContent = '⚠ NPC·장소·단서 정리 중 실패해서 보관된 작업 ' + nf + '건 (원문은 그대로 있어요)'; }
   if (d.rule && d.rule.key) { const thNew = JSON.stringify(d.theme || {}); if (TH.rule !== d.rule.key || JSON.stringify(TH.t) !== thNew) { applyTheme(d.rule.key, d.theme); if (document.activeElement && !document.activeElement.id.startsWith('th')) thForm(); } thCache(cfg.url, d.rule.key, d.theme); }
   if (d.roomTitle != null) { const nm0 = (roomsGet().find(x => scriptUrl(x.url) === cfg.url) || {}); $('roomName').textContent = nm0.named ? nm0.name : (d.roomTitle || nm0.name || '방'); if (!nm0.url) roomRemember(d.roomTitle); else if (!nm0.named && d.roomTitle && nm0.name !== d.roomTitle) roomRemember(d.roomTitle); }
   renderRooms();
