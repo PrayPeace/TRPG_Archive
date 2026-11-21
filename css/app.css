@@ -576,3 +576,8 @@ html[data-theme=etc] #rBg .rb-pat{background:radial-gradient(ellipse 70% 45% at 
 .know-top input{flex:1;min-width:140px;max-width:320px}
 .know-top button.act{color:var(--gold2);border-color:rgba(232,184,74,.55)}
 .kquick{margin:6px 0;flex-wrap:wrap;gap:6px}
+
+/* 화면 구석 판 표시 (11-21.27) */
+#verTag{position:fixed;left:8px;bottom:6px;z-index:15;font-size:11px;color:var(--dim);opacity:.6;pointer-events:none;letter-spacing:.02em}
+#verTag:empty{display:none}
+#verTag.diff{opacity:.85;color:#d8b060}

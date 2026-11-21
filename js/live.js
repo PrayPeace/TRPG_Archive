@@ -4,6 +4,15 @@
 /* ── 주기적으로 읽어 오기 ── */
 let failCount = 0, live = {}, lastNewAt = Date.now();   // live: 마지막으로 받은 세션 번호·초기화 번호 (말할 때 붙여 둔다)
 function net(cls, text){ $('netPill').className = 'chip net ' + cls; $('netPill').lastChild.textContent = text; }
+/* 화면 구석의 판 표시: 화면(APP_VER)과 서버(CODE_VER). 예전 서버는 판을 알려 주지 않아 "예전 판"으로 적는다 */
+function verTag(code){
+  const el = $('verTag'); if (!el) return;
+  const sh = x => String(x || '').replace(/^\d{4}-/, '');
+  const app = typeof APP_VER === 'string' ? APP_VER : '';
+  el.textContent = '판 ' + sh(app) + (code === app ? '' : ' · 서버 ' + (code ? sh(code) : '예전 판'));
+  el.title = '화면 ' + app + ' · 서버 ' + (code || '예전 판 (판 번호를 알려 주지 않음)');
+  el.classList.toggle('diff', !!code && code !== app || !code);
+}
 async function pollOnce(){
   try {
     const r = await api('poll', { since: lastId, me: cfg.name, mic: micStatus, why: micStatus === 'off' ? micWhy : '', hid: document.hidden ? '1' : '' });
@@ -17,7 +26,7 @@ async function pollOnce(){
       setTimeout(pollOnce, 300); return;
     }
     live = { session: v.session, resetVer: v.resetVer }; sessMark();
-    $('sessPill').textContent = '세션 ' + v.session;
+    $('sessPill').textContent = '세션 ' + v.session; verTag(v.code);
     if (r.jumped) resetLog();                       // 너무 오래 끊겨 있었으면 최근 300줄부터 다시
     if (!lastId) hasOlder = r.from > 0;
     addLogLines(r.lines, { quiet: !lastId });
