@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.15';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.16';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -652,7 +652,7 @@ function doGet(e) {
       case 'sessionLines':return out(sessionLines(String(p.session || '')));
       case 'sessions':    return out(sessionList());
       case 'evidence':    return out(evidence(csv(p.uids), csv(p.ids).map(Number), String(p.rv || ''), Number(p.ctx || 2), p.session));
-      case 'ping':  return out({ ok: true, title: roomTitle(), rule: ruleKey() });
+      case 'ping':  return out({ ok: true, title: roomTitle(), rule: ruleKey(), theme: confJson('theme', {}) });
     }
     return out({ ok: false, error: '알 수 없는 요청' });
   } catch (err) { return out({ ok: false, error: String(err && err.message || err) }); }
@@ -709,6 +709,7 @@ function doPost(e) {
       case 'charsPreview': return out(charPreview(b.url, b.map));
       case 'charsRefresh': return out(refreshCharacters(!b.soft));
       case 'image':      return out(addImage(b.data, b.mime, b.caption));
+      case 'setTheme':   return out(setTheme(b.theme));
       case 'keeperName': withLock(20000, () => { setConf('keeperName', String(b.name || '').trim().slice(0, 40)); bump('notesVer'); }); return out({ ok: true });
       case 'clearLog':   return out(clearLog(false));
       case 'resetAll':   return out(clearLog(true));
@@ -792,6 +793,23 @@ function newRoom(name, rule, pw) {
   if (cs) cs.getRange(1, 1, rows.length, 2).setNumberFormat('@').setValues(rows);
   return { ok: true, url: c.getUrl(), name, file: roomFileName(rule, name), rule: RULES[rule].name, ruleKey: rule,
     message: '새 방 "' + name + '"(' + RULES[rule].name + ')을 만들었어요. 지금 방의 기록은 그대로예요.' };
+}
+/* 방 테마: 마스터가 고른 값만 설정 탭 theme(JSON)에 저장. 비어 있으면 화면이 룰에 맞는 기본 테마를 쓴다 */
+const THEMES = ['coc', 'ta', 'uw', 'sg', 'etc'];
+function setTheme(t) {
+  t = t || {};
+  const hex = v => /^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : '';
+  const bg = String(t.bg || '').trim();
+  const clean = {
+    preset: THEMES.indexOf(t.preset) >= 0 ? t.preset : '',
+    accent: hex(t.accent),
+    bg: /^https:\/\/[^\s"'()<>]{4,600}$/.test(bg) ? bg : '',
+    dim: Math.max(30, Math.min(95, Math.round(Number(t.dim) || 75))),
+    intro: t.intro === false ? false : true
+  };
+  if (bg && !clean.bg) return { ok: false, error: '배경 이미지는 https:// 로 시작하는 주소만 넣을 수 있어요' };
+  withLock(20000, () => { setConf('theme', JSON.stringify(clean)); bump('notesVer'); });
+  return { ok: true, theme: clean, message: '방 테마를 저장했어요. 모든 플레이어 화면에 곧 반영돼요' };
 }
 function setRule(k) {
   k = String(k || '');
@@ -915,7 +933,8 @@ function allData() {
     charUrl: getConf('charUrl'), charMap: confJson('charMap', []), colors: confJson('colors', {}),
     corrections: confJson('corrections', []),
     recap: confJson('recap', null), awards: confJson('awards', null),     // 마스터가 '공개'를 누른 것만 들어 있다
-    bookmarks: confJson('bookmarks', [])
+    bookmarks: confJson('bookmarks', []),
+    theme: confJson('theme', {})                                         // 방 테마 (마스터가 고름, 비어 있으면 룰을 따라감)
   };
 }
 

@@ -528,6 +528,47 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
   .lb-screen{border-radius:0}
   .lb-notch,.lb-hbar{display:none}
 }
+/* ── 방 테마 (룰마다 기본, 마스터가 바꿀 수 있음) ── */
+html:not(.lob)[data-theme=coc]{--bg:#120f0b;--bg2:#18140e;--panel:#1e1912;--panel2:#272017;--line:#3a3023;--line2:#4b3e2c;--txt:#eee4cf;--dim:#b8a98b;--faint:#7f725c;--gold:#c99a4e;--gold2:#e4b66c;--ink:#140f08}
+html:not(.lob)[data-theme=ta]{--bg:#0e0a0b;--bg2:#140e0f;--panel:#1a1213;--panel2:#24191a;--line:#3d2427;--line2:#552f33;--txt:#f4ece6;--dim:#bba9a6;--faint:#7e6a68;--gold:#e3222f;--gold2:#ff4753;--ink:#fff}
+html:not(.lob)[data-theme=uw]{--bg:#0a1114;--bg2:#0e171b;--panel:#121e23;--panel2:#18272d;--line:#23383f;--line2:#2e4a53;--txt:#e4f1f0;--dim:#93aeb0;--faint:#5f7a7d;--gold:#3fc8b8;--gold2:#6fe3d5;--ink:#04201c}
+html:not(.lob)[data-theme=sg]{--bg:#0c0c14;--bg2:#11111b;--panel:#161624;--panel2:#1d1d2e;--line:#2b2b42;--line2:#3a3a56;--txt:#ece8e1;--dim:#a6a2b4;--faint:#6c6880;--gold:#e0573d;--gold2:#ff7a5c;--ink:#fff}
+html[data-theme] .top{background:color-mix(in srgb,var(--bg) 90%,transparent)}
+html[data-theme=coc] .brand,html[data-theme=coc] #app h2,html[data-theme=coc] #app h3,html[data-theme=coc] #rIntro .ri-nm{font-family:"Noto Serif KR","Nanum Myeongjo",Batang,serif;letter-spacing:0}
+html[data-theme=ta] .brand,html[data-theme=ta] #rIntro .ri-nm{font-weight:900;letter-spacing:-.02em}
+html[data-theme] body{background:transparent}
+#rBg{position:fixed;inset:0;z-index:-1;pointer-events:none;background:var(--bg)}
+#rBg .rb-img{position:absolute;inset:0;background:center/cover no-repeat}
+#rBg .rb-dim{position:absolute;inset:0;background:var(--bg)}
+#rBg .rb-pat{position:absolute;inset:0}
+html[data-theme=coc] #rBg .rb-pat{background:radial-gradient(ellipse 70% 50% at 50% -5%,rgba(214,160,80,.2),transparent 70%),radial-gradient(ellipse 90% 60% at 50% 115%,rgba(0,0,0,.55),transparent 70%),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.8' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .8 0 0 0 0 .65 0 0 0 0 .4 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+html[data-theme=ta] #rBg .rb-pat{background:linear-gradient(-18deg,transparent 0 58%,rgba(227,34,47,.14) 58% 66%,rgba(244,236,230,.06) 66% 67.5%,transparent 67.5%),url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 8 L94 88 L6 88Z' fill='none' stroke='%23e3222f' stroke-opacity='.13' stroke-width='3'/%3E%3C/svg%3E") 92% 12%/min(52vw,520px) no-repeat,radial-gradient(rgba(227,34,47,.11) 1.2px,transparent 1.6px) 0 0/14px 14px}
+html[data-theme=uw] #rBg .rb-pat{background:radial-gradient(ellipse 80% 40% at 50% 110%,rgba(63,200,184,.22),transparent 70%),radial-gradient(rgba(220,255,250,.18) 1px,transparent 1.5px) 0 0/97px 89px,radial-gradient(rgba(220,255,250,.1) 1px,transparent 1.5px) 40px 30px/61px 53px}
+html[data-theme=sg] #rBg .rb-pat{background:radial-gradient(circle at 84% 14%,rgba(240,226,200,.15) 0 min(11vw,110px),rgba(240,226,200,.05) min(11.5vw,115px),transparent min(20vw,200px)),linear-gradient(-28deg,transparent 0 70%,rgba(224,87,61,.12) 70% 71.5%,transparent 71.5%),repeating-radial-gradient(circle at 50% 140%,transparent 0 22px,rgba(160,150,220,.06) 22px 24px)}
+html[data-theme=etc] #rBg .rb-pat{background:radial-gradient(ellipse 70% 45% at 50% -5%,rgba(214,168,78,.13),transparent 70%)}
+/* 방 입장 연출 (1~2초, 깜빡임 없음, 누르면 넘김) */
+#rIntro{position:fixed;inset:0;z-index:9000;background:var(--bg);display:grid;place-items:center;overflow:hidden;cursor:pointer;transition:opacity .45s ease}
+#rIntro.out{opacity:0}
+#rIntro .ri-c{position:relative;text-align:center;padding:0 24px;z-index:2}
+#rIntro .ri-k{font-size:12px;letter-spacing:.35em;color:var(--dim);opacity:0;animation:riUp .6s ease .25s forwards}
+#rIntro .ri-nm{font-size:clamp(28px,8vw,46px);font-weight:800;color:var(--txt);margin:10px 0 8px;opacity:0;animation:riUp .7s cubic-bezier(.2,.8,.2,1) .4s forwards}
+#rIntro .ri-r{font-size:13px;color:var(--gold2);opacity:0;animation:riUp .6s ease .65s forwards}
+@keyframes riUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+#rIntro .ri-glow{position:absolute;left:50%;top:50%;width:520px;height:520px;margin:-260px 0 0 -260px;border-radius:50%;background:radial-gradient(circle,rgba(240,180,90,.28),rgba(240,180,90,.06) 45%,transparent 70%);transform:scale(.2);opacity:0;animation:riGlow 1.4s ease-out forwards}
+@keyframes riGlow{to{transform:scale(1);opacity:1}}
+#rIntro .ri-flame{width:10px;height:26px;margin:0 auto 14px;border-radius:50% 50% 45% 45%/65% 65% 35% 35%;background:radial-gradient(ellipse at 50% 70%,#fff3c4,#f0b45a 55%,rgba(240,120,40,0) 75%);opacity:0;animation:riUp .5s ease .1s forwards,riSway 1.8s ease-in-out .6s infinite alternate;transform-origin:50% 100%}
+@keyframes riSway{from{transform:rotate(-3deg)}to{transform:rotate(3deg) scaleY(1.06)}}
+#rIntro .ri-band{position:absolute;left:-20%;width:140%;top:70%;height:64px;background:#e3222f;transform:rotate(-12deg) translateX(-110%);animation:riBand .5s cubic-bezier(.2,.9,.2,1) .05s forwards}
+#rIntro .ri-band.b2{top:78%;height:10px;background:#f4ece6;animation-delay:.15s}
+@keyframes riBand{to{transform:rotate(-12deg) translateX(0)}}
+#rIntro .ri-stamp{display:inline-block;margin-top:14px;padding:6px 14px;border:3px solid #e3222f;color:#e3222f;font-weight:900;font-size:17px;letter-spacing:.08em;transform:rotate(-8deg) scale(1.7);opacity:0;animation:riStamp .35s cubic-bezier(.3,1.5,.5,1) .85s forwards}
+@keyframes riStamp{to{transform:rotate(-8deg) scale(1);opacity:1}}
+#rIntro .ri-line{width:0;height:1px;margin:0 auto 16px;background:linear-gradient(90deg,transparent,var(--gold2),transparent);animation:riLine .9s ease-out .1s forwards}
+@keyframes riLine{to{width:min(80vw,420px)}}
+#rIntro .ri-enso{width:120px;height:120px;margin:0 auto 6px;display:block}
+#rIntro .ri-enso circle{fill:none;stroke:var(--gold);stroke-width:7;stroke-linecap:round;stroke-dasharray:330;stroke-dashoffset:330;animation:riEnso .9s cubic-bezier(.5,0,.3,1) .05s forwards;transform:rotate(-100deg);transform-origin:50% 50%}
+@keyframes riEnso{to{stroke-dashoffset:28}}
+#rIntro .ri-d20{width:72px;height:72px;margin:0 auto 4px;display:block;opacity:0;animation:riUp .6s ease .05s forwards}
 </style>
 </head>
 <body>
@@ -572,6 +613,7 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 </div>
 
 <!-- 본 화면 -->
+<div id="rBg" class="hide"><div class="rb-img"></div><div class="rb-dim"></div><div class="rb-pat"></div></div>
 <div id="app" class="hide">
   <div class="top">
     <div class="top-in">
@@ -733,6 +775,13 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
 
             <label>룰 (AI가 쓰는 말과 정리 칸 이름이 바뀌어요 · 쌓인 기록은 그대로)</label>
             <div class="row"><select id="kRule" class="grow"></select><button id="kRuleSave">바꾸기</button></div>
+
+            <label>방 테마 (모든 플레이어 화면에 보여요 · '룰 따라가기'면 룰에 맞는 테마가 자동으로)</label>
+            <div class="row"><select id="thPreset" class="grow"><option value="">룰 따라가기</option><option value="coc">크툴루 · 낡은 수사 기록</option><option value="ta">에이전시 · 빨강과 아이보리</option><option value="uw">언리미티드 월드 · 별빛 청록</option><option value="sg">시노비가미 · 달밤과 주홍</option><option value="etc">기본 · 남색과 금색</option></select>
+              <label style="margin:0;display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" id="thAccOn" style="width:auto">강조색</label><input type="color" id="thAcc" value="#d6a84e" style="width:48px;padding:2px;height:36px"></div>
+            <div class="row" style="margin-top:8px"><input id="thBg" class="grow" placeholder="배경 이미지 주소 (https://… · 비우면 테마 무늬)"><span class="note">배경 어둡게</span><input type="range" id="thDim" min="30" max="95" value="75" style="width:110px;padding:0"></div>
+            <div class="row" style="margin-top:8px"><label style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="thIntro" style="width:auto" checked>방에 들어올 때 입장 연출</label><span class="grow"></span><button id="thPrev">미리 보기</button><button class="pri" id="thSave">테마 저장</button></div>
+            <div id="thOut" class="note"></div>
 
             <label>새 방 만들기 (다른 멤버와 새 캠페인 · 지금 방의 기록은 그대로)</label>
             <div class="row"><input id="nrName" class="grow" placeholder="새 방 이름 (예: 시노비가미 · 목요일 팀)"><select id="nrRule"></select><button id="nrGo">새 방 만들기</button></div>
@@ -1227,7 +1276,7 @@ async function switchRoom(r){
   try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
   if (cfg.kt) { try { await Promise.race([post({ action: 'klogout', kt: cfg.kt }), sleep(2000)]); } catch(_) {} }
   SS.del('t_kt'); S.del('t_kt'); S.del('t_colorSent');
-  S.set('t_url', r.url); S.set('t_pw', r.pw || ''); SS.set('t_in', scriptUrl(r.url));
+  S.set('t_url', r.url); S.set('t_pw', r.pw || ''); SS.set('t_in', scriptUrl(r.url)); SS.set('t_enter', '1');
   location.reload();
 }
 function applyRule(r){
@@ -1807,8 +1856,62 @@ function renderImgs(list){
 }
 $('lightbox').onclick = () => $('lightbox').classList.add('hide');
 
+
+/* ── 방 테마 ── 룰마다 기본 테마, 마스터가 고른 값(설정 탭 theme)이 있으면 그게 우선 */
+const TH_OF_RULE = { coc: 'coc', triangle: 'ta', unlimited: 'uw', shinobi: 'sg', etc: 'etc' };
+const TH_NM = { coc: '— 수사 기록 —', ta: 'AGENCY OS · 근무지', uw: 'UNLIMITED WORLD', sg: '忍 · 시노비가미', etc: 'TRPG ARCHIVE' };
+let TH = { key: 'etc', t: {} };
+function thKey(rule, t){ return (t && t.preset) || TH_OF_RULE[rule] || 'etc'; }
+function thCache(url, rule, t){ try { S.set('t_th:' + scriptUrl(url), JSON.stringify({ rule, t: t || {} })); } catch(_) {} }
+function thCached(url){ try { return JSON.parse(S.get('t_th:' + scriptUrl(url)) || 'null'); } catch(_) { return null; } }
+function thInk(hex){ const n = parseInt(hex.slice(1), 16), r = n >> 16, g = n >> 8 & 255, b = n & 255; return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#0b0c0f' : '#fff'; }
+function applyTheme(rule, t){
+  t = t || {}; const key = thKey(rule, t), root = document.documentElement;
+  TH = { key, t, rule };
+  root.dataset.theme = key;
+  let ac = $('thAccCss'); if (!ac) { ac = document.createElement('style'); ac.id = 'thAccCss'; document.head.append(ac); }
+  ac.textContent = t.accent ? 'html:not(.lob)[data-theme]{--gold:' + t.accent + ';--gold2:' + t.accent + ';--ink:' + thInk(t.accent) + '}' : '';
+  if (key === 'coc' && !$('thFont')) { const l = document.createElement('link'); l.id = 'thFont'; l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;800&display=swap'; document.head.append(l); }
+  const bg = $('rBg'); bg.classList.remove('hide');
+  bg.querySelector('.rb-img').style.backgroundImage = t.bg ? 'url("' + t.bg.replace(/"/g, '') + '")' : '';
+  bg.querySelector('.rb-dim').style.opacity = t.bg ? (t.dim || 75) / 100 : 0;
+  const mc = document.querySelector('meta[name="theme-color"]'); if (mc) mc.content = getComputedStyle(root).getPropertyValue('--bg').trim() || '#0e1014';
+}
+function roomIntro(name){
+  if ($('rIntro') || TH.t.intro === false) return;
+  const k = TH.key, o = el('div'); o.id = 'rIntro';
+  const c = el('div', 'ri-c');
+  if (k === 'coc') { o.append(el('div', 'ri-glow')); c.append(el('div', 'ri-flame')); }
+  if (k === 'ta') { o.append(el('div', 'ri-band'), el('div', 'ri-band b2')); }
+  if (k === 'uw') c.append(el('div', 'ri-line'));
+  if (k === 'sg') { const sv = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); sv.setAttribute('viewBox', '0 0 120 120'); sv.setAttribute('class', 'ri-enso'); sv.innerHTML = '<circle cx="60" cy="60" r="50"/>'; c.append(sv); }
+  if (k === 'etc') { const i = el('img', 'ri-d20'); i.src = 'icon.png?v=2'; i.alt = ''; c.append(i); }
+  c.append(el('div', 'ri-k', TH_NM[k] || ''), el('div', 'ri-nm', name || '방'), el('div', 'ri-r', RULE_NM[TH.rule] || ''));
+  if (k === 'ta') c.append(el('div', 'ri-stamp', '출근 기록 완료'));
+  o.append(c); document.body.append(o);
+  const born = Date.now(); let gone = false;
+  const end = () => { if (gone) return; gone = true; o.classList.add('out'); setTimeout(() => o.remove(), 480); };
+  o.onclick = () => { if (Date.now() - born > 300) end(); };
+  setTimeout(end, 1900);
+}
+function thForm(){
+  const t = TH.t || {};
+  $('thPreset').value = t.preset || ''; $('thAccOn').checked = !!t.accent; if (t.accent) $('thAcc').value = t.accent;
+  $('thBg').value = t.bg || ''; $('thDim').value = t.dim || 75; $('thIntro').checked = t.intro !== false;
+}
+function thRead(){ return { preset: $('thPreset').value, accent: $('thAccOn').checked ? $('thAcc').value : '', bg: $('thBg').value.trim(), dim: +$('thDim').value, intro: $('thIntro').checked }; }
+$('thPrev').onclick = () => { const t = thRead(); applyTheme(TH.rule, t); const keep = TH.t.intro; TH.t.intro = true; $('rIntro') && $('rIntro').remove(); roomIntro($('roomName').textContent); TH.t.intro = keep; $('thOut').textContent = '미리 보기는 이 화면에만 보여요. 모두에게 보이려면 테마 저장을 눌러 주세요'; };
+$('thAcc').oninput = () => { $('thAccOn').checked = true; };
+$('thSave').onclick = async () => {
+  $('thSave').disabled = true; $('thOut').textContent = '저장 중…';
+  const r = await kpost({ action: 'setTheme', theme: thRead() }); $('thSave').disabled = false;
+  $('thOut').textContent = r.ok ? r.message : (r.error || '저장하지 못했어요');
+  if (r.ok) { applyTheme(TH.rule, r.theme); thCache(cfg.url, TH.rule, r.theme); refreshData(); }
+};
+
 function renderAll(d){
   data = d; colorMap = d.colors || {}; keeperName = d.keeperName || ''; applyRule(d.rule);
+  if (d.rule && d.rule.key) { const thNew = JSON.stringify(d.theme || {}); if (TH.rule !== d.rule.key || JSON.stringify(TH.t) !== thNew) { applyTheme(d.rule.key, d.theme); if (document.activeElement && !document.activeElement.id.startsWith('th')) thForm(); } thCache(cfg.url, d.rule.key, d.theme); }
   if (d.roomTitle != null) { const nm0 = (roomsGet().find(x => scriptUrl(x.url) === cfg.url) || {}); $('roomName').textContent = nm0.named ? nm0.name : (d.roomTitle || nm0.name || '방'); if (!nm0.url) roomRemember(d.roomTitle); else if (!nm0.named && d.roomTitle && nm0.name !== d.roomTitle) roomRemember(d.roomTitle); }
   renderRooms();
   $('sessPill').textContent = '세션 ' + d.v.session;
@@ -2502,7 +2605,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.15';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.16';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -3802,7 +3905,7 @@ function lobbyEnter(r){
         const res = await (await fetch(url + '?' + new URLSearchParams({ action: 'ping', pw: p }))).json();
         if (!res.ok) { msg.err(res.error || '비밀번호를 확인해 주세요'); go.disabled = false; return; }
         const a = roomsGet().filter(x => scriptUrl(x.url) !== url); a.unshift({ name: r.name, rule: res.rule || r.rule, url, pw: p }); roomsSet(a);
-        S.set('t_name', name); SS.set('t_in', url);
+        S.set('t_name', name); SS.set('t_in', url); SS.set('t_enter', '1'); thCache(url, res.rule || r.rule, res.theme);
         if (cfg.url && cfg.url !== url && $('app') && !$('app').classList.contains('hide')) { await switchRoom({ url, pw: p }); return; }
         S.set('t_url', url); S.set('t_pw', p); location.reload();
       } catch (e) { msg.err('방에 연결하지 못했어요. 잠시 뒤 다시 해 주세요'); go.disabled = false; }
@@ -4089,7 +4192,7 @@ function unlock(){
   document.addEventListener('keydown', e => { if (!$('lobby').classList.contains('hide') && !lk.classList.contains('lb-up') && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowUp')) unlock(); });
 })();
 async function lobbyShow(fromApp){
-  L.fromApp = !!fromApp; sheetClose();
+  L.fromApp = !!fromApp; sheetClose(); document.documentElement.classList.add('lob');
   $('lobby').classList.remove('hide'); $('join').classList.add('hide');
   $('lLock').classList.toggle('lb-up', !!fromApp);          // 앱 안에서 열면 잠금 화면은 건너뛴다
   if (fromApp) lobbyBg();
@@ -4098,12 +4201,14 @@ async function lobbyShow(fromApp){
   if (!L.kt && cfg.kt && cfg.url && cfg.url === L.hub) L.kt = cfg.kt;     // 로비 방에 마스터로 들어와 있으면 그 로그인을 그대로 쓴다
   lobbyLoad();
 }
-function lobbyHide(){ $('lobby').classList.add('hide'); clearInterval(L.timer); }
+function lobbyHide(){ $('lobby').classList.add('hide'); document.documentElement.classList.remove('lob'); clearInterval(L.timer); }
 
 /* ── 시작 ── */
 function start(){
   SS.set('t_in', cfg.url);
   $('join').classList.add('hide'); $('app').classList.remove('hide');
+  { const c0 = thCached(cfg.url), r0 = (roomsGet().find(x => scriptUrl(x.url) === scriptUrl(cfg.url)) || {}); applyTheme((c0 && c0.rule) || r0.rule || 'etc', c0 && c0.t);
+    if (SS.get('t_enter')) { SS.del('t_enter'); roomIntro(r0.name || ''); } }
   $('meName').textContent = cfg.name; $('sName').value = cfg.name; $('meDot').style.background = colorOf(cfg.name);
   if (!navigator.mediaDevices || !window.MediaRecorder) { micState('err', '받아쓰기 불가'); $('micInfo').textContent = '이 브라우저는 받아쓰기를 못 해요 (PC 크롬 권장)'; $('micBtn').disabled = true; }
   renderWho([]); drawSwatches();
