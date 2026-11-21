@@ -7,7 +7,7 @@
  *   node tools/release.js restore <되돌림표>   중간에 끊긴 실행이 남긴 "되돌림표"(기록에 찍힌 한 줄)대로 대상 방을 바꾸기 전 상태로 되돌린다
  *   node tools/release.js drill              (연습 방 전용) 승격 → 말 하나 → 되돌리기 → 말 하나 → 다시 승격, 매번 /exec 판과 모든 발언(번호·발언ID·이름·시각·회차·원문)이 그대로인지 확인
  * 환경 변수: TARGET=prod|practice, ENGINE_SCRIPT_ID, PROD_ROOMS, PRACTICE_ROOMS(각 줄/쉼표마다 "스크립트ID:배포ID"), PRACTICE_PW(연습 방 비밀번호, drill용),
- *            ENGINE_DEPLOY_ID(선택: 엔진 웹 앱 배포ID. 있으면 엔진 주소로 직접 도는 방이 있는지 알려 준다), CODE_VER, GITHUB_SHA, STATE_FILE(되돌림표를 적을 파일)
+ *            ENGINE_DEPLOY_ID(선택: 엔진 웹 앱 배포ID. 없으면 엔진의 배포를 하나씩 불러 보고 찾는다), ALLOW_HOSTED_ROOMS(yes면 엔진 주소로 직접 도는 방이 있어도 계속), CODE_VER, GITHUB_SHA, STATE_FILE(되돌림표를 적을 파일)
  *
  * 방 하나의 상태는 세 가지다. 셋을 따로 적어 두고 따로 되돌린다.
  *   ① HEAD 매니페스트의 라이브러리 (lib): 방의 자동 정리(트리거)가 쓰는 엔진 버전
@@ -15,7 +15,7 @@
  *   ③ /exec?action=ver 응답 (exec): 실제로 답하는 엔진 판
  * 바꾸기 전에 모든 대상 방의 ①②③을 먼저 적고(되돌림표), 그다음에 바꾼다. 어느 단계에서 실패하든 손댄 방(실패한 방 포함)을 ①②로 되돌리고 ③을 다시 확인한다.
  * 운영 방과 연습 방 목록이 겹치면 아무것도 하지 않고 멈춘다. drill은 운영 방에는 절대 돌지 않는다. 시트 기록은 어떤 모드도 건드리지 않는다. */
-const cp = require('child_process'), fs = require('fs'), path = require('path'), os = require('os');
+const crypto = require('crypto'), cp = require('child_process'), fs = require('fs'), path = require('path'), os = require('os');
 const { pin, libState } = require('./pin-room.js');
 function parseRooms(s) {
   return String(s || '').split(/[\n,;]+/).map(x => x.trim()).filter(Boolean).map(x => {
@@ -44,13 +44,72 @@ function checkSeparate(prod, practice) {
   dupe(prod, '운영 방'); dupe(practice, '연습 방');
 }
 const libTxt = l => !l ? '?' : l.dev ? 'HEAD' : '버전 ' + l.version;
-// 되돌림표 한 줄: "1=7@12,2=head@9" (방 번호=라이브러리@방 프로젝트 버전). 스크립트ID·배포ID는 넣지 않는다 (기록에 남아도 되게)
-function stateLine(states) { return states.map(s => s.n + '=' + (s.lib.dev ? 'head' : s.lib.version) + '@' + s.deployVer).join(','); }
-function parseState(str) {
-  return String(str || '').split(/[,\s]+/).filter(Boolean).map(x => {
-    const m = /^(\d+)=(head|\d+)@(\d+)$/.exec(x); if (!m) throw new Error('되돌림표 형식이 "방번호=라이브러리@방버전"이 아니에요: ' + x.slice(0, 20));
-    return { n: Number(m[1]), lib: m[2] === 'head' ? { dev: true, version: '' } : { dev: false, version: m[2] }, deployVer: m[3], exec: '', restored: true };
+/* 방 식별값: 스크립트ID:배포ID를 한 방향으로 줄인 9글자 (r + 16진수 8자). 기록에 남아도 원래 ID를 알 수 없고, 방 목록의 순서가 바뀌어도 같은 방은 같은 값이다. */
+function roomTag(room) { return 'r' + crypto.createHash('sha256').update(room.sid + ':' + room.did).digest('hex').slice(0, 8); }
+/* 되돌림표 한 줄: "r3fa1b2c4=7@12!2026-11-21.25,r9c0d1e2f=head@9"  (방 식별값=라이브러리@방 프로젝트 버전!바꾸기 전 /exec 판).
+ * 방 번호(목록에서 몇 번째)가 아니라 방 식별값으로 적는다: 되돌림표를 만든 뒤 방 목록의 순서가 바뀌거나 방이 빠져도 다른 방을 건드리지 않게. */
+function stateLine(states) { return states.map(s => (s.tag || '?') + '=' + (s.lib.dev ? 'head' : s.lib.version) + '@' + s.deployVer + (s.exec ? '!' + s.exec : '')).join(','); }
+/* 되돌림표를 지금 방 목록(rooms)에 맞춰 읽는다. 하나라도 어긋나면 오류를 던진다 (부르는 쪽은 그때 아무 방도 바꾸지 않는다):
+ * 형식이 틀림 · 예전 형식(방 번호) · 같은 방이 두 번 · 지금 목록에 없는 방 · 지금 목록에는 있는데 되돌림표에 없는 방(목록이 달라짐) · 지금 목록에 같은 방이 두 번 */
+function parseState(str, rooms) {
+  const parts = String(str || '').split(/[,\s]+/).filter(Boolean);
+  if (!parts.length) throw new Error('되돌림표가 비어 있어요');
+  if (!Array.isArray(rooms)) throw new Error('되돌림표를 읽으려면 지금 방 목록이 필요해요');
+  const tags = rooms.map(roomTag);
+  if (new Set(tags).size !== tags.length) throw new Error('지금 방 목록에 같은 방이 두 번 들어 있어요');
+  const seen = new Set();
+  const out = parts.map(x => {
+    if (/^\d+=/.test(x)) throw new Error('예전 형식(방 번호)의 되돌림표예요: ' + x.slice(0, 20) + ' · 방 번호만으로는 어느 방인지 확인할 수 없어서 쓰지 않아요. 방마다 mode=rollback이나 손으로 되돌려 주세요');
+    const m = /^(r[0-9a-f]{8})=(head|\d+)@(\d+)(?:!(\d{4}-\d{2}-\d{2}\.\d+))?$/.exec(x); if (!m) throw new Error('되돌림표 형식이 "방식별값=라이브러리@방버전"이 아니에요: ' + x.slice(0, 24));
+    if (seen.has(m[1])) throw new Error('되돌림표에 같은 방(' + m[1] + ')이 두 번 들어 있어요'); seen.add(m[1]);
+    const i = tags.indexOf(m[1]); if (i < 0) throw new Error('되돌림표의 방 ' + m[1] + '이 지금 방 목록에 없어요 (되돌림표를 만든 뒤 방 목록이 바뀌었거나 target이 달라요). 아무 방도 바꾸지 않았어요');
+    return { n: i + 1, i, tag: m[1], lib: m[2] === 'head' ? { dev: true, version: '' } : { dev: false, version: m[2] }, deployVer: m[3], exec: m[4] || '', restored: true };
   });
+  const miss = tags.filter(t => !seen.has(t));
+  if (miss.length) throw new Error('지금 방 목록의 방 ' + miss.length + '개(' + miss.join(', ') + ')가 되돌림표에 없어요 (되돌림표를 만든 뒤 방 목록이 바뀜). 아무 방도 바꾸지 않았어요');
+  return out;
+}
+const sameState = (now, st) => String(now.deployVer) === String(st.deployVer) && !!now.lib.dev === !!st.lib.dev && (st.lib.dev || String(now.lib.version) === String(st.lib.version));
+/* 되돌림표대로 되돌린다. io = { snapshot(room, n), restore(room, st, n), verify(room, expect, n), log }.
+ * ① 되돌림표를 지금 방 목록과 맞춰 본다 (어긋나면 아무 방도 안 바꿈) ② 모든 대상 방의 지금 상태를 읽는다 (하나라도 못 읽으면 아무 방도 안 바꿈)
+ * ③ 이미 그 상태인 방은 건드리지 않는다 ④ 방마다 되돌리고 → 상태를 다시 읽어 되돌림표와 같은지 → /exec가 되돌림표에 적힌 판으로 답하는지 확인
+ * 한 방이 실패해도 나머지 방은 계속 되돌린다 (되돌리기는 방마다 따로라서). 끝에 방별 결과를 돌려주고, 실패가 있으면 그 목록을 담은 오류를 던진다. */
+async function restoreAll(rooms, str, io) {
+  const want = parseState(str, rooms), before = [];
+  try { for (const st of want) before.push(await io.snapshot(rooms[st.i], st.n)); }
+  catch (e) { const err = new Error(e.message + ' · 지금 상태를 읽지 못해서 아무 방도 되돌리지 않았어요'); err.untouched = true; throw err; }
+  for (let k = 0; k < want.length; k++) if (before[k].tag && before[k].tag !== want[k].tag) { const err = new Error('방 ' + want[k].n + ': 읽어 온 방이 되돌림표의 방과 달라요 · 아무 방도 되돌리지 않았어요'); err.untouched = true; throw err; }
+  const done = [], same = [], stuck = [];
+  for (let k = 0; k < want.length; k++) {
+    const st = want[k], room = rooms[st.i], who = '방 ' + st.n + '(' + st.tag + ')';
+    try {
+      let changed = false;
+      if (sameState(before[k], st)) io.log(who + ': 이미 되돌림표의 상태예요 (라이브러리 ' + libTxt(st.lib) + ', 방 버전 ' + st.deployVer + '). 바꾸지 않아요');
+      else { changed = true; await io.restore(room, st, st.n); const after = await io.snapshot(room, st.n); if (!sameState(after, st)) throw new Error('되돌린 뒤 상태(라이브러리 ' + libTxt(after.lib) + ', 방 버전 ' + after.deployVer + ')가 되돌림표와 달라요'); }
+      const x = await io.verify(room, st.exec, st.n);                 // st.exec가 비어 있으면(예전 판이 판 번호를 답하지 못했음) 답하는지만 본다
+      const tick = x && x.tick && x.tick.ver ? x.tick.ver : '';
+      (changed ? done : same).push(who + ' → 라이브러리 ' + libTxt(st.lib) + ', 방 버전 ' + st.deployVer + ' · /exec ' + (st.exec ? st.exec + ' 확인' : '답함 (판 번호는 되돌림표에 없어 확인 못 함)') +
+        (tick ? ' · 마지막 자동 정리 ' + tick + (st.exec && tick !== st.exec ? ' (다음 자동 정리가 돌면 ' + st.exec + '로 바뀌어야 해요: 5분 뒤 진단에서 확인)' : '') : ' · 자동 정리가 돈 판은 아직 모름 (5분 뒤 진단에서 확인)'));
+    } catch (e) { stuck.push(who + ' (' + String(e.message).slice(0, 140) + ')'); }
+  }
+  const res = { done, same, stuck };
+  if (stuck.length) { const err = new Error('되돌리지 못한 방 ' + stuck.length + '개: ' + stuck.join(', ') + ' · 되돌린 방: ' + (done.join(', ') || '없음') + ' · 같은 되돌림표로 mode=restore를 다시 돌려도 돼요 (이미 되돌린 방은 건드리지 않아요)'); Object.assign(err, res); throw err; }
+  return res;
+}
+/* 엔진 주소(?room=)로 직접 도는 방이 있는지. 그런 방은 엔진 HEAD 코드로 바로 돌아서 라이브러리 버전 고정으로 지킬 수 없다 → 있으면(또는 있는지 알 수 없으면) 엔진을 바꾸지 않는다.
+ * o = { listed: 엔진 프로젝트의 배포 목록을 읽었는지, given: ENGINE_DEPLOY_ID를 받았는지, execs: 엔진 배포들의 /exec?action=ver 응답(웹 앱으로 답한 것만 json:true), allow: ALLOW_HOSTED_ROOMS가 yes인지 } */
+function checkHosted(o) {
+  const stop = [], warn = [], info = [], web = (o.execs || []).filter(x => x && x.json);
+  if (!o.given && !o.listed) stop.push('엔진 프로젝트의 배포 목록을 읽지 못해서 엔진 주소로 직접 도는 방이 있는지 확인할 수 없어요');
+  else if (o.given && !web.length) stop.push('엔진 웹 앱(ENGINE_DEPLOY_ID)이 답하지 않아서 엔진 주소로 직접 도는 방이 있는지 확인하지 못했어요');
+  else if (!web.length) info.push('엔진 프로젝트에 웹 앱으로 답하는 배포가 없어요 (엔진 주소로 직접 도는 방 없음)');
+  else {
+    const n = Math.max.apply(null, web.map(x => Number(x.hosted) || 0)), unknown = web.some(x => x.hosted == null);
+    if (n > 0) (o.allow ? warn : stop).push('엔진 주소로 직접 도는 방(?room=)이 ' + n + '개 있어요. 이 방들은 엔진 HEAD 코드로 바로 돌아서, 엔진을 바꾸면 시험 전의 코드가 그 방에 곧바로 적용돼요' + (o.allow ? ' (ALLOW_HOSTED_ROOMS=yes라서 계속해요)' : '. 그 방을 라이브러리 방식으로 되돌리거나(unhostThisRoom), 그 방들이 모두 연습 방이면 저장소 변수 ALLOW_HOSTED_ROOMS를 yes로 두세요'));
+    else if (unknown) warn.push('엔진 웹 앱이 예전 판이라 직접 도는 방의 수를 답하지 못해요 (미확인). 이번에 엔진이 새 판이 되면 다음 실행부터 확인돼요');
+    else info.push('엔진 주소로 직접 도는 방: 없음');
+  }
+  return { stop, warn, info };
 }
 
 /* 방 하나의 지금 상태를 읽는다 (아무것도 바꾸지 않음). cl = clasp·웹 요청을 하는 낮은 층 (시험에서는 가짜를 넣는다) */
@@ -62,7 +121,7 @@ async function snapshot(room, n, cl) {
   if (!/^\d+$/.test(String(dep.ver))) throw new Error('방 ' + n + ': 배포가 버전이 아니라 ' + dep.ver + '를 가리켜요. 웹 앱 /exec 배포ID를 넣어 주세요');
   let deployedLib = null; try { deployedLib = libState(await cl.manifestAt(room, dep.ver)); } catch (e) { deployedLib = null; }
   const x = await cl.exec(room);
-  return { n, lib: { dev: lib.dev, version: lib.version }, libraryId: lib.libraryId || '', deployVer: String(dep.ver), deployedLib, exec: x.ver || '', execOk: !!x.ok, tick: x.tick || null, hosted: x.hosted };
+  return { n, tag: roomTag(room), lib: { dev: lib.dev, version: lib.version }, libraryId: lib.libraryId || '', deployVer: String(dep.ver), deployedLib, exec: x.ver || '', execOk: !!x.ok, tick: x.tick || null, hosted: x.hosted };
 }
 /* 방 하나를 라이브러리 ver로: HEAD 매니페스트 고정 → 올리기 → 방 프로젝트 새 버전 → 웹 앱 배포를 그 버전으로 */
 async function pinRoom(room, ver, n, cl) {
@@ -152,7 +211,7 @@ function pickPrev(versions, cur) {
   const ks = Object.keys(versions).filter(k => { const v = verOfDesc(versions[k]); return v && v !== cur; }).map(Number).sort((a, b) => b - a);
   return ks.length ? { num: String(ks[0]), ver: verOfDesc(versions[ks[0]]) } : null;
 }
-module.exports = { parseRooms, parseVersions, parseDeployments, verOfDesc, checkSeparate, switchAll, diffLines, snapshot, pinRoom, restoreRoom, verifyRoom, stateLine, parseState, checkProd, pickPrev };
+module.exports = { parseRooms, parseVersions, parseDeployments, verOfDesc, checkSeparate, switchAll, diffLines, snapshot, pinRoom, restoreRoom, verifyRoom, stateLine, parseState, checkProd, pickPrev, roomTag, restoreAll, checkHosted };
 
 if (require.main !== module) return;
 
@@ -209,13 +268,15 @@ const stateTxt = s => '방 ' + s.n + ': 자동 정리 라이브러리 ' + libTxt
     const states = []; for (let i = 0; i < prod.length; i++) { const s = await snapshot(prod[i], i + 1, cl); states.push(s); console.log('운영 ' + stateTxt(s)); }
     const r = checkProd(states, process.env.ENGINE_SCRIPT_ID);
     r.warn.forEach(w => console.log('::warning::' + w));
-    // 엔진 주소(?room=)로 직접 도는 방은 라이브러리 버전 고정으로 지킬 수 없다 (그 방의 자동 정리는 언제나 엔진 HEAD로 돈다)
-    if (process.env.ENGINE_DEPLOY_ID) {
-      const x = await cl.exec({ did: process.env.ENGINE_DEPLOY_ID });
-      if (!x.ok) console.log('::warning::엔진 웹 앱이 답하지 않아 엔진 주소로 직접 도는 방이 있는지 확인하지 못했어요');
-      else if (x.hosted > 0) console.log('::warning::엔진 주소로 직접 도는 방(?room=)이 ' + x.hosted + '개 있어요. 이 방들의 자동 정리는 엔진 HEAD로 돌아서, 이 확인으로는 지킬 수 없어요. 운영 방은 라이브러리 버전 고정 방식으로 두세요');
-      else console.log('엔진 주소로 직접 도는 방: ' + (x.hosted === 0 ? '없음' : '알 수 없음 (엔진이 예전 판이라 답하지 않음)'));
-    } else console.log('::notice::ENGINE_DEPLOY_ID가 없어서 엔진 주소로 직접 도는 방(?room=)이 있는지는 확인하지 않았어요. 그런 방은 이 확인이 지켜 주지 못해요');
+    // 엔진 주소(?room=)로 직접 도는 방은 라이브러리 버전 고정으로 지킬 수 없다 → 있거나, 있는지 알 수 없으면 엔진을 바꾸지 않는다
+    const eid = process.env.ENGINE_DEPLOY_ID, ho = { given: !!eid, listed: false, execs: [], allow: /^(yes|1|true)$/i.test(process.env.ALLOW_HOSTED_ROOMS || '') };
+    if (eid) ho.execs.push(await cl.exec({ did: eid }));
+    else {                                               // 비밀값이 없으면 엔진 프로젝트의 버전 배포를 하나씩 불러 본다 (웹 앱이면 JSON으로 답한다. 라이브러리 배포는 답하지 않는다)
+      let deps = null; try { deps = cl.deployments({ sid: process.env.ENGINE_SCRIPT_ID }).filter(d => /^\d+$/.test(String(d.ver))); } catch (e) { deps = null; }
+      if (deps) { ho.listed = true; for (const d of deps.slice(0, 20)) ho.execs.push(await cl.exec({ did: d.id })); }
+    }
+    const h = checkHosted(ho);
+    h.info.forEach(m => console.log(m)); h.warn.forEach(w => console.log('::warning::' + w)); r.stop.push(...h.stop);
     if (r.stop.length) throw new Error(r.stop.join(' / ') + ' · 엔진 코드를 바꾸지 않았어요. 운영 방이 HEAD면 mode=pin, target=prod를 먼저 돌려 주세요');
     console.log('확인 끝: 방 목록이 나뉘어 있고, 운영 방 ' + prod.length + '개는 웹 앱과 자동 정리 모두 버전에 고정돼 있어요'); return;
   }
@@ -258,17 +319,16 @@ const stateTxt = s => '방 ' + s.n + ': 자동 정리 라이브러리 ' + libTxt
     if (!expect) throw new Error('버전 ' + arg + '의 엔진 판을 알 수 없어요 (이 워크플로로 만든 버전만 되돌릴 수 있어요)');
     await all(arg, expect);
   } else if (mode === 'restore') {
-    // 끊긴 실행의 되돌림표대로: 방마다 HEAD 매니페스트의 라이브러리와 웹 앱 방 버전을 되돌리고, 지금 /exec가 무슨 판으로 답하는지 적는다
-    const want = parseState(arg); if (!want.length) throw new Error('되돌림표를 version 칸에 넣어 주세요 (예: 1=7@12,2=7@9)');
-    for (const st of want) {
-      const room = rooms[st.n - 1]; if (!room) throw new Error('되돌림표의 방 ' + st.n + '번이 ' + target + ' 목록에 없어요');
-      const nowSt = await snapshot(room, st.n, cl); console.log('되돌리기 전 ' + stateTxt(nowSt));
-      await restoreRoom(room, st, st.n, cl);
-      const after = await snapshot(room, st.n, cl); console.log('되돌린 뒤 ' + stateTxt(after));
-      if (after.deployVer !== String(st.deployVer) || after.lib.dev !== st.lib.dev || (!st.lib.dev && after.lib.version !== st.lib.version)) throw new Error('방 ' + st.n + ': 되돌린 뒤 상태가 되돌림표와 달라요');
-      if (!after.execOk) throw new Error('방 ' + st.n + ': 되돌린 뒤 웹 앱이 답하지 않아요');
-    }
-    console.log('되돌림표대로 ' + want.length + '개 방을 되돌렸어요');
+    // 끊긴 실행의 되돌림표대로. 되돌림표의 방 식별값이 지금 방 목록과 다르면 아무 방도 바꾸지 않고 멈춘다
+    if (!arg) throw new Error('되돌림표를 version 칸에 넣어 주세요 (기록의 "되돌림표 (…): " 뒤의 한 줄)');
+    const res = await restoreAll(rooms, arg, {
+      log: m => console.log(m),
+      snapshot: async (room, n) => { const x = await snapshot(room, n, cl); console.log('지금 ' + stateTxt(x)); return x; },
+      restore: (room, st, n) => restoreRoom(room, st, n, cl),
+      verify: (room, expect, n) => expect ? verifyRoom(room, expect, n, cl) : cl.exec(room).then(x => { if (!x.ok) throw new Error('방 ' + n + ': 되돌린 뒤 웹 앱이 답하지 않아요'); return x; })
+    });
+    res.same.forEach(m => console.log('그대로: ' + m)); res.done.forEach(m => console.log('되돌림: ' + m));
+    console.log('되돌림표대로 끝: 되돌린 방 ' + res.done.length + '개, 이미 그 상태라 그대로 둔 방 ' + res.same.length + '개');
   } else if (mode === 'drill') {
     const pw = process.env.PRACTICE_PW; if (!pw) throw new Error('drill에는 PRACTICE_PW(연습 방 비밀번호)가 필요해요');
     const prev = pickPrev(engineVersions(), cur);

@@ -762,6 +762,8 @@ function nextValid(o){
   if ((c.sess && a.sess && a.sess !== c.sess) || (c.rv && a.rv && a.rv !== c.rv)) { if (o === nextSt.data) { nextSt.data = null; nextSt.behind = 0; nextSt.moved = false; } return false; }
   return true;
 }
+// 어느 회차·초기화 번호의 추천인지 서버가 알려 주지 않은 추천 (sess·rv도 없고 key로도 알 수 없음). 버리지는 않되 "확인 못 함"이라고 적는다
+function nextUnknown(o){ o = o || nextSt.data; if (!o) return false; const a = nextOwner(o), c = nextCur(); return (!!c.sess && !a.sess) || (!!c.rv && !a.rv); }
 // 세션·초기화가 바뀌었을 때(주기적으로 읽어 올 때마다 확인): 지난 세션 추천을 화면에서 걷는다
 function nextCheck(){
   if (nextSt.data && !nextValid()) { nextDraw(null); const st = $('nextSt'); if (st) st.textContent = '세션이 넘어가서(또는 기록이 초기화돼서) 지난 추천을 걷었어요. [다시 추천]을 누르면 지금 세션 기록으로 만들어요'; }
@@ -800,13 +802,14 @@ function nextFresh(){
   const o = nextSt.data; if (!o || !nextValid(o)) return;
   const b = o.basis || {}, behind = nextBehind(o), moved = nextMoved(o), tail = (typeof logTail !== 'undefined' && logTail) || null;
   const read = (b.lastTime ? String(b.lastTime).slice(11, 16) + ' ' : '') + (b.total ? '#' + b.total : '');
-  box.className = 'nxfresh' + (behind >= 15 || moved ? ' old' : behind ? ' some' : '');
+  box.className = 'nxfresh' + (behind >= 15 || moved || nextUnknown(o) ? ' old' : behind ? ' some' : '');
   box.append(el('span', '', '② AI 추천 · ' + String(o.at || '').slice(11, 16) + '에 만듦 · 읽은 곳: ' + (read || '?') + '까지'));
   box.append(el('span', '', ' · 지금 가장 새 말: ' + (tail && tail.time ? String(tail.time).slice(11, 16) + ' ' : '') + '#' + Math.max(lastId, Number(b.total || 0))));
   if (behind) box.append(el('b', '', ' · 그 뒤 새 기록 ' + behind + '줄' + (behind >= 15 ? ' (이미 한 일이 섞여 있을 수 있어요)' : '')));
-  else if (!moved) box.append(el('span', 'okk', ' · 그 뒤 새 기록 없음'));
+  else if (!moved && !nextUnknown(o)) box.append(el('span', 'okk', ' · 그 뒤 새 기록 없음'));
   if (moved) box.append(el('b', '', ' · 추천을 만든 뒤 요약·정리·북마크가 바뀌었어요'));
-  if (behind || moved) { const bt = el('button', '', '지금 다시 추천'); bt.onclick = () => nextOpen(true); box.append(' ', bt); }
+  if (nextUnknown(o)) box.append(el('b', '', ' · ⚠ 어느 회차의 추천인지 확인하지 못했어요 (서버가 알려 주지 않음). 지난 회차 것일 수 있어요'));
+  if (behind || moved || nextUnknown(o)) { const bt = el('button', '', '지금 다시 추천'); bt.onclick = () => nextOpen(true); box.append(' ', bt); }
 }
 async function nextOpen(force){
   const t0 = performance.now();
@@ -832,9 +835,11 @@ async function nextOpen(force){
       nextSt.behind = Number(r.behind || 0); nextSt.moved = !!r.moved;
       if (r.next) { nextSt.data = r.next; nextDraw(r.next); if (typeof statMs === 'function' && !r.wait && !r.busy) statMs('nextAi', performance.now() - t0); }
       else if (!nextSt.data) nextDraw(null);
-      const stale = r.next && r.fresh === false;         // 서버가 "최신이 아니다"라고 한 추천은 최신이라고 말하지 않는다
+      // 최신인지는 서버의 fresh만 믿지 않고 새 기록 수·자료 변경으로도 본다 (예전 서버는 받아 둔 추천을 fresh:true로 답한다). "다시 써도 된다(reusable)"는 최신이라는 뜻이 아니다
+      const stale = !!r.next && (r.fresh === false || nextSt.behind > 0 || nextSt.moved);
+      const reused = !!r.next && (r.reused === true || (r.reused == null && !force && !r.wait && stale));
       st.textContent = r.busy ? '다른 사람이 새 추천을 만드는 중이에요. 잠시 뒤 [다시 추천]을 눌러 주세요' + (r.next ? ' (아래는 이전 추천)' : '')
-        : r.next ? nextBasis(r.next) + (r.moved ? ' · 만드는 사이 요약·정리가 바뀌어서, 아래는 그 전 기록 기준이에요' : '') + (r.wait ? ' · 1분 안에 만든 추천이라 새로 만들지 않았어요' + (stale ? ' (그 뒤 새 기록은 반영되지 않음. 1분 뒤 다시 받을 수 있어요)' : '') : (stale && !r.moved ? ' · 만드는 사이 새 말이 들어왔어요' : '')) : '';
+        : r.next ? nextBasis(r.next) + (r.moved ? ' · 만드는 사이 요약·정리가 바뀌어서, 아래는 그 전 기록 기준이에요' : '') + (r.wait ? ' · 1분 안에 만든 추천이라 새로 만들지 않았어요' + (stale ? ' (그 뒤 새 기록은 반영되지 않음. 1분 뒤 다시 받을 수 있어요)' : '') : reused && stale ? ' · 받아 둔 추천이에요. 그 뒤 새 기록' + (nextSt.behind ? ' ' + nextSt.behind + '줄' : '') + '은 반영되지 않았어요 ([다시 추천]을 누르면 새로 만들어요)' : (stale && !r.moved ? ' · 만드는 사이 새 말이 들어왔어요' : '')) : '';
     }
   } catch (e) { nextValid(); st.textContent = '추천을 만들지 못했어요: ' + e.message + (nextSt.data ? ' (아래는 이전 추천)' : ''); if (!nextSt.data) nextDraw(null); }
   nextSt.loading = false; go.disabled = false; nextFresh();

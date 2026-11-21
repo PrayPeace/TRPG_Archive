@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.25';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.26';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1239,8 +1239,10 @@ function nextSteps(force) {
   const mine = !!cur && String(cur.sess != null ? cur.sess : kp[2]) === sess && String(cur.rv != null ? cur.rv : kp[3]) === rv0;
   const old = mine ? cur : null;
   const behind = old && old.basis ? Math.max(0, total - Number(old.basis.total || 0)) : 0;
-  if (old && old.key === key && behind < NEXT_STALE_LINES && !force) return { ok: true, next: old, fresh: true, behind };
-  if (old && force && Date.now() - Number(old.t || 0) < 60 * 1000) return { ok: true, next: old, fresh: old.key === key && !behind, wait: true, behind };
+  // fresh = 추천을 만든 뒤 읽지 않은 새 기록·자료 변경이 없다 / reusable = (요금을 아끼려고) 새로 만들지 않고 받아 둔 추천을 다시 써도 되는 범위 안이다 / reused = 이 답이 받아 둔 추천이다
+  // 다시 쓴다는 이유로 최신이라고 답하지 않는다: 새 말이 1줄이라도 있으면 fresh는 false
+  if (old && old.key === key && behind < NEXT_STALE_LINES && !force) return { ok: true, next: old, fresh: behind === 0, reusable: true, reused: true, behind };
+  if (old && force && Date.now() - Number(old.t || 0) < 60 * 1000) return { ok: true, next: old, fresh: old.key === key && !behind, reusable: old.key === key && behind < NEXT_STALE_LINES, reused: true, moved: old.key !== key, wait: true, behind };
   const sums = sheet(SH.SUM);
   const rows = sums.getLastRow() >= 2 ? sums.getRange(2, 1, sums.getLastRow() - 1, 4).getValues() : [];
   const recent = rows.filter(r => String(r[0]) === sess).map(r => decS(r[3])).filter(t => t && !/\(잡담 위주, 진행 없음\)/.test(t)).slice(-6);
@@ -1263,7 +1265,7 @@ function nextSteps(force) {
   const basis = { processedId: processed, total, rawFrom, rawTo, rawN: raw.length, rawCut: cutN, rawSkip: raw.length ? Math.max(0, rawFrom - 1 - processed) : Math.max(0, total - processed),
     lastTime: raw.length ? raw[raw.length - 1].time : '', sums: recent.length, sumVer: String(getConf('sumVer') || ''), notesVer: String(getConf('notesVer') || '') };
   const c = roomCache();
-  if (c.get('nextBusy')) return { ok: true, next: old, busy: true, behind };
+  if (c.get('nextBusy')) return { ok: true, next: old, busy: true, fresh: !!old && old.key === key && !behind, reusable: false, reused: !!old, moved: !!old && old.key !== key, behind };
   c.put('nextBusy', '1', 150);
   try {
     const n = readNotes() || emptyNotes();
@@ -1304,7 +1306,7 @@ function nextSteps(force) {
     if (!saved) return { ok: true, next: null, changed: true };
     // 만드는 사이 요약·정리가 바뀌었으면(key가 달라짐) 최신이라고 하지 않는다. 다음에 열 때 새로 만든다
     const keyNow = [getConf('sumVer'), getConf('notesVer'), sess, rv0].join('.'), b2 = Math.max(0, totalLines() - total);
-    return { ok: true, next: o, fresh: keyNow === key && !b2, moved: keyNow !== key, behind: b2 };
+    return { ok: true, next: o, fresh: keyNow === key && !b2, reusable: keyNow === key && b2 < NEXT_STALE_LINES, reused: false, moved: keyNow !== key, behind: b2 };
   } finally { c.remove('nextBusy'); }
 }
 
