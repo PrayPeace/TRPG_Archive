@@ -33,7 +33,7 @@ $('kDiag').onclick = async () => {
     const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? '방금' : m + '분 전'; };
     const out = [(r.ok ? '✅ 핵심 규칙 모두 통과' : '❌ 핵심 규칙 실패 있음') + ' · 엔진 ' + r.ver + (r.ver !== APP_VER ? ' (화면 ' + APP_VER + '와 다름)' : ''),
       '대화 ' + i.lines + '줄 · 요약 끝난 곳 ' + i.processed + '줄' + (i.lines > i.processed ? ' (대기 ' + (i.lines - i.processed) + '줄)' : ''),
-      '자동 정리 트리거 ' + (i.triggers < 0 ? '확인 불가' : i.triggers + '개' + (i.triggers === 1 ? '' : ' ⚠ setup 다시 실행 필요')),
+      (i.hosted ? '엔진 방식 · ' : '') + '자동 정리 트리거 ' + (i.triggers < 0 ? '확인 불가' : i.triggers + '개' + (i.triggers === 1 ? '' : ' ⚠ ' + (i.hosted ? '엔진에서 engineSetup' : 'setup') + ' 다시 실행 필요')),
       lt ? '마지막 자동 실행: ' + ago(lt.at) + ' · ' + (lt.what || '') + ' · ' + Math.round((lt.ms || 0) / 1000) + '초' : '마지막 자동 실행: 기록 없음 (6시간 안)',
       '정리 대기 ' + i.notesQ + '건 · 정리 실패 보관 ' + i.notesFail + '건'];
     if (i.pendingError) out.push('⚠ 요약이 막힌 이유: ' + i.pendingError);
