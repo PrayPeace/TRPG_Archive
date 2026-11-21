@@ -84,11 +84,14 @@ function sendState(){
   let txt = '', cls = '';
   if (sendErr && n) { txt = '⚠ 저장 실패 · 미전송 ' + n + '줄'; cls = 'sendErr'; }
   else if (n) { txt = '보내는 중 ' + n + '줄'; cls = 'send'; }
+  else if (failGet().length) { txt = '⚠ 저장 못 한 말 ' + failGet().length + '줄 (설정 탭에서 복사)'; cls = 'sendErr'; }
   pill.classList.toggle('hide', !txt); pill.className = 'chip net ' + cls + (txt ? '' : ' hide');
   pill.lastChild.textContent = txt; pill.title = sendErr ? '마지막 오류: ' + sendErr + ' (자동으로 다시 보내요)' : '내 말이 시트에 저장됐는지';
   st.className = 'sendst' + (sendErr && n ? ' warn' : '');
   if (qStoreErr && n) { pill.classList.remove('hide'); pill.className = 'chip net sendErr'; pill.lastChild.textContent = '⚠ 기기 보관 실패 · 미전송 ' + n + '줄'; pill.title = '이 기기 저장 공간이 부족해 못 보낸 말을 보관하지 못했어요. 이 창을 닫으면 사라질 수 있으니 연결이 돌아올 때까지 열어 두세요'; }
-  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (이 기기에 보관 중)' : '미전송 ' + n + '줄 보내는 중…') : (sentOnce ? '✔ 내 말 모두 저장됨' : '');
+  const nf = failGet().length;
+  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (이 기기에 보관 중)' : '미전송 ' + n + '줄 보내는 중…') : (nf ? '' : (sentOnce ? '✔ 내 말 모두 저장됨' : ''));
+  failShow();
 }
 async function flush(){
   if (sending || authBad || !queue.length || !cfg.url) return;
@@ -103,7 +106,7 @@ async function flush(){
     done.forEach(u => qGone.add(u));
     queue = queue.filter(q => !done.has(q.uid));
     if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
-    if ((r.tooLong || []).length) toast('100만 자가 넘는 말 ' + r.tooLong.length + '줄은 저장하지 못했어요');
+    if ((r.tooLong || []).length) { failAdd(batch.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음'); toast('100만 자가 넘는 말 ' + r.tooLong.length + '줄은 저장하지 못했어요. 원문은 "저장 못 한 말"에서 복사할 수 있어요'); }
     sendErr = ''; sentOnce = true;
   } catch (e) {
     sendErr = e.name === 'AbortError' ? '서버 응답이 45초 넘게 없음' : (e.message === 'Failed to fetch' ? '인터넷 연결 끊김' : (e.message || '연결 실패'));
@@ -116,7 +119,7 @@ async function flush(){
 setInterval(flush, 4000);
 /* 다른 방 주소로 못 보낸 말 (예: 방을 엔진 주소로 옮기기 전 주소에 남은 말): 그 주소로 직접 보낸다.
  * 보낼 곳은 대기열에 적힌 주소 그대로라서 언제나 원래 방에 들어가고, 서버가 발언ID로 걸러서 두 번 저장되지 않는다. */
-let othersBusy = false;
+let othersBusy = false; const othersNeed = {};
 async function flushOthers(){
   if (othersBusy || sending || !navigator.onLine) return;
   let key = '';
@@ -126,10 +129,17 @@ async function flushOthers(){
   const room = roomsGet().find(x => scriptUrl(x.url) === url);
   let items = []; try { items = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
   if (!items.length) return;
+  // 그 방의 비밀번호나 기기 토큰이 이 기기에 없으면 보내지 않는다 (지금 방 비밀번호를 대신 보내지 않음). 원문은 그대로 보관하고 다시 들어가라고 안내한다
+  const pw = room && room.pw ? room.pw : '', pt = ptFor(url);
+  if (!pw && !pt) { othersNeed[key] = 1; otherRooms(); return; }
   othersBusy = true;
   try {
-    const r = await fetch(url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: (room && room.pw) || cfg.pw, pt: ptFor(url), items: items.slice(0, 100) }) }).then(x => x.json());
+    const body = { action: 'lines', items: items.slice(0, 100) }; if (pw) body.pw = pw; if (pt) body.pt = pt;
+    const r = await fetch(url, { method: 'POST', body: JSON.stringify(body) }).then(x => x.json());
+    if (r && !r.ok && /비밀번호|잠/.test(r.error || '')) { othersNeed[key] = 1; otherRooms(); }
     if (r && r.ok) {
+      delete othersNeed[key];
+      if ((r.tooLong || []).length) failAdd(items.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음', url);
       const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], r.tooLong || []));
       let now = []; try { now = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
       now = now.filter(q => !done.has(q.uid));
@@ -152,7 +162,9 @@ function otherRooms(){
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey()) { const n = JSON.parse(localStorage.getItem(k) || '[]').length; if (n) { total += n; keys.push(k); } } } } catch(_) {}
   box.classList.toggle('hide', !total); box.innerHTML = '';
   if (!total) return;
-  box.append('다른 방 주소로 못 보낸 말이 ' + total + '줄 있어요. 원래 방 주소로 자동으로 보내는 중이에요. ');
+  const need = keys.filter(k => othersNeed[k]);
+  box.append('다른 방 주소로 못 보낸 말이 ' + total + '줄 있어요. ' + (need.length ? '그 방의 비밀번호가 이 기기에 없어서 보내지 못하고 보관 중이에요. 그 방에 다시 들어가면 자동으로 보내요. ' : '원래 방 주소로 자동으로 보내는 중이에요. '));
+  need.forEach(k => { const u = k.slice(4), r = roomsGet().find(x => scriptUrl(x.url) === u); const b2 = el('button', '', (r && r.name ? r.name : '그 방') + '에 다시 들어가기'); b2.onclick = () => { if (r) switchRoom(r); else { S.set('t_url', u); location.reload(); } }; box.append(b2, ' '); });
   const b = el('button', '', '버리기'); b.dataset.label = '버리기'; twoStep(b, async () => { keys.forEach(k => S.del(k)); otherRooms(); }); box.append(b);
 }
 
@@ -404,3 +416,24 @@ $('leave').onclick = async () => {
 };
 $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중…'; const r = await post({ action: 'glossary', glossary: $('gloss').value }); $('glossMsg').textContent = r.ok ? '저장됨 (다음에 받아쓰기를 켤 때부터 반영)' : r.error; };
 
+
+/* 저장 못 한 말 (서버가 받지 않은 원문). 지워지지 않게 이 기기에 따로 두고, 복사·파일로 내려받을 수 있게 한다. '모두 저장됨'과 구분해 보여 준다 */
+const failKey = url => 't_fail:' + (url || cfg.url);
+function failGet(url){ try { return JSON.parse(localStorage.getItem(failKey(url)) || '[]') || []; } catch(_) { return []; } }
+function failAdd(items, why, url){
+  if (!items || !items.length) return;
+  const a = failGet(url); items.forEach(q => { if (!a.some(x => x.uid === q.uid)) a.push({ uid: q.uid, name: q.name, t: q.t, text: q.text, why }); });
+  try { localStorage.setItem(failKey(url), JSON.stringify(a)); } catch (_) { toast('저장 못 한 말을 이 기기에 보관하지 못했어요. 지금 복사해 두세요'); }
+  sendState();
+}
+function failText(){ return failGet().map(x => '[' + String(x.t || '').replace('T', ' ').slice(0, 19) + '] ' + x.name + ': ' + x.text).join('\n\n'); }
+function failShow(){
+  const box = $('failBox'); if (!box) return;
+  const a = failGet(); box.classList.toggle('hide', !a.length); if (!a.length) return;
+  box.innerHTML = '';
+  box.append('⚠ 저장 못 한 말 ' + a.length + '줄 (' + (a[0].why || '') + '). 원문은 이 기기에만 있어요. ');
+  const cp = el('button', '', '복사'); cp.onclick = async () => { try { await navigator.clipboard.writeText(failText()); toast('복사했어요'); } catch (_) { toast('복사하지 못했어요. 내려받기를 써 주세요'); } };
+  const dl = el('button', '', '내려받기'); dl.onclick = () => { const b = new Blob([failText()], { type: 'text/plain' }); const u = URL.createObjectURL(b); const x = document.createElement('a'); x.href = u; x.download = '저장_못_한_말.txt'; x.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); };
+  const rm = el('button', '', '목록 비우기'); rm.dataset.label = '목록 비우기'; if (typeof twoStep === 'function') twoStep(rm, async () => { try { localStorage.removeItem(failKey()); } catch (_) {} sendState(); });
+  box.append(cp, ' ', dl, ' ', rm);
+}

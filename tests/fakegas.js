@@ -40,14 +40,19 @@ function bookObj(b){
 // 한 "실행"(웹 요청·트리거)마다 새 vm을 만든다 = 실제 Apps Script처럼 전역 변수가 매번 새로
 function execCtx(store, codePath, opts){
   opts = opts || {};
-  const ctx = { console, Logger: { log: () => {} }, Date, JSON, Math };
+  let D = Date;
+  if (store.vclock) {      // 가상 시계: AI 지연·sleep을 실제로 기다리지 않고 시간만 흐르게
+    const vc = store.vclock;
+    D = class extends Date { constructor(...a) { if (a.length) super(...a); else super(vc.t); } static now() { return vc.t; } };
+  }
+  const ctx = { console, Logger: { log: () => {} }, Date: D, JSON, Math };
   ctx.SpreadsheetApp = { getActive: () => opts.active ? bookObj(store.books[opts.active]) : null, openById: id => { if (!store.books[id]) throw new Error('시트 없음 ' + id); return bookObj(store.books[id]); }, flush: () => {} };
   ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: k => store.props[k] == null ? null : store.props[k], setProperty: (k, v) => { store.props[k] = String(v); }, deleteProperty: k => { delete store.props[k]; } }) };
   ctx.CacheService = { getScriptCache: () => ({ get: k => store.cache[k] == null ? null : store.cache[k], put: (k, v) => { if (String(v).length > 100000) throw new Error('캐시 한도'); store.cache[k] = String(v); }, remove: k => { delete store.cache[k]; }, putAll: o => { Object.keys(o).forEach(k => store.cache[k] = String(o[k])); }, getAll: ks => { const r = {}; ks.forEach(k => { if (store.cache[k] != null) r[k] = store.cache[k]; }); return r; }, removeAll: ks => ks.forEach(k => delete store.cache[k]) }) };
   store.locks = store.locks || { script: null };
   ctx.LockService = { getScriptLock: () => { const me = {}; return { tryLock: () => { if (store.locks.script && store.locks.script !== me) return false; store.locks.script = me; return true; }, waitLock: () => { if (store.locks.script && store.locks.script !== me) throw new Error('잠금 시간 초과'); store.locks.script = me; }, releaseLock: () => { if (store.locks.script === me) store.locks.script = null; }, hasLock: () => store.locks.script === me }; } };
   let uu = 0;
-  ctx.Utilities = { getUuid: () => crypto.randomUUID(), sleep: () => {}, base64Encode: b => Buffer.from(b).toString('base64'), computeDigest: (a, s) => crypto.createHash('sha256').update(String(s)).digest(), DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 }, formatDate: (d, tz, f) => new Date(d).toISOString().replace('T', ' ').slice(0, 19) };
+  ctx.Utilities = { getUuid: () => crypto.randomUUID(), sleep: ms => { if (store.vclock) store.vclock.t += ms; }, base64Encode: b => Buffer.from(b).toString('base64'), computeDigest: (a, s) => crypto.createHash('sha256').update(String(s)).digest(), DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 }, formatDate: (d, tz, f) => new Date(d).toISOString().replace('T', ' ').slice(0, 19) };
   ctx.Session = { getScriptTimeZone: () => 'Asia/Seoul' };
   ctx.ContentService = { createTextOutput: s => ({ setMimeType: () => JSON.parse(s) }), MimeType: { JSON: 1 } };
   ctx.ScriptApp = { getService: () => ({ getUrl: () => opts.serviceUrl || '' }), getProjectTriggers: () => store.triggers, deleteTrigger: t => { store.triggers = store.triggers.filter(x => x !== t); }, newTrigger: h => { const t = { getHandlerFunction: () => h }; const b = { timeBased: () => b, everyMinutes: () => b, after: () => b, create: () => { store.triggers.push(t); return t; } }; return b; } };

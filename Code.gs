@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.22';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.23';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -315,19 +315,32 @@ function engineSetup() {
   UrlFetchApp.fetch('https://api.anthropic.com', { muteHttpExceptions: true });     // 외부 요청 권한을 미리 받는다
   Logger.log('엔진 자동 정리 트리거를 걸었어요. 등록된 방: ' + hostedIds().length + '개' + (engineUrl() ? '' : ' · 엔진을 웹 앱으로 배포하고 주소를 한 번 열어 주세요'));
 }
-const TICK_ALL_MS = 4 * 60 * 1000;      // 한 번에 이만큼만 돌고, 남은 방은 다음 차례에 (실행 한도 6분)
+const TICK_ALL_MS = 330 * 1000;    // 엔진 실행 한도 6분 중 쓰는 시간
+const AI_CALL_MS = 100 * 1000;     // AI 한 번이 걸릴 수 있는 시간 (시작한 AI 호출은 중간에 끊을 수 없어서 남겨 둔다)
+/* 등록된 방을 돌아가며 정리한다.
+ *  - 남은 시간을 남은 방 수로 나눠 각 방에 넘긴다(tick(maxMs)). 한 방이 AI 호출 하나보다 오래 붙잡지 않는다.
+ *  - 다음 차례 표시(tickAllAt)는 방에 들어가기 전에 먼저 적는다: 실행이 도중에 강제로 끝나도 다음 실행은 그 다음 방부터 시작한다.
+ *  - 다 돌면 다음 실행은 한 칸 뒤에서 시작한다(늘 같은 방이 먼저가 되지 않게). */
 function tickAll() {
-  const t0 = Date.now(), ids = hostedIds(), pr = engineProps();
-  if (!ids.length) return;
-  const start = Number(pr.getProperty('tickAllAt') || 0) % ids.length;
+  const t0 = Date.now(), ids = hostedIds(), pr = engineProps(), n = ids.length;
+  if (!n) return;
+  const start = Number(pr.getProperty('tickAllAt') || 0) % n;
+  const log = [];
   let done = 0;
-  for (; done < ids.length; done++) {
-    if (Date.now() - t0 > TICK_ALL_MS) break;
-    const id = ids[(start + done) % ids.length];
-    try { if (roomUse(id)) tick(); } catch (e) { Logger.log(id + ': ' + e); }
+  for (; done < n; done++) {
+    const left = TICK_ALL_MS - (Date.now() - t0);
+    if (left < AI_CALL_MS + 20000) break;                                  // AI 한 번 할 시간도 없으면 남은 방은 다음 차례
+    const id = ids[(start + done) % n];
+    pr.setProperty('tickAllAt', String((start + done + 1) % n));
+    const share = Math.max(15000, Math.floor((left - AI_CALL_MS) / (n - done)));
+    const r0 = Date.now();
+    try { if (roomUse(id)) tick(share); } catch (e) { Logger.log(id + ': ' + e); }
+    log.push({ id: id.slice(0, 8), at: r0 - t0, ms: Date.now() - r0, share });
   }
-  pr.setProperty('tickAllAt', String((start + done) % ids.length));          // 시간이 모자라 못 돈 방부터 다음에 시작
+  pr.setProperty('tickAllAt', String(done >= n ? (start + 1) % n : (start + done) % n));
+  try { pr.setProperty('tickAllLog', JSON.stringify({ at: t0, rooms: log }).slice(0, 8000)); } catch (e) {}
   roomReset(); _room = null; _hosted = false;
+  return log;
 }
 function tickAllMore() {
   ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'tickAllMore') ScriptApp.deleteTrigger(t); });
@@ -349,30 +362,22 @@ function roomCache() {
 // 잠금은 언제나 스크립트 잠금 하나를 쓴다. 문서 잠금은 웹 앱 요청에서는 없을(null) 수 있어서,
 // 웹 요청(대화 저장)과 트리거(자동 요약)가 서로 다른 잠금을 잡고 같은 시트를 동시에 고치는 일을 막는다.
 // 라이브러리 방식이면 방끼리 잠금을 나눠 쓸 수 있지만, 잠금은 짧게 잡고 바로 풀기 때문에 기다림은 잠깐이다.
-function roomLock() { return _hosted ? hostedLock() : LockService.getScriptLock(); }
-/* 엔진 방식에서는 모든 방이 한 엔진의 스크립트 잠금을 같이 쓰게 된다. 한 방이 저장하느라 잠금을 잡고 있어도 다른 방의 대화 저장이 기다리지 않게,
- * 스크립트 잠금은 '이 방 자리표'를 쓰고 지우는 아주 짧은 동안만 잡고, 실제 잠금은 방마다의 자리표(캐시, 시트 ID가 붙은 키)로 한다.
- * 자리표는 90초가 지나면 저절로 풀린다 (실행이 도중에 죽어도 방이 영영 잠기지 않게). */
-const HOSTED_LEASE_MS = 90 * 1000;
-function hostedLock() {
-  const me = Utilities.getUuid();
-  const step = fn => { const g = LockService.getScriptLock(); if (!g.tryLock(3000)) return false; try { return fn(); } finally { g.releaseLock(); } };
-  return {
-    tryLock: ms => {
-      const end = Date.now() + ms;
-      do {
-        const got = step(() => {
-          const c = roomCache(), v = String(c.get('rlock') || ''), i = v.indexOf('|');
-          if (v && i > 0 && Number(v.slice(i + 1)) > Date.now() && v.slice(0, i) !== me) return false;
-          c.put('rlock', me + '|' + (Date.now() + HOSTED_LEASE_MS), 120); return true;
-        });
-        if (got) return true;
-        Utilities.sleep(150);
-      } while (Date.now() < end);
-      return false;
-    },
-    releaseLock: () => { step(() => { const c = roomCache(); if (String(c.get('rlock') || '').indexOf(me + '|') === 0) c.remove('rlock'); return true; }); }
-  };
+/* 쓰기 잠금은 언제나 엔진의 스크립트 잠금 하나다.
+ * 구글 문서(라이브러리 '자원 범위' 표): 잠금은 라이브러리 쪽 자원이라, 라이브러리 안에서 잡은 잠금은 그 라이브러리를 쓰는 모든 스크립트가 같은 것을 본다.
+ * 그래서 방 시트의 Room.gs 주소(라이브러리로 엔진을 부름)와 엔진 주소(?room=)로 온 요청, 엔진 트리거가 모두 같은 잠금을 기다린다.
+ * 캐시 표식 같은 것을 쓰지 않으므로 캐시가 지워져도 동시에 쓰는 일이 없다. 대신 방끼리도 잠금을 나눠 쓰지만, 잠금은 시트를 쓰는 짧은 동안만 잡는다
+ * (AI 호출은 잠금 밖). 실제 환경에서 두 주소가 같은 잠금을 쓰는지는 lockProbe로 확인한다. */
+function roomLock() { return LockService.getScriptLock(); }
+// (PC 시험용) 쓰기 잠금을 몇 초 잡고 있는다. 그동안 다른 주소(방 Room.gs 주소 / 엔진 ?room= 주소)에서 말하면 '보내는 중'으로 기다리다가,
+// 잠금이 풀린 뒤 저장돼야 같은 잠금이다. 잡는 동안 저장이 바로 되면 잠금이 나뉘어 있는 것이니 엔진 방식을 쓰지 말 것.
+function lockProbe(sec) {
+  sec = Math.max(5, Math.min(Number(sec) || 40, 60));
+  const l = LockService.getScriptLock();
+  if (!l.tryLock(10000)) { Logger.log('잠금을 잡지 못했어요 (다른 저장이 진행 중). 잠시 뒤 다시 실행해 주세요'); return false; }
+  Logger.log('쓰기 잠금을 ' + sec + '초 잡았어요. 지금 다른 주소로 들어간 기기에서 말해 보세요');
+  try { Utilities.sleep(sec * 1000); } finally { l.releaseLock(); }
+  Logger.log('잠금을 풀었어요. 그 사이 한 말이 지금 저장되면 합격이에요');
+  return true;
 }
 // 짧게 잠그고 바로 푼다. 잠금 안에서 쓴 내용은 풀기 전에 시트에 확정한다.
 let _lockDepth = 0, _lockPatient = false;
@@ -781,6 +786,8 @@ function doGet(e) {
     const g = hostGate(p.room); if (g) return out(g);
     // 로비(폰 화면)의 방 목록은 비밀번호 없이 읽는다: 방 이름·룰·주소만 있고, 들어가려면 그 방의 비밀번호가 필요하다
     if (p.action === 'hub') return out(hubList());
+    // 배포 확인용: 이 주소가 지금 어떤 엔진 판으로 도는지 (비밀번호 없이, 판 번호만)
+    if (p.action === 'ver') return out({ ok: true, ver: CODE_VER });
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
     if (!roleOf(p.pw, null)) return out({ ok: false, error: pwBadMsg(), locked: _pwLocked || undefined });
     const r = readAction(p); if (r) return out(r);
@@ -1494,15 +1501,16 @@ function parseJson(text) {
 }
 
 /* ───────────── 5분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
-function tick() {
+// maxMs: 이번에 쓸 수 있는 시간 (엔진 방식 tickAll이 남은 실행 시간을 나눠 준다). 없으면 평소대로
+function tick(maxMs) {
   const t0 = Date.now();
   try {
     const q = quietSkip();
     tickMark(t0, q === 'idle' ? '쉬는 방' : q ? '요약 건너뜀' : '요약');
     if (q === 'idle') return;                                    // 쉬는 방: 캐릭터시트 다시 읽기도 건너뛴다 (세션이 시작되면 다시 돈다)
-    if (!q) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); if (r && !r.ok && !r.busy && r.error) serverErr('자동 요약', r.error); }
+    if (!q) { const r = processNow(false, maxMs); if (r && r.ok && r.more && r.progress) scheduleMore(); if (r && !r.ok && !r.busy && r.error) serverErr('자동 요약', r.error); }
   } catch (e) { Logger.log(e); serverErr('자동 요약', e); }
-  try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); serverErr('캐릭터시트 읽기', e); }
+  try { if ((!maxMs || Date.now() - t0 < maxMs) && Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); serverErr('캐릭터시트 읽기', e); }
   tickMark(t0);
 }
 // 마지막 자동 실행 시각·걸린 시간·결과 (진단에서 보여 준다)
@@ -1721,14 +1729,14 @@ function stageHasWindow(prefix) {
   return s.getRange(2, 1, last - 1, 1).getValues().some(r => String(r[0]).indexOf(prefix) === 0);
 }
 
-function processNow(manual) {
+function processNow(manual, maxMs) {
   const job = acquireJob('summary', manual ? 15000 : 0);
   if (!job) {
     const j = liveJob();
     return { ok: false, busy: true, error: (j && j.kind === 'correct' ? 'AI 정정을 처리하는 중이에요.' : '이미 다른 정리가 진행 중이에요.') + ' 잠시 뒤 다시 확인해 주세요' };
   }
   _lockPatient = true;
-  const t0 = Date.now(), budget = manual ? 150000 : 200000;
+  const t0 = Date.now(), budget = Math.min(manual ? 150000 : 200000, maxMs > 0 ? maxMs : Infinity);
   _prog = { job, l0: Math.max(0, totalLines() - Number(getConf('processedId') || 0)), lines: 0, nb: 55, ns: 38 };
   setProg(job, '대화를 읽을 준비 중', 2, 4);
   let lines = 0, segs = 0, more = false, err = null, stale = false, nDone = 0, nWarn = '';
@@ -1787,6 +1795,10 @@ function windowEnd(from, to) {
 /* 요약이 같은 구간에서 계속 실패하고 더 줄일 수도 없을 때 (예: 한 발언만 남았는데 AI가 계속 실패).
  * 마스터 탭에 그 구간 원문을 보여 주고, '다시 시도' 또는 '원문만 남기고 넘어가기'를 고르게 한다. 원문(대화 탭)은 어느 쪽이든 그대로 남는다. */
 const STUCK_FAILS = 3;
+// 처리 번호(processedId)보다 뒤에 있지만 이미 요약한 발언 번호 (보통 비어 있다)
+function sumDoneSet() { const a = confJson('sumDone', []); return new Set(Array.isArray(a) ? a.map(Number) : []); }
+function sumDoneAdd(ids) { if (!ids.length) return; const s = sumDoneSet(); ids.forEach(i => s.add(Number(i))); setJson('sumDone', Array.from(s).sort((a, b) => a - b).slice(-3000)); }
+function sumDonePrune(upTo) { const a = Array.from(sumDoneSet()).filter(i => i > upTo); setJson('sumDone', a.length ? a : null); }
 function stuckInfo() {
   const p = confJson('pending', null);
   if (!p || !(p.stuck || (p.fails || 0) >= STUCK_FAILS)) return null;
@@ -1803,7 +1815,8 @@ function pendingSkip(from) {
     if (!p || p.from !== Number(from) || Number(getConf('processedId') || 0) !== p.from) return { ok: false, error: '그 사이 정리 상태가 바뀌었어요. 새로 고침 뒤 다시 확인해 주세요' };
     if (liveJob()) return { ok: false, error: '지금 다른 정리가 돌고 있어요. 잠시 뒤 다시 눌러 주세요' };
     const rv = getConf('resetVer') || '0', prefix = p.pfx || (rv + ':' + p.from + '-' + p.to + ':');
-    const rows = readLines(p.from, p.to - p.from).filter(l => String(l.text).trim());
+    const cov = sumDoneSet();
+    const rows = readLines(p.from, p.to - p.from).filter(l => String(l.text).trim() && !cov.has(l.id));
     const bySess = {}; rows.forEach(l => { (bySess[l.session] = bySess[l.session] || []).push(l); });
     const have = summaryKeys(), ms = sheet(SH.SUM);
     Object.keys(bySess).sort((a, b) => Number(a) - Number(b)).forEach(sess => {
@@ -1813,7 +1826,7 @@ function pendingSkip(from) {
       ms.getRange(ms.getLastRow() + 1, 1, 1, 6).setNumberFormat('@').setValues([[String(sess), g[0].time, g[g.length - 1].time, enc(text), now(), k]]);
       queueNotes({ k, s: String(sess), f: p.from, t: p.to });      // 단서 정리는 따로 한 번 더 해 본다 (실패하면 실패 목록에 남는다)
     });
-    setConf('processedId', String(p.to)); setJson('pending', null);
+    setConf('processedId', String(p.to)); setJson('pending', null); sumDonePrune(p.to);
     stageDeleteWindow(prefix); bump('sumVer');
     return { ok: true, message: '#' + (p.from + 1) + '~#' + p.to + ' 구간은 원문만 남기고 넘어갔어요. 대화 기록은 그대로예요' };
   });
@@ -1840,7 +1853,9 @@ function processWindow(job, t0, budget) {
   if (win.empty) return { lines: 0, segs: 0, more: false };
   const p = win.p;
 
-  const rows = readLines(p.from, p.to - p.from);
+  // 이미 앞 구간에서 요약한 줄(구간 끝을 당길 때 그 뒤에 있던 끝난 세션의 줄)은 다시 넣지 않는다: 발언마다 요약은 정확히 한 번
+  const covered = sumDoneSet();
+  const rows = readLines(p.from, p.to - p.from).filter(l => !covered.has(l.id));
   const idMap = {}; rows.forEach(l => { idMap[l.id] = l.uid || ('id:' + job.rv + ':' + l.id); });
   const groups = {}, order = [];
   rows.forEach(l => { if (!String(l.text).trim()) return; if (!groups[l.session]) { groups[l.session] = []; order.push(l.session); } groups[l.session].push(l); });
@@ -1900,7 +1915,7 @@ function processWindow(job, t0, budget) {
         }
         if (!cur.notes) {
           if (r.notes) mergeWriteNotes(r.notes);                       // 예전 버전이 보관해 둔 결과
-          else queueNotes({ k: segKey, s: String(r.session), f: p.from, t: p.to });   // NPC·장소·단서 정리는 따로(요약을 막지 않게)
+          else queueNotes({ k: segKey, s: String(r.session), f: p.from, t: p.oto || p.to });   // NPC·장소·단서 정리는 따로(요약을 막지 않게)
           mark(4);
         }
         bump('sumVer');
@@ -1931,7 +1946,12 @@ function processWindow(job, t0, budget) {
           // 예전 판이 두 세션을 한 구간에 묶었고 앞 세션만 보관된 채 뒤 세션이 실패하는 경우:
           // 구간 끝을 실패한 세션의 첫 줄 앞으로 당겨 끝난 세션을 먼저 마무리한다 (보관 이름은 그대로). 뒤 세션은 다음 구간에서 따로(반으로 줄이기 가능)
           const first = groups[curSess].reduce((m, l) => Math.min(m, l.id), Infinity);
-          if (first - 1 > pp.from) { pp.pfx = prefix; pp.to = first - 1; pp.fails = 0; halved = true; }
+          if (first - 1 > pp.from) {
+            // 끝난 세션(앞 세션들)의 줄 중 당긴 끝 뒤에 있는 것은 이미 요약에 들어갔다 → 발언 번호로 기억해서 다음 구간에서 빼고
+            const done = []; order.slice(0, gi).forEach(ss => (groups[ss] || []).forEach(l => { if (l.id > first - 1) done.push(l.id); }));
+            sumDoneAdd(done);
+            pp.oto = pp.oto || pp.to; pp.pfx = prefix; pp.to = first - 1; pp.fails = 0; halved = true;
+          }
         }
         if (!halved && pp.fails >= STUCK_FAILS) pp.stuck = 1;                  // 더 줄일 수 없는데 계속 실패: 마스터 탭에 원문과 함께 보여 주고 고르게 한다
         setJson('pending', pp);
@@ -1949,7 +1969,7 @@ function processWindow(job, t0, budget) {
       const k = prefix + 's' + order[gi], st = stageFind(k);
       if (st && st.res ? !(st.sum && st.story && st.notes) : !summaryKeys().has(k)) return 'incomplete';     // 보관본을 못 읽는 줄이면 요약이 실제로 저장됐는지로 판단
     }
-    setConf('processedId', String(p.to)); setJson('pending', null);
+    setConf('processedId', String(p.to)); setJson('pending', null); sumDonePrune(p.to);
     const cap = Number(getConf('winCap') || 0);
     if (p.cut) setConf('winCap', String(p.to - p.from));                     // 줄여서 풀린 크기를 기억
     else if (cap) setConf('winCap', cap * 2 >= WINDOW_LINES ? '' : String(cap * 2));
@@ -2691,7 +2711,7 @@ function clearLog(all) {
     [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
     setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}'); setConf('bookmarks', ''); setConf('nextSteps', '');
     setConf('processedId', '0'); storyWrite('', []);
-    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setConf('notesFail', ''); setJson('pcAuto', null);
+    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setConf('notesFail', ''); setJson('pcAuto', null); setJson('sumDone', null); setConf('winCap', '');
     if (all) {
       const is = ss.getSheetByName(SH.IMG);                     // 이미지 파일도 휴지통으로 (링크 공개 파일이 남지 않게)
       if (is && is.getLastRow() > 1) is.getRange(2, 3, is.getLastRow() - 1, 1).getValues().forEach(r => {

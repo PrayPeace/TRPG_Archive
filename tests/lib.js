@@ -10,8 +10,9 @@ var __calls = 0;
 claude = function(system, content, maxTok, model){
   __calls++; __store.aiCalls = (__store.aiCalls||0) + 1;
   const text = Array.isArray(content) ? content.map(c => typeof c === 'string' ? c : (c.text||'')).join('\\n') : String(content);
+  if (__store.aiDelay && __store.vclock) { const ms = __store.aiDelay(ssId(), text) || 0; if (__store.onAi) __store.onAi(ssId(), ms); __store.vclock.t += ms; }
   const f = __store.aiFail && __store.aiFail(system, text); if (f) { const e = new Error(f); if (/잘렸/.test(f)) e.kind = 'truncated'; throw e; }
-  const ids = (text.match(/#(\\d+)/g) || []).map(x => x.slice(1));
+  const ids = (text.match(/^#(\\d+) [^:\\n]{1,40}: /gm) || []).map(x => x.slice(1).split(' ')[0]);     // 보낸 대화 줄(#번호 이름: 말)만 센다 (앞 요약 같은 참고 글의 #번호는 빼고)
   if (text.indexOf('{"notes":{"places":[]') >= 0) return JSON.stringify({ notes: { places: [], npcs: [], pcs: [], handouts: [], clues: ids.slice(0, 2).map(i => ({ id: 'c' + i, text: '단서 #' + i, status: '미해결', kind: '확인', src: [] })) } });
   return JSON.stringify({ summary: '- 요약 ' + ids.map(i => '#' + i).join(' '), storyAdd: '이야기 ' + ids.length, notes: null });
 };

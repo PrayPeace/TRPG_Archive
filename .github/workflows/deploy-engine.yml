@@ -2,18 +2,19 @@
 #
 #  ● 시험 반영 (main의 Code.gs가 바뀌면 자동): 엔진의 코드를 새 판으로 바꾼다(HEAD).
 #      라이브러리를 HEAD(개발 모드)로 쓰는 방 = 시험 방에만 바로 적용된다.
-#  ● 운영 전환 (Actions 탭에서 손으로, mode=promote): 지금 엔진 코드로 새 라이브러리 버전을 만들고,
-#      PROD_ROOM_SCRIPT_IDS의 운영 방들을 그 버전에 고정한다.
-#  ● 되돌리기 (mode=rollback, version=예전 번호): 운영 방들을 예전 버전에 다시 고정한다.
-#      코드만 바뀌고 시트의 기록(대화·요약·단서)은 건드리지 않는다.
+#  ● 운영 전환 (손으로, mode=promote, target=practice|prod): 새 라이브러리 버전 → 대상 방 고정 → 방 웹 앱 새로 배포 → /exec?action=ver 응답 판 확인
+#  ● 되돌리기 (mode=rollback, version=번호): 대상 방을 예전 버전에 고정하고 같은 확인. 시트 기록은 건드리지 않는다
+#  ● 되돌리기 연습 (mode=drill): 연습 방(PRACTICE_ROOMS)에서만. 승격→말→되돌리기→말→다시 승격, 매번 판과 대화 줄 수 확인
+#      운영 방과 연습 방 목록이 겹치면 멈춘다 (tools/release.js)
 #
 # 키·비밀번호(Code.gs 맨 위 네 줄)는 엔진에 있던 값을 그대로 두고 나머지만 바꾼다 (tools/engine-merge.js, 못 찾으면 멈춤).
 #
 # 저장소 비밀값 (Settings → Secrets and variables → Actions)
 #   CLASPRC_JSON          필수. PC에서 clasp login 뒤 홈 폴더 .clasprc.json 내용
 #   ENGINE_SCRIPT_ID      필수. 엔진 프로젝트 설정의 스크립트 ID
-#   PROD_ROOM_SCRIPT_IDS  운영 전환용. 운영 방들의 Apps Script 스크립트 ID를 쉼표로 (예: 질긴 결속, 로비)
-#   ENGINE_PROD_DEPLOY_ID (선택) 엔진을 웹 앱으로 쓰는 경우 운영 배포 ID
+#   PRACTICE_ROOMS        연습 방 "스크립트ID:웹앱배포ID" (예: 테스트용 채널). 운영 방과 겹치면 안 됨
+#   PRACTICE_PW           연습 방 비밀번호 (drill이 말을 넣고 줄 수를 셈)
+#   PROD_ROOMS            운영 방 "스크립트ID:웹앱배포ID"를 줄마다 (예: 질긴 결속, 로비)
 name: 엔진 자동 배포
 on:
   push:
@@ -22,10 +23,15 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'test = 시험 반영 / promote = 운영 전환 / rollback = 운영 되돌리기'
+        description: 'test = 시험 반영 / promote = 운영 전환 / rollback = 되돌리기 / drill = 되돌리기 연습(연습 방만)'
         type: choice
-        options: [test, promote, rollback]
+        options: [test, promote, rollback, drill]
         default: test
+      target:
+        description: 'promote·rollback 대상 (drill은 언제나 practice)'
+        type: choice
+        options: [practice, prod]
+        default: practice
       version:
         description: 'rollback일 때 되돌릴 라이브러리 버전 번호'
         required: false
@@ -34,9 +40,10 @@ permissions: { contents: read }
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       MODE: ${{ github.event_name == 'push' && 'test' || inputs.mode }}
+      TARGET: ${{ inputs.mode == 'drill' && 'practice' || inputs.target || 'practice' }}
       ROLLBACK_TO: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -47,18 +54,17 @@ jobs:
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
           ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
-          PROD_ROOM_SCRIPT_IDS: ${{ secrets.PROD_ROOM_SCRIPT_IDS }}
         run: |
           if [ -z "$CLASPRC_JSON" ] || [ -z "$ENGINE_SCRIPT_ID" ]; then
             echo "::warning::CLASPRC_JSON 또는 ENGINE_SCRIPT_ID 비밀값이 없어서 건너뛰어요"; echo "SKIP=1" >> "$GITHUB_ENV"; exit 0; fi
-          if [ "$MODE" != "test" ] && [ -z "$PROD_ROOM_SCRIPT_IDS" ]; then echo "::error::운영 전환·되돌리기에는 PROD_ROOM_SCRIPT_IDS가 필요해요"; exit 1; fi
           if [ "$MODE" = "rollback" ] && ! [[ "$ROLLBACK_TO" =~ ^[0-9]+$ ]]; then echo "::error::되돌릴 버전 번호(version)를 숫자로 넣어 주세요"; exit 1; fi
-      - name: 검사 (문법·키 줄)
+          echo "CODE_VER=$(grep -oE "CODE_VER = '[^']+'" Code.gs | cut -d"'" -f2)" >> "$GITHUB_ENV"
+      - name: 검사 (문법·키 줄·가짜 Apps Script 시험)
         if: env.SKIP != '1'
         run: |
           cp Code.gs /tmp/Code.js && node --check /tmp/Code.js
           node -e "const {merge}=require('./tools/engine-merge.js');const s=require('fs').readFileSync('Code.gs','utf8');merge(s,s);"
-          node tests/run.js          # 가짜 Apps Script 시험이 하나라도 실패하면 엔진에 올리지 않는다
+          node tests/run.js          # 하나라도 실패하면 엔진에 올리지 않는다
       - name: clasp 준비
         if: env.SKIP != '1'
         env:
@@ -66,8 +72,8 @@ jobs:
         run: |
           npm i -g @google/clasp@2.4.2
           printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
-      - name: 시험 반영 (엔진 HEAD를 새 판으로)
-        if: env.SKIP != '1' && env.MODE == 'test'
+      - name: 엔진 HEAD를 저장소 판으로 (시험 방에 바로 적용)
+        if: env.SKIP != '1' && env.MODE != 'rollback'
         env:
           ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
         run: |
@@ -76,48 +82,15 @@ jobs:
           clasp pull
           node "$GITHUB_WORKSPACE/tools/engine-merge.js" . "$GITHUB_WORKSPACE/Code.gs"
           clasp push --force
-          echo "시험 방(HEAD)에 적용했어요. 운영 방은 그대로예요. 시험 방에서 selfTestCore와 진단을 확인한 뒤 promote를 돌려 주세요."
-      - name: 운영 전환 (새 라이브러리 버전 만들기)
-        if: env.SKIP != '1' && env.MODE == 'promote'
-        env:
-          ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
-        run: |
-          D="$RUNNER_TEMP/engine"; mkdir -p "$D"; cd "$D"
-          printf '{"scriptId":"%s","rootDir":".","fileExtension":"gs"}' "$ENGINE_SCRIPT_ID" > .clasp.json
-          OUT=$(clasp version "운영 ${GITHUB_SHA::7}")
-          echo "$OUT"
-          V=$(echo "$OUT" | grep -oE '[0-9]+' | tail -1)
-          if ! [[ "$V" =~ ^[0-9]+$ ]]; then echo "::error::새 버전 번호를 읽지 못했어요"; exit 1; fi
-          echo "PIN=$V" >> "$GITHUB_ENV"
-      - name: 되돌리기 버전 정하기
-        if: env.SKIP != '1' && env.MODE == 'rollback'
-        run: echo "PIN=$ROLLBACK_TO" >> "$GITHUB_ENV"
-      - name: 운영 방들을 그 버전에 고정
+          echo "엔진 HEAD = $CODE_VER (HEAD로 쓰는 시험 방에 적용). 버전에 고정된 방은 그대로예요."
+      - name: 운영 전환 / 되돌리기 / 되돌리기 연습 (방 웹 앱 /exec 응답 판까지 확인)
         if: env.SKIP != '1' && env.MODE != 'test'
         env:
-          PROD_ROOM_SCRIPT_IDS: ${{ secrets.PROD_ROOM_SCRIPT_IDS }}
-        run: |
-          IFS=',' read -ra IDS <<< "$PROD_ROOM_SCRIPT_IDS"
-          n=0
-          for id in "${IDS[@]}"; do
-            id=$(echo "$id" | tr -d ' '); [ -z "$id" ] && continue
-            n=$((n+1)); D="$RUNNER_TEMP/room$n"; mkdir -p "$D"; cd "$D"
-            printf '{"scriptId":"%s","rootDir":".","fileExtension":"gs"}' "$id" > .clasp.json
-            clasp pull
-            node "$GITHUB_WORKSPACE/tools/pin-room.js" appsscript.json "$PIN"
-            clasp push --force
-            echo "운영 방 $n: 버전 $PIN"
-          done
-      - name: (선택) 엔진 웹 앱 운영 배포
-        if: env.SKIP != '1' && env.MODE != 'test'
-        env:
-          ENGINE_PROD_DEPLOY_ID: ${{ secrets.ENGINE_PROD_DEPLOY_ID }}
           ENGINE_SCRIPT_ID: ${{ secrets.ENGINE_SCRIPT_ID }}
-        run: |
-          if [ -z "$ENGINE_PROD_DEPLOY_ID" ]; then echo "엔진 웹 앱 배포 없음 (건너뜀)"; exit 0; fi
-          D="$RUNNER_TEMP/engine"; mkdir -p "$D"; cd "$D"
-          printf '{"scriptId":"%s","rootDir":".","fileExtension":"gs"}' "$ENGINE_SCRIPT_ID" > .clasp.json
-          clasp deploy -i "$ENGINE_PROD_DEPLOY_ID" -V "$PIN" -d "운영 버전 $PIN"
+          PROD_ROOMS: ${{ secrets.PROD_ROOMS }}
+          PRACTICE_ROOMS: ${{ secrets.PRACTICE_ROOMS }}
+          PRACTICE_PW: ${{ secrets.PRACTICE_PW }}
+        run: node tools/release.js "$MODE" "$ROLLBACK_TO"
       - name: 정리
         if: always()
-        run: rm -f ~/.clasprc.json; rm -rf "$RUNNER_TEMP"/engine "$RUNNER_TEMP"/room*
+        run: rm -f ~/.clasprc.json; rm -rf "$RUNNER_TEMP"/engine
