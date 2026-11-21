@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.21';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.22';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -333,7 +333,11 @@ function tickAllMore() {
   ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'tickAllMore') ScriptApp.deleteTrigger(t); });
   tickAll();
 }
-function ssId() { if (_ssId == null) { try { _ssId = SS().getId(); } catch (e) { _ssId = 'x'; } } return _ssId; }
+// 캐시 키 앞에 붙는 방 ID. 방을 알아내지 못하면 여러 방이 같이 쓰는 키를 만들지 않고 멈춘다
+function ssId() {
+  if (_ssId == null) { const ss = SS(); const id = ss && ss.getId(); if (!id) throw new Error('방 시트를 찾지 못했어요 (방 주소를 확인해 주세요)'); _ssId = String(id); }
+  return _ssId;
+}
 function roomCache() {
   const c = CacheService.getScriptCache(), p = ssId().slice(0, 60) + ':';
   return {
@@ -345,7 +349,31 @@ function roomCache() {
 // 잠금은 언제나 스크립트 잠금 하나를 쓴다. 문서 잠금은 웹 앱 요청에서는 없을(null) 수 있어서,
 // 웹 요청(대화 저장)과 트리거(자동 요약)가 서로 다른 잠금을 잡고 같은 시트를 동시에 고치는 일을 막는다.
 // 라이브러리 방식이면 방끼리 잠금을 나눠 쓸 수 있지만, 잠금은 짧게 잡고 바로 풀기 때문에 기다림은 잠깐이다.
-function roomLock() { return LockService.getScriptLock(); }
+function roomLock() { return _hosted ? hostedLock() : LockService.getScriptLock(); }
+/* 엔진 방식에서는 모든 방이 한 엔진의 스크립트 잠금을 같이 쓰게 된다. 한 방이 저장하느라 잠금을 잡고 있어도 다른 방의 대화 저장이 기다리지 않게,
+ * 스크립트 잠금은 '이 방 자리표'를 쓰고 지우는 아주 짧은 동안만 잡고, 실제 잠금은 방마다의 자리표(캐시, 시트 ID가 붙은 키)로 한다.
+ * 자리표는 90초가 지나면 저절로 풀린다 (실행이 도중에 죽어도 방이 영영 잠기지 않게). */
+const HOSTED_LEASE_MS = 90 * 1000;
+function hostedLock() {
+  const me = Utilities.getUuid();
+  const step = fn => { const g = LockService.getScriptLock(); if (!g.tryLock(3000)) return false; try { return fn(); } finally { g.releaseLock(); } };
+  return {
+    tryLock: ms => {
+      const end = Date.now() + ms;
+      do {
+        const got = step(() => {
+          const c = roomCache(), v = String(c.get('rlock') || ''), i = v.indexOf('|');
+          if (v && i > 0 && Number(v.slice(i + 1)) > Date.now() && v.slice(0, i) !== me) return false;
+          c.put('rlock', me + '|' + (Date.now() + HOSTED_LEASE_MS), 120); return true;
+        });
+        if (got) return true;
+        Utilities.sleep(150);
+      } while (Date.now() < end);
+      return false;
+    },
+    releaseLock: () => { step(() => { const c = roomCache(); if (String(c.get('rlock') || '').indexOf(me + '|') === 0) c.remove('rlock'); return true; }); }
+  };
+}
 // 짧게 잠그고 바로 푼다. 잠금 안에서 쓴 내용은 풀기 전에 시트에 확정한다.
 let _lockDepth = 0, _lockPatient = false;
 function withLock(ms, fn) {
@@ -838,6 +866,8 @@ function doPost(e) {
       case 'image':      return out(addImage(b.data, b.mime, b.caption));
       case 'setTheme':   return out(setTheme(b.theme));
       case 'notesRetry': return out(notesRetry());
+      case 'pendingRetry': return out(pendingRetry());
+      case 'pendingSkip': return out(pendingSkip(b.from));
       case 'diag':       return out(diag());
       case 'keeperName': withLock(20000, () => { setConf('keeperName', String(b.name || '').trim().slice(0, 40)); bump('notesVer'); }); return out({ ok: true });
       case 'clearLog':   return out(clearLog(false));
@@ -865,7 +895,7 @@ function addLines(b) {
     const rv = getConf('resetVer') || '0', cur = getConf('session') || '1', switchedAt = Number(getConf('sessionAt') || 0);
     const s = sheet(SH.LINES), last = s.getLastRow();
     const seen = uidIndexGet(last - 1, s);
-    const rows = [], saved = [], dup = [], dropped = [];
+    const rows = [], saved = [], dup = [], dropped = [], tooLong = [];
     let id = Math.max(0, last - 1);
     items.forEach(it => {
       if (!it || typeof it !== 'object') return;
@@ -878,10 +908,17 @@ function addLines(b) {
       let sess = /^\d{1,5}$/.test(String(it.session || '')) ? String(it.session) : cur;
       // 세션을 넘긴 뒤 몇 초 동안은 다른 기기가 아직 예전 번호를 알고 있다 → 넘긴 시각 이후에 한 말이면 새 세션으로
       if (Number(sess) < Number(cur) && switchedAt && it.t && Date.parse(it.t) >= switchedAt) sess = cur;
+      if (text.length > LINE_MAX * LINE_PARTS) { if (uid) tooLong.push(uid); return; }      // 100만 자가 넘는 한 줄: 잘라서 저장하지 않고 못 했다고 알린다
       const u = uid || ('srv' + Utilities.getUuid().replace(/-/g, '').slice(0, 16));
-      id++;
-      rows.push([id, fmtTime(it.t), sess, enc(name), enc(text.slice(0, 40000)), enc(u)]);
-      seen.add(u);
+      const tm = fmtTime(it.t);
+      // 한 칸(5만 자 한도)에 안 들어가는 긴 말은 이어지는 줄(발언ID~c2, ~c3…)에 나눠 쓴다. 읽을 때 다시 한 줄로 합친다(mergeCont).
+      // 모든 조각을 같은 setValues로 한 번에 쓰므로 일부만 저장되는 일이 없고, 다시 보내도 발언ID로 걸러진다.
+      for (let i = 0; i * LINE_MAX < text.length; i++) {
+        id++;
+        const uu = i ? u + '~c' + (i + 1) : u;
+        rows.push([id, tm, sess, enc(name), enc(text.slice(i * LINE_MAX, (i + 1) * LINE_MAX)), enc(uu)]);
+        seen.add(uu);
+      }
       if (uid) saved.push(uid);
     });
     if (rows.length) {
@@ -890,7 +927,7 @@ function addLines(b) {
       uidIndexAdd(last - 1, rows.map(r => decS(r[5])));
       pollStale();
     }
-    return { ok: true, saved, dup, dropped, added: rows.length };
+    return { ok: true, saved, dup, dropped, tooLong, added: rows.length };
   });
 }
 
@@ -934,6 +971,21 @@ function uidIndexAdd(prevCount, uids) {
   } catch (e) { try { roomCache().remove('uidMeta'); } catch (x) {} }
 }
 function rowToLine(r) { return { id: Number(r[0]), time: String(r[1]), session: String(r[2]), name: decS(r[3]), text: decS(r[4]), uid: decS(r[5]) }; }
+const LINE_MAX = 40000, LINE_PARTS = 25;       // 한 칸에 4만 자, 한 말은 25칸(100만 자)까지
+function contOf(uid) { const m = /^(.+)~c\d+$/.exec(String(uid || '')); return m ? m[1] : ''; }
+/* 이어지는 줄(~c2…)을 앞 줄에 붙여 한 줄로 만든다. 합친 줄의 last = 마지막 조각 번호.
+ * 앞 조각이 읽은 범위 밖이면 그 조각은 뺀다 (앞 범위를 읽을 때 통째로 들어간다). */
+function mergeCont(lines) {
+  const out = [];
+  lines.forEach(l => {
+    const b = contOf(l.uid);
+    if (b) { const p = out[out.length - 1]; if (p && p.uid === b) { p.text += l.text; p.last = l.id; } return; }
+    out.push(l);
+  });
+  return out;
+}
+function rowsToLines(v) { return mergeCont(v.map(rowToLine)); }
+// 번호 sinceId 다음부터 maxRows줄. 마지막 줄이 나뉘어 있으면 남은 조각까지 더 읽어 한 줄로 돌려준다
 function readLines(sinceId, maxRows) {
   const s = sheet(SH.LINES);
   const last = s.getLastRow();
@@ -941,7 +993,10 @@ function readLines(sinceId, maxRows) {
   if (firstRow > last) return [];
   let n = last - firstRow + 1;
   if (maxRows && n > maxRows) n = maxRows;
-  return s.getRange(firstRow, 1, n, 6).getValues().map(rowToLine);
+  const extra = Math.min(LINE_PARTS, last - (firstRow + n - 1));
+  const all = s.getRange(firstRow, 1, n + extra, 6).getValues().map(rowToLine);
+  let k = n; while (k < all.length && contOf(all[k].uid)) k++;
+  return mergeCont(all.slice(0, k));
 }
 function totalLines() { return Math.max(0, sheet(SH.LINES).getLastRow() - 1); }
 
@@ -1081,7 +1136,7 @@ function history(before, limit) {
 
 function allLineRows() {
   const s = sheet(SH.LINES), last = s.getLastRow();
-  return last >= 2 ? s.getRange(2, 1, last - 1, 6).getValues().map(rowToLine) : [];
+  return last >= 2 ? rowsToLines(s.getRange(2, 1, last - 1, 6).getValues()) : [];
 }
 function sessionLines(session) {
   if (!session) return { ok: false, error: '세션을 골라 주세요' };
@@ -1091,7 +1146,7 @@ function sessionLines(session) {
 }
 function sessionList() {
   const s = sheet(SH.LINES), last = s.getLastRow(), cnt = {};
-  if (last >= 2) s.getRange(2, 3, last - 1, 1).getValues().forEach(r => { const k = String(r[0]); cnt[k] = (cnt[k] || 0) + 1; });
+  if (last >= 2) s.getRange(2, 3, last - 1, 4).getValues().forEach(r => { if (contOf(decS(r[3]))) return; const k = String(r[0]); cnt[k] = (cnt[k] || 0) + 1; });
   return { ok: true, sessions: Object.keys(cnt).sort((a, b) => Number(a) - Number(b)).map(k => ({ session: k, count: cnt[k] })) };
 }
 
@@ -1135,7 +1190,7 @@ function allData() {
     recap: confJson('recap', null), awards: confJson('awards', null),     // 마스터가 '공개'를 누른 것만 들어 있다
     bookmarks: confJson('bookmarks', []),
     theme: confJson('theme', {}),
-    notesFail: notesFail().length                                        // 정리 실패 보관 건수 (마스터 탭에 '다시 정리' 버튼)                                         // 방 테마 (마스터가 고름, 비어 있으면 룰을 따라감)
+    notesFail: notesFail().length, stuck: stuckInfo()                                        // 정리 실패 보관 건수 (마스터 탭에 '다시 정리' 버튼)                                         // 방 테마 (마스터가 고름, 비어 있으면 룰을 따라감)
   };
 }
 
@@ -1472,7 +1527,7 @@ function diag() {
   let last = null; try { last = JSON.parse(roomCache().get('lastTick') || 'null'); } catch (e) {}
   return { ok: core.ok, core: core.log, ver: CODE_VER, info: {
     lines: totalLines(), processed: Number(getConf('processedId') || 0), pendingError: pend && pend.lastError || '',
-    notesQ: notesQ().length, notesFail: notesFail().length, triggers: trig, hosted: _hosted, lastTick: last, errors: errs, errorRows: es ? Math.max(0, es.getLastRow() - 1) : 0 } };
+    notesQ: notesQ().length, notesFail: notesFail().length, triggers: trig, hosted: _hosted, stuck: stuckInfo(), lastTick: last, errors: errs, errorRows: es ? Math.max(0, es.getLastRow() - 1) : 0 } };
 }
 
 
@@ -1718,16 +1773,52 @@ function processNow(manual) {
 
 function windowEnd(from, to) {
   const rows = readLines(from, to - from);
-  let sum = 0, n = 0;
+  let sum = 0, n = 0, end = from;
   for (; n < rows.length; n++) {
     // 한 구간에는 한 세션만 담는다: 세션이 섞이면 앞 세션 결과만 보관된 채 뒤 세션이 실패했을 때 구간을 줄일 수 없어 같은 곳에서 계속 막힌다
     if (n > 0 && rows.length && String(rows[n].session) !== String(rows[0].session)) break;
     sum += String(rows[n].text).length + String(rows[n].name).length + 12;
     if (sum > WINDOW_CHARS && n >= 8) break;
+    end = rows[n].last || rows[n].id;                              // 나뉜 긴 말은 마지막 조각까지 한 구간에
   }
-  return from + Math.max(1, n);
+  return Math.max(end, from + 1);
 }
 
+/* 요약이 같은 구간에서 계속 실패하고 더 줄일 수도 없을 때 (예: 한 발언만 남았는데 AI가 계속 실패).
+ * 마스터 탭에 그 구간 원문을 보여 주고, '다시 시도' 또는 '원문만 남기고 넘어가기'를 고르게 한다. 원문(대화 탭)은 어느 쪽이든 그대로 남는다. */
+const STUCK_FAILS = 3;
+function stuckInfo() {
+  const p = confJson('pending', null);
+  if (!p || !(p.stuck || (p.fails || 0) >= STUCK_FAILS)) return null;
+  const lines = readLines(p.from, Math.min(p.to - p.from, 5)).map(l => ({ id: l.id, session: l.session, name: l.name, text: String(l.text).slice(0, 300), len: String(l.text).length }));
+  return { from: p.from, to: p.to, fails: p.fails || 0, error: String(p.lastError || '').slice(0, 200), lines, more: p.to - p.from > lines.length };
+}
+function pendingRetry() {
+  withLock(20000, () => { const p = confJson('pending', null); if (p) { p.fails = 0; delete p.stuck; setJson('pending', p); } });
+  return processNow(true);
+}
+function pendingSkip(from) {
+  const r = withLock(30000, () => {
+    const p = confJson('pending', null);
+    if (!p || p.from !== Number(from) || Number(getConf('processedId') || 0) !== p.from) return { ok: false, error: '그 사이 정리 상태가 바뀌었어요. 새로 고침 뒤 다시 확인해 주세요' };
+    if (liveJob()) return { ok: false, error: '지금 다른 정리가 돌고 있어요. 잠시 뒤 다시 눌러 주세요' };
+    const rv = getConf('resetVer') || '0', prefix = p.pfx || (rv + ':' + p.from + '-' + p.to + ':');
+    const rows = readLines(p.from, p.to - p.from).filter(l => String(l.text).trim());
+    const bySess = {}; rows.forEach(l => { (bySess[l.session] = bySess[l.session] || []).push(l); });
+    const have = summaryKeys(), ms = sheet(SH.SUM);
+    Object.keys(bySess).sort((a, b) => Number(a) - Number(b)).forEach(sess => {
+      const g = bySess[sess], k = prefix + 's' + sess;
+      if (have.has(k)) return;
+      const text = '- (AI가 이 부분을 요약하지 못해 원문만 남겼어요: #' + g[0].id + (g.length > 1 ? '~#' + (g[g.length - 1].last || g[g.length - 1].id) : '') + ' ' + g.length + '줄)';
+      ms.getRange(ms.getLastRow() + 1, 1, 1, 6).setNumberFormat('@').setValues([[String(sess), g[0].time, g[g.length - 1].time, enc(text), now(), k]]);
+      queueNotes({ k, s: String(sess), f: p.from, t: p.to });      // 단서 정리는 따로 한 번 더 해 본다 (실패하면 실패 목록에 남는다)
+    });
+    setConf('processedId', String(p.to)); setJson('pending', null);
+    stageDeleteWindow(prefix); bump('sumVer');
+    return { ok: true, message: '#' + (p.from + 1) + '~#' + p.to + ' 구간은 원문만 남기고 넘어갔어요. 대화 기록은 그대로예요' };
+  });
+  return r;
+}
 function processWindow(job, t0, budget) {
   // 구간 정하기 (짧게 잠금)
   const win = withLock(20000, () => {
@@ -1737,10 +1828,12 @@ function processWindow(job, t0, budget) {
     let p = confJson('pending', null);
     if (!p || p.rv !== job.rv || p.from !== processed || p.to <= processed || p.to > total) {
       if (total <= processed) { setJson('pending', null); return { empty: true }; }
-      p = { from: processed, to: windowEnd(processed, Math.min(total, processed + WINDOW_LINES)), rv: job.rv, fails: 0, done: [] };
+      // 최근에 구간을 줄여서야 풀렸으면(AI 답이 자꾸 잘림) 그 크기의 두 배부터 시작한다. 잘 되면 다시 늘어난다
+      const cap = Math.max(1, Math.min(WINDOW_LINES, Number(getConf('winCap') || 0) * 2 || WINDOW_LINES));
+      p = { from: processed, to: windowEnd(processed, Math.min(total, processed + cap)), rv: job.rv, fails: 0, done: [] };
       setJson('pending', p);
     }
-    if (p.to - p.from > WINDOW_LINES && !stageHasWindow(job.rv + ':' + p.from + '-' + p.to + ':')) { p.to = windowEnd(p.from, p.from + WINDOW_LINES); p.fails = 0; setJson('pending', p); }
+    if (p.to - p.from > WINDOW_LINES && !p.pfx && !stageHasWindow(job.rv + ':' + p.from + '-' + p.to + ':')) { p.to = windowEnd(p.from, p.from + WINDOW_LINES); p.fails = 0; setJson('pending', p); }
     return { p, total };
   });
   if (win.stale) return { stale: true, lines: 0, segs: 0 };
@@ -1753,12 +1846,13 @@ function processWindow(job, t0, budget) {
   rows.forEach(l => { if (!String(l.text).trim()) return; if (!groups[l.session]) { groups[l.session] = []; order.push(l.session); } groups[l.session].push(l); });
   order.sort((a, b) => Number(a) - Number(b));
   const existing = summaryKeys();
-  const prefix = job.rv + ':' + p.from + '-' + p.to + ':';
-  let segs = 0, halved = false;
+  // 보관 이름(prefix)은 구간을 처음 정할 때의 것을 계속 쓴다: 아래에서 구간 끝을 당겨도 이미 보관한 AI 결과를 그대로 찾게
+  const prefix = p.pfx || (job.rv + ':' + p.from + '-' + p.to + ':');
+  let segs = 0, halved = false, curSess = null;
 
   try {
     for (let gi = 0; gi < order.length; gi++) {
-      const sess = order[gi];
+      const sess = order[gi]; curSess = sess;
       const segKey = prefix + 's' + sess;
       let st = stageFind(segKey), fresh = null;
       if (!st && existing.has(segKey)) continue;                 // 예전 버전에서 이미 끝낸 구간
@@ -1824,7 +1918,22 @@ function processWindow(job, t0, budget) {
         if (!pp || pp.from !== p.from || pp.to !== p.to) return;
         pp.fails = (pp.fails || 0) + 1; pp.lastError = String(e && e.message || e).slice(0, 300);
         const cut = e && (e.kind === 'truncated' || e.kind === 'parse');     // 답이 길어 끊김: 기다리지 않고 바로 반으로 줄인다
-        if ((cut || pp.fails >= 2) && !stageHasWindow(prefix) && pp.to - pp.from > 1) { pp.to = pp.from + Math.floor((pp.to - pp.from) / 2); pp.fails = 0; halved = true; }
+        const gi = order.indexOf(curSess);
+        if ((cut || pp.fails >= 2) && !stageHasWindow(prefix) && pp.to - pp.from > 1) {
+          const lines = rows.filter(l => String(l.text).trim());
+          const half = pp.from + Math.floor((pp.to - pp.from) / 2);
+          // 반으로 자를 때 나뉜 긴 말 중간에서 자르지 않는다
+          const cutAt = lines.reduce((b, l) => (l.id <= half && (l.last || l.id) > b ? (l.last || l.id) : b), pp.from);
+          pp.to = cutAt > pp.from ? cutAt : (lines[0] ? (lines[0].last || lines[0].id) : pp.from + 1);
+          if (pp.to >= p.to) pp.to = p.to;          // 한 줄(긴 말 하나)뿐이라 더 줄일 수 없음
+          else { pp.fails = 0; pp.cut = 1; halved = true; }
+        } else if (pp.fails >= 2 && gi > 0 && groups[curSess] && groups[curSess].length) {
+          // 예전 판이 두 세션을 한 구간에 묶었고 앞 세션만 보관된 채 뒤 세션이 실패하는 경우:
+          // 구간 끝을 실패한 세션의 첫 줄 앞으로 당겨 끝난 세션을 먼저 마무리한다 (보관 이름은 그대로). 뒤 세션은 다음 구간에서 따로(반으로 줄이기 가능)
+          const first = groups[curSess].reduce((m, l) => Math.min(m, l.id), Infinity);
+          if (first - 1 > pp.from) { pp.pfx = prefix; pp.to = first - 1; pp.fails = 0; halved = true; }
+        }
+        if (!halved && pp.fails >= STUCK_FAILS) pp.stuck = 1;                  // 더 줄일 수 없는데 계속 실패: 마스터 탭에 원문과 함께 보여 주고 고르게 한다
         setJson('pending', pp);
       });
     } catch (e2) {}
@@ -1841,6 +1950,9 @@ function processWindow(job, t0, budget) {
       if (st && st.res ? !(st.sum && st.story && st.notes) : !summaryKeys().has(k)) return 'incomplete';     // 보관본을 못 읽는 줄이면 요약이 실제로 저장됐는지로 판단
     }
     setConf('processedId', String(p.to)); setJson('pending', null);
+    const cap = Number(getConf('winCap') || 0);
+    if (p.cut) setConf('winCap', String(p.to - p.from));                     // 줄여서 풀린 크기를 기억
+    else if (cap) setConf('winCap', cap * 2 >= WINDOW_LINES ? '' : String(cap * 2));
     stageDeleteWindow(prefix);
     return true;
   });
@@ -1863,19 +1975,31 @@ function queueNotes(task) {
   notesQSet(q);
 }
 /* 정리 실패 목록: 4번 실패했거나 대기가 넘쳐 빠진 정리 작업. 마스터가 '다시 정리'로 대기열에 되돌린다 (잠금 안에서 부른다) */
+const NOTES_FAIL_MAX = 400;             // 설정 칸 하나(5만 자)에 들어가는 만큼
 function notesFail() { return confJson('notesFail', []); }
 function notesFailAdd(tasks, why) {
   const f = notesFail();
-  tasks.forEach(t => { if (!f.some(x => taskSame(x, t))) f.push(Object.assign({}, t, { fails: 0, why: String(why || '').slice(0, 160), at: Date.now() })); });
-  setConf('notesFail', f.length ? JSON.stringify(f.slice(-200)) : '');
+  tasks.forEach(t => { if (!f.some(x => taskSame(x, t))) f.push(Object.assign({}, t, { fails: 0, why: String(why || '').slice(0, 80), at: Date.now() })); });
+  if (f.length > NOTES_FAIL_MAX) serverErr('정리 실패 목록', '실패 목록이 ' + f.length + '건이라 오래된 ' + (f.length - NOTES_FAIL_MAX) + '건을 뺐어요');
+  setConf('notesFail', f.length ? JSON.stringify(f.slice(-NOTES_FAIL_MAX)) : '');
 }
+/* 실패 목록을 대기열로 되돌린다. 대기열 빈자리만큼만 옮기고, 못 옮긴 건 실패 목록에 그대로 남긴다 (대기열에 이미 있는 건은 옮긴 것으로 친다).
+ * 몇 번을 눌러도 대기열+실패 목록의 작업 집합은 그대로다. */
 function notesRetry() {
   return withLock(20000, () => {
-    const f = notesFail(); if (!f.length) return { ok: true, n: 0, message: '다시 정리할 실패 건이 없어요' };
-    const q = notesQ();
-    f.forEach(t => { const c = Object.assign({}, t); delete c.why; delete c.at; c.fails = 0; if (!q.some(x => taskSame(x, c))) q.push(c); });
-    notesQSet(q.slice(-NOTES_Q_MAX)); setConf('notesFail', '');
-    return { ok: true, n: f.length, message: '실패했던 정리 ' + f.length + '건을 다시 대기열에 넣었어요. 다음 요약 때(또는 지금 요약) 처리돼요' };
+    const f = notesFail(); if (!f.length) return { ok: true, n: 0, moved: 0, left: 0, message: '다시 정리할 실패 건이 없어요' };
+    const q = notesQ(), keep = [];
+    let moved = 0;
+    f.forEach(t => {
+      const c = Object.assign({}, t); delete c.why; delete c.at; c.fails = 0;
+      if (q.some(x => taskSame(x, c))) { moved++; return; }
+      if (q.length < NOTES_Q_MAX) { q.push(c); moved++; return; }
+      keep.push(t);
+    });
+    notesQSet(q); setConf('notesFail', keep.length ? JSON.stringify(keep) : '');
+    const msg = moved ? '실패했던 정리 ' + moved + '건을 다시 대기열에 넣었어요' + (keep.length ? '. 대기열이 꽉 차서 ' + keep.length + '건은 실패 목록에 남겼어요 (대기가 줄면 다시 눌러 주세요)' : '. 다음 요약 때(또는 지금 요약) 처리돼요')
+                      : '대기열이 꽉 차서 옮기지 못했어요. 실패 ' + keep.length + '건은 그대로 남아 있어요 (대기가 줄면 다시 눌러 주세요)';
+    return { ok: true, n: moved, moved, left: keep.length, message: msg };
   });
 }
 function notesCall(sys2, user2, maxTok, model) {
@@ -1924,7 +2048,7 @@ function refineItem(sec, id) {
   const s = sheet(SH.LINES), last = s.getLastRow();
   if (last < 2) return { skip: '대화 기록이 없어요' };
   const from = Math.max(2, last - 3000 + 1);
-  const all = s.getRange(from, 1, last - from + 1, 6).getValues().map(rowToLine);
+  const all = rowsToLines(s.getRange(from, 1, last - from + 1, 6).getValues());
   const byText = nm.length >= 2 ? all.filter(l => String(l.text).indexOf(nm) >= 0) : [];
   const srcSet = new Set((it.src || []).map(String));
   const bySrc = all.filter(l => l.uid && srcSet.has(String(l.uid)));
@@ -1959,7 +2083,7 @@ function buildPc(player, cardName) {
   const s = sheet(SH.LINES), last = s.getLastRow();
   if (last < 2) return { skip: '대화 기록이 없어요' };
   const from = Math.max(2, last - 3000 + 1);
-  const all = s.getRange(from, 1, last - from + 1, 6).getValues().map(rowToLine);
+  const all = rowsToLines(s.getRange(from, 1, last - from + 1, 6).getValues());
   const mine = all.filter(l => l.name === nm && String(l.text).trim().length >= 4);
   if (mine.length < 3) return { skip: all.some(l => l.name === nm) ? '"' + nm + '"님의 발언이 아직 너무 적어요 (' + mine.length + '줄)' : '"' + nm + '"(이)라는 이름으로 말한 기록이 없어요. 카드의 플레이어 칸에 이 캐릭터를 하는 사람의 접속 이름을 적어 주세요 (캐릭터시트를 연결하면 자동으로 찾아요)' };
   const byId = {}; all.forEach(l => { byId[l.id] = l; });
