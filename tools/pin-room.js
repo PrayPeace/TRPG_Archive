@@ -12,10 +12,10 @@ function pin(manifest, ver) {
   else { if (!/^\d+$/.test(String(ver))) throw new Error('버전 번호가 이상해요: ' + ver); lib.version = String(ver); lib.developmentMode = false; }
   return { manifest, before, lib };
 }
-// 지금 상태만 본다 (바꾸지 않음): { dev: 개발 모드(HEAD)인지, version }
+// 지금 상태만 본다 (바꾸지 않음): { dev: 개발 모드(HEAD)인지, version, libraryId: 어느 엔진 스크립트를 가리키는지 }
 function libState(manifest) {
   const lib = ((manifest.dependencies && manifest.dependencies.libraries) || []).find(l => l.userSymbol === 'TRPG');
-  return lib ? { dev: !!lib.developmentMode, version: String(lib.version || '') } : null;
+  return lib ? { dev: !!lib.developmentMode, version: String(lib.version || ''), libraryId: String(lib.libraryId || '') } : null;
 }
 module.exports = { pin, libState };
 if (require.main === module) {

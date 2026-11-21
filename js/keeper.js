@@ -183,7 +183,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.24';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.25';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['now', '지금 장면'], ['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -212,7 +212,7 @@ function keeperShow(){
   $('kLink').value = location.origin + location.pathname + '#s=' + encodeURIComponent(id ? id[1] : (cfg.url || S.get('t_url') || '')) + '&p=' + encodeURIComponent(cfg.pw);
 }
 // 회의록(세션 기록)으로 만든 화면 기억을 지운다
-function kForgetSession(){ K.stats = {}; K.statsRv = {}; K.aw = {}; K.awMeta = {}; K.recapF = {}; K.npcR = null; K.rollR = null; K.ccf = null; K.ccfMis = false; }
+function kForgetSession(){ K.rollSeq = (K.rollSeq || 0) + 1; K.stats = {}; K.statsRv = {}; K.aw = {}; K.awMeta = {}; K.recapF = {}; K.npcR = null; K.rollR = null; K.ccf = null; K.ccfMis = false; }
 function keeperOff(msg){
   K.epoch++;                                                      // 이 뒤에 도착하는 마스터 답은 모두 버린다
   cfg.kt = ''; SS.del('t_kt'); S.del('t_kt'); S.del('t_kpw');
@@ -228,6 +228,7 @@ function keeperOff(msg){
 function keeperReset(){
   K.epoch++;
   kForgetSession();
+  K.scene = null; K.sceneOld = null; try { S.del('t_kscene:' + cfg.url); } catch(_) {}      // 지워진 기록에서 고른 장면도 버린다
   if (cfg.kt && K.d && $('kview')) kLoad();
 }
 async function keeperLogin(pw, remember){
@@ -333,47 +334,103 @@ function kRender(){
 
 /* ── 지금 장면 (세션 중 곁눈질용) ──
  * AI를 부르지 않는다. 이미 받아 둔 시나리오 정리본(K.d.kb)과 공개 기록, 마지막 현황판 결과를 "지금 장면" 하나에 맞춰 골라 보여 준다.
- * 장면은 최근 대화에 나온 장소 이름으로 추정하지만, 마스터가 고르고 📌 고정하면 추정이 달라도 바꾸지 않는다.
- * 딱지: [AI 정리본] 시나리오를 AI가 정리한 것 · [마스터가 고침] 마스터가 확정한 것 · [세션 기록] 실제 대화에서 나온 것 · [AI 판단 HH:MM] 현황판 갱신 때 AI가 판단한 것 */
+ * 장면 정하기: 마스터가 고르거나 📌 고정한 것이 언제나 먼저다. 그렇지 않을 때만 최근 대화로 추정하고, 추정에는 [자동 추정] 딱지를 붙인다.
+ *   - "아까 지하실에서 찾은 편지"처럼 지나간 일·다른 곳 이야기로 장소가 나온 것은 지금 장면으로 치지 않는다 (kPast).
+ *   - "지하실로 내려간다 / 서재에 도착했다"처럼 옮겨 갔다는 말(kMove)이 있을 때만 화면을 그 장소로 바꾼다. 이름만 나온 것(언급)은 한 줄 안내만 한다.
+ *   - 고정은 그 회차 안에서만 간다. 회차가 넘어가면 고정을 풀고, 한 번 눌러 다시 고정할 수 있게 알린다 (지난 회차의 고정이 조용히 틀린 장면을 보여 주지 않게).
+ * 딱지: [AI 정리본] 시나리오를 AI가 정리한 것 · [마스터가 고침] 마스터가 확정한 것 · [대화에 나옴] 실제 대화에 이름이 나온 것 · [AI 판단 HH:MM] 현황판 갱신 때 AI가 판단한 것 · [AI 해석] 공개 추천 AI가 대화를 읽고 정리한 것 */
 const kNorm = x => String(x || '').replace(/\s+/g, '');
-function kSceneGet(){ if (K.scene) return K.scene; let o = null; try { o = JSON.parse(S.get('t_kscene:' + cfg.url) || 'null'); } catch(_) {} K.scene = o && typeof o === 'object' ? o : { place: '', pin: false }; return K.scene; }
-function kSceneSet(place, pin){ K.scene = { place: String(place || '').trim(), pin: !!pin }; try { S.set('t_kscene:' + cfg.url, JSON.stringify(K.scene)); } catch(_) {} }
+const kSessNow = () => String((typeof live === 'object' && live.session !== undefined ? live.session : (K.d && K.d.session)) || '');
+function kSceneGet(){
+  if (!K.scene) { let o = null; try { o = JSON.parse(S.get('t_kscene:' + cfg.url) || 'null'); } catch(_) {} K.scene = o && typeof o === 'object' ? { place: String(o.place || ''), pin: !!o.pin, by: o.by || (o.pin ? 'hand' : 'guess'), sess: String(o.sess || '') } : { place: '', pin: false, by: 'guess', sess: '' }; }
+  // 회차가 넘어갔으면 지난 회차의 고정·선택을 풀고 다시 추정한다 (무엇을 풀었는지는 K.sceneOld에 남겨 한 번 눌러 되돌릴 수 있게)
+  const now = kSessNow();
+  if (now && K.scene.sess && K.scene.sess !== now) { if (K.scene.place && (K.scene.pin || K.scene.by === 'hand')) K.sceneOld = { place: K.scene.place, pin: K.scene.pin, sess: K.scene.sess }; kSceneSet('', false, 'guess'); }
+  return K.scene;
+}
+// by: 'hand' 마스터가 고름 · 'guess' 자동 추정
+function kSceneSet(place, pin, by){ K.scene = { place: String(place || '').trim(), pin: !!pin, by: by || (pin ? 'hand' : 'guess'), sess: kSessNow() }; try { S.set('t_kscene:' + cfg.url, JSON.stringify(K.scene)); } catch(_) {} }
 function kPlaceNames(){
   const kb = K.d.kb, pub = (data && data.notes && data.notes.places) || [];
   const m = []; kb.places.forEach(p => m.push({ name: p.name, keys: [p.name] }));
   pub.forEach(p => { const hit = m.find(x => kNorm(x.name) === kNorm(p.name)); const aka = String(p.aka || '').split(/[,，、]+/).map(x => x.trim()).filter(x => x.length >= 2); if (hit) hit.keys = hit.keys.concat(aka); else m.push({ name: p.name, keys: [p.name].concat(aka) }); });
   return m.filter(x => kNorm(x.name).length >= 2);
 }
-// 최근 대화 60줄을 끝에서부터 훑어 가장 나중에 이름이 나온 장소. 없으면 마지막 요약의 【장소】
+/* 한 줄(공백을 뺀 글 t)에서 장소 이름 k가 어떤 뜻으로 나왔는지: 'past' 지나간 일·다른 곳 이야기 / 'move' 그곳으로 옮겨 감·그곳에 있음 / 'say' 이름만 나옴
+ * 글자 규칙이라 틀릴 수 있다. 그래서 'move'만 화면을 바꾸고, 그것도 [자동 추정]이라고 적는다. */
+const K_PAST = /^(에서|에)?(찾은|찾았던|찾아낸|발견한|발견했던|주운|주웠던|가져온|들고온|봤던|보았던|본|있던|있었던|들은|들었던|만난|만났던|얻은|받은|나온|온)|^(에서|에)(찾았|발견했|주웠|봤|보았|들었|만났|얻었|받았|있었)|^(얘기|이야기|말인데|말이야|쪽은|은나중|는나중|도나중)|^(에대해|에대한|에관해|에관한)|^(은|는|도|을|를)?(나중에|다음에|이따|내일)|^(에|으로|로)?(가면|가볼까|갈까|가보자|가자|가야|갈래|가봐야|가는게)/;
+const K_MOVE = /^(에|에는|안에|안으로|으로|로|쪽으로)?(도착|들어가|들어간|들어갑|들어서|들어왔|들어온|이동|내려가|내려간|내려갑|내려왔|올라가|올라간|올라갑|올라왔|향한|향했|향합|왔다|왔습|왔어|간다|갑니다|갔다|갔습|갔어|나왔|돌아왔|돌아간|돌아갑)|^(안은|안에는|의문을열|문을열|내부는|에는.{0,12}(있다|있습니다|있어요|보인다|보입니다))/;
+function kMention(t, k){
+  let best = '';
+  for (let i = t.indexOf(k); i >= 0; i = t.indexOf(k, i + 1)) {
+    const before = t.slice(Math.max(0, i - 8), i), after = t.slice(i + k.length, i + k.length + 22);
+    const kind = (/(아까|전에|지난번|저번에|예전에|그때|어제|방금전)$/.test(before) || /(아까|지난번|저번에|예전에|어제).{0,6}$/.test(before) && /^(에서|에)/.test(after)) || K_PAST.test(after) ? 'past' : K_MOVE.test(after) ? 'move' : 'say';
+    if (kind === 'move') return 'move';
+    if (kind === 'say') best = 'say'; else if (!best) best = 'past';
+  }
+  return best;
+}
+/* 지금 회차의 최근 대화 60줄로 지금 장면을 추정한다. 돌려주는 값: { place, by(근거 글), sure(옮겨 갔다는 말이 있었는지) }
+ *  ① 가장 나중의 "옮겨 감" → 그 장소. 다만 그 뒤로 다른 장소가 두 줄 넘게 나오면(언급) 그쪽을 약한 추정으로
+ *  ② 옮겨 갔다는 말이 없으면: 최근 20줄에서 가장 많이 나온 장소(같으면 더 나중 것)를 약한 추정으로 ③ 그것도 없으면 이번 회차 마지막 요약의 【장소】(약한 추정) */
 function kSceneGuess(){
-  const names = kPlaceNames(), tail = allLines.slice(-60);
-  for (let i = tail.length - 1; i >= 0; i--) { const t = kNorm(tail[i].text); const hit = names.filter(n => n.keys.some(k => t.indexOf(kNorm(k)) >= 0)).sort((a, b) => b.name.length - a.name.length)[0]; if (hit) return { place: hit.name, by: '최근 대화 #' + tail[i].id }; }
-  const sums = (data && data.summaries) || [], last = sums.length ? sortSums(sums)[sums.length - 1] : null;
+  const names = kPlaceNames(), sess = kSessNow(), tail = allLines.filter(l => !sess || String(l.session) === sess).slice(-60);
+  const hits = [];                                   // 오래된 것 → 새것
+  tail.forEach((l, idx) => {
+    if (/^※ 받아쓰기 끊김/.test(l.text || '')) return;
+    const t = kNorm(l.text); let found = null;
+    names.forEach(n => n.keys.forEach(k => { const kk = kNorm(k); if (kk.length < 2) return; const kind = kMention(t, kk); if (!kind || kind === 'past') return; if (!found || (kind === 'move' && found.kind !== 'move') || (kind === found.kind && kk.length > found.len)) found = { place: n.name, kind, len: kk.length, id: l.id, idx }; }));
+    if (found) hits.push(found);
+  });
+  let mv = null; for (let i = hits.length - 1; i >= 0; i--) { if (hits[i].kind === 'move') { mv = hits[i]; break; } }
+  if (mv) {
+    const later = hits.filter(h => h.idx > mv.idx && h.place !== mv.place), cnt = {}; later.forEach(h => { cnt[h.place] = (cnt[h.place] || 0) + 1; });
+    const other = Object.keys(cnt).filter(k => cnt[k] >= 2).sort((a, b) => cnt[b] - cnt[a])[0];
+    if (other) return { place: other, by: '최근 대화에 ' + cnt[other] + '번 나옴', sure: false };
+    return { place: mv.place, by: '#' + mv.id + '에서 옮겨 간 것으로 보임', sure: true };
+  }
+  const recent = hits.filter(h => h.idx >= tail.length - 20), cnt = {}, lastAt = {};
+  recent.forEach(h => { cnt[h.place] = (cnt[h.place] || 0) + 1; lastAt[h.place] = h.idx; });
+  const top = Object.keys(cnt).sort((a, b) => (cnt[b] - cnt[a]) || (lastAt[b] - lastAt[a]))[0];
+  if (top) return { place: top, by: '최근 대화에 이름이 ' + cnt[top] + '번 나옴 (옮겨 갔다는 말은 없음)', sure: false };
+  const sums = sortSums((data && data.summaries) || []).filter(x => !sess || String(x.session) === sess), last = sums[sums.length - 1];
   const p = last ? ((String(last.text).match(/【([^】]+)】/g) || []).pop() || '').replace(/[【】]/g, '') : '';
-  return p ? { place: p, by: '마지막 요약' } : { place: '', by: '' };
+  return p ? { place: p, by: '이번 회차 마지막 요약', sure: false } : { place: '', by: '', sure: false };
 }
 function kHere(where, place){ const a = kNorm(where), b = kNorm(place); return !!a && !!b && (a.indexOf(b) >= 0 || b.indexOf(a) >= 0); }
 function kTag(x){ return el('span', 'ksrc ' + (x && x.locked ? 'hand' : 'digest'), x && x.locked ? '마스터가 고침' : 'AI 정리본'); }
 function kvNow(box){
-  const kb = K.d.kb, sc = kSceneGet(), guess = kSceneGuess(), log = K.d.board, b = log && log.result;
-  if (!sc.pin && guess.place && guess.place !== sc.place) kSceneSet(guess.place, false);
+  const t0 = performance.now();
+  const kb = K.d.kb, sc = kSceneGet(), guess = kSceneGuess(), log = K.d.board, sessNow = kSessNow();
+  // 마스터가 고르거나 고정한 장면은 바꾸지 않는다. 자동 추정일 때만, 그것도 비어 있거나 "옮겨 갔다"는 말이 있을 때만 바꾼다 (이름만 나온 것은 아래 한 줄 안내로)
+  if (!sc.pin && sc.by !== 'hand' && guess.place && guess.place !== sc.place && (!sc.place || guess.sure)) kSceneSet(guess.place, false, 'guess');
   const place = kSceneGet().place;
+  // 현황판(AI 판단)이 지난 회차 것이면: 단서의 찾음 표시는 쓰되(누적된 사실), 그때의 힌트·다음 장면 제안은 지금 장면에 섞지 않는다
+  const boardOld = !!(log && sessNow && String(log.session || '') && String(log.session) !== sessNow), b = log && log.result;
   // 장면 고르기
   const top = el('div', 'know-top');
   const names = uniq(kPlaceNames().map(x => x.name));
   box.append(kDatalist('klNow', names));
-  const inp = kInput(place, '장면(장소) 이름', () => {}, 'klNow'); inp.id = 'kNowPlace'; inp.onchange = () => { kSceneSet(inp.value, true); kRender(); };
-  const pin = el('button', K.scene.pin ? 'act' : '', K.scene.pin ? '📌 고정됨' : '📌 고정'); pin.id = 'kNowPin'; pin.title = '고정하면 대화가 다른 장소를 말해도 이 장면을 그대로 둬요';
-  pin.onclick = () => { kSceneSet(place, !K.scene.pin); kRender(); };
-  top.append(el('b', '', '지금 장면'), inp, pin);
+  const inp = kInput(place, '장면(장소) 이름', () => {}, 'klNow'); inp.id = 'kNowPlace'; inp.onchange = () => { if (typeof stat === 'function') { stat('kScenePin'); if (guess.place && kNorm(guess.place) !== kNorm(inp.value)) stat('kSceneFix'); } K.sceneOld = null; kSceneSet(inp.value, true, 'hand'); kRender(); };
+  const pin = el('button', K.scene.pin ? 'act' : '', K.scene.pin ? '📌 고정됨' : '📌 고정'); pin.id = 'kNowPin'; pin.title = '고정하면 대화가 다른 장소를 말해도 이 장면을 그대로 둬요 (이번 회차 동안)';
+  pin.onclick = () => { if (!K.scene.pin && typeof stat === 'function') stat('kScenePin'); kSceneSet(place, !K.scene.pin, K.scene.pin ? 'guess' : 'hand'); kRender(); };
+  // 이 장면을 누가 정했는지: 마스터가 정한 것과 자동 추정을 구별해 적는다
+  const who = el('span', 'ksrc ' + (K.scene.pin || K.scene.by === 'hand' ? 'hand' : 'ai'), K.scene.pin ? '마스터가 고정' : K.scene.by === 'hand' ? '마스터가 고름' : place ? '자동 추정' : '모름'); who.id = 'kNowWho';
+  top.append(el('b', '', '지금 장면'), inp, pin, who);
   const hint = el('span', 'note'); hint.id = 'kNowHint'; top.append(hint);
   box.append(top); kNowHint();
+  if (K.sceneOld) { const o = K.sceneOld, w = el('div', 'ksent'); w.id = 'kNowOld'; w.append('회차가 넘어가서, 세션 ' + o.sess + '에서 ' + (o.pin ? '고정한' : '고른') + ' 장면 "' + o.place + '"은 풀었어요. '); const again = el('button', 'icon', '"' + o.place + '" 다시 고정'); again.onclick = () => { K.sceneOld = null; kSceneSet(o.place, true, 'hand'); kRender(); }; const no = el('button', 'icon', '닫기'); no.onclick = () => { K.sceneOld = null; kRender(); }; w.append(again, ' ', no); box.append(w); }
   const st = {}; ((b && b.clues) || []).forEach(c => { st[c.id] = c; });
   const stOf = c => c.mark || (st[c.id] ? st[c.id].status : 'none');
   const LBL = { found: '찾음', partial: '일부', unfound: '아직', none: '미확인' };
   const core = kb.clues.filter(c => c.core);
-  const sumLine = el('div', 'ksent', '핵심 단서 ' + core.filter(c => stOf(c) === 'found').length + '/' + core.length + ' 찾음' + (b ? ' · 찾음 판단은 ' + String(log.at).slice(11, 16) + ' 현황판 기준(AI)과 마스터 표시' : ' · 현황판을 아직 갱신하지 않아 마스터가 표시한 것만 반영'));
+  // 단서 수는 둘로 나눠 적는다: 이 장면의 단서 / 시나리오 전체의 핵심 단서
+  const hereAll = place ? kb.clues.filter(c => kHere(c.where, place)) : [];
+  const sumLine = el('div', 'ksent'); sumLine.id = 'kNowCount';
+  sumLine.append((place ? '이 장면의 단서 ' + hereAll.filter(c => stOf(c) === 'found').length + '/' + hereAll.length + ' 찾음 · ' : '') + '시나리오 전체 핵심 단서 ' + core.filter(c => stOf(c) === 'found').length + '/' + core.length + ' 찾음'
+    + (b ? ' · 찾음 판단: 마스터 표시(✎)가 먼저, 없으면 ' + (boardOld ? '세션 ' + log.session + ' ' : '') + String(log.at).slice(11, 16) + ' 현황판의 AI 판단' + (boardOld ? ' (지난 회차 것: 그 뒤 찾은 단서는 빠져 있을 수 있어요)' : '') : ' · 현황판을 아직 갱신하지 않아 마스터가 표시한 것만 반영'));
   box.append(sumLine);
+  if (typeof statMs === 'function') { stat('kNow'); statMs('kNow', performance.now() - t0); }
   if (!place) { box.append(kEmpty('지금 장면을 알 수 없어요. 위 칸에 장소 이름을 고르거나 적어 주세요.')); return; }
 
   // 이 장소의 숨은 정보 · 장면
@@ -390,25 +447,27 @@ function kvNow(box){
   }
 
   // 등장 NPC: 최근 대화에 이름이 나왔거나, 정리본에서 이 장소와 엮인 NPC
-  const tailTxt = kNorm(allLines.slice(-60).map(l => l.text).join(' '));
+  const tailTxt = kNorm(allLines.filter(l => !sessNow || String(l.session) === sessNow).slice(-60).map(l => l.text).join(' '));
   const npcHere = kb.npcs.map(n => ({ n, talk: kNorm(n.name).length >= 2 && tailTxt.indexOf(kNorm(n.name)) >= 0, tie: kNorm(JSON.stringify(n)).indexOf(kNorm(place)) >= 0 })).filter(x => x.talk || x.tie).sort((x, y) => Number(y.talk) - Number(x.talk));
   box.append(kH('등장 NPC', npcHere.length ? '최근 대화에 나온 순 · 눌러서 반응 제안으로' : ''));
   if (!npcHere.length) box.append(el('div', 'note', '최근 대화나 이 장소와 엮인 NPC가 정리본에 없어요.'));
   npcHere.slice(0, 5).forEach(({ n, talk }) => {
     const c = el('div', 'kcard'); const h = el('div', 'row');
     h.append(kTag(n), el('b', 'ttl', n.name + (n.role ? ' · ' + n.role : '')));
-    if (talk) h.append(el('span', 'ksrc raw', '방금 대화에 나옴'));
-    const go = el('button', 'icon', '반응 제안 →'); go.onclick = () => { K.npcF = Object.assign(K.npcF || { situation: '', skill: '', level: '', full: false }, { npc: n.name, place }); K.view = 'npc'; kRender(); }; h.append(el('span', 'grow'), go);
+    if (talk) h.append(el('span', 'ksrc raw', '대화에 나옴'));
+    const go = el('button', 'icon', '반응 제안 →'); go.onclick = () => { if (typeof stat === 'function') stat('kNpcOpen'); K.npcF = Object.assign(K.npcF || { situation: '', skill: '', level: '', full: false }, { npc: n.name, place }); K.view = 'npc'; kRender(); }; h.append(el('span', 'grow'), go);
     c.append(h);
     const quick = [n.voice && '말투: ' + n.voice, n.attitude && '태도: ' + n.attitude, n.motive && '목적: ' + n.motive].filter(Boolean).join(' · ');
     if (quick) c.append(el('div', 'note', quick));
-    kKV(c, '말해도 되는 것 (아는 정보)', n.knows); kKV(c, '숨길 것', n.secret, 'kerr'); kKV(c, '할 거짓말', n.lies);
+    // 정리본에는 "이 NPC가 아는 것"만 적혀 있다. 지금 말해도 되는지는 자료가 말해 주지 않으므로 마스터가 정한다
+    kKV(c, 'NPC가 알고 있는 정보', n.knows); if (n.knows) c.append(el('div', 'note', '↑ 지금 말해도 되는지는 정리본에 없어요. 마스터가 판단해 주세요.'));
+    kKV(c, 'NPC의 비밀 (정리본)', n.secret, 'kerr'); kKV(c, 'NPC가 하는 거짓말 (정리본)', n.lies);
     box.append(c);
   });
 
   // 이 장면의 단서
   const here = kb.clues.filter(c => kHere(c.where, place)).sort((x, y) => (Number(!!y.core) - Number(!!x.core)));
-  box.append(kH('이 장면의 단서', here.length ? here.filter(c => stOf(c) === 'found').length + '/' + here.length + ' 찾음' : ''));
+  box.append(kH('이 장면의 단서', here.length ? here.filter(c => stOf(c) === 'found').length + '/' + here.length + ' 찾음 (이 장면만)' : ''));
   if (!here.length) box.append(el('div', 'note', '정리본에 이 장소의 단서가 없어요. (단서의 "어디서"가 장소 이름과 다르게 적혀 있을 수 있어요. 현황판에서 전체를 볼 수 있어요)'));
   here.forEach(c => {
     const s = stOf(c), card = el('div', 'kcard'); const h = el('div', 'row');
@@ -420,7 +479,7 @@ function kvNow(box){
     box.append(card);
   });
   const far = core.filter(c => stOf(c) !== 'found' && !kHere(c.where, place)).slice(0, 4);
-  if (far.length) { const c = el('div', 'kcard'); c.append(el('div', 'kk', '다른 곳에 남은 핵심 단서')); far.forEach(x => c.append(el('div', 'note', '· ' + x.text + (x.where ? ' (' + x.where + ')' : '')))); box.append(c); }
+  if (far.length) { const c = el('div', 'kcard'); c.append(el('div', 'kk', '다른 곳에 남은 핵심 단서 (시나리오 전체 기준, 이 장면 것이 아님)')); far.forEach(x => c.append(el('div', 'note', '· ' + x.text + (x.where ? ' (' + x.where + ')' : '')))); box.append(c); }
 
   // 이 장면의 판정 (시나리오에 적힌 결과 그대로)
   const rolls = kb.rolls.filter(r => kHere(r.where, place));
@@ -434,29 +493,55 @@ function kvNow(box){
   });
 
   // 플레이어 쪽 진행 · 막혔을 때
-  const pubNow = (typeof nextSt !== 'undefined' && nextSt.data && nextSt.data.now) || null;
-  if (pubNow && (pubNow.agreed || pubNow.just)) { const c = el('div', 'kcard'); const h = el('div'); h.append(el('span', 'ksrc raw', '세션 기록'), el('b', 'ttl', '플레이어 쪽 진행'), el('span', 'note', ' 공개 추천(' + String(nextSt.data.at || '').slice(11, 16) + ')에서')); c.append(h); kKV(c, '방금 일어난 일', pubNow.just); kKV(c, '하기로 한 일', pubNow.agreed); kKV(c, '미뤄 둔 일', pubNow.held); box.append(c); }
+  // 공개 추천의 "방금 일어난 일"은 대화 원문이 아니라 AI가 읽고 정리한 해석이다. 지금 회차의 것일 때만 보이고, 언제 어디까지 읽은 것인지 적는다
+  const nx = (typeof nextSt !== 'undefined' && nextSt.data && (typeof nextValid !== 'function' || nextValid(nextSt.data))) ? nextSt.data : null, pubNow = nx && nx.now;
+  if (pubNow && (pubNow.agreed || pubNow.just)) {
+    const c = el('div', 'kcard'); c.id = 'kNowPub'; const h = el('div'), nb = nx.basis || {}, after = Math.max(0, lastId - Number(nb.total || 0));
+    h.append(el('span', 'ksrc ai', 'AI 해석 ' + String(nx.at || '').slice(11, 16)), el('b', 'ttl', '플레이어 쪽 진행'), el('span', 'note', ' 공개 추천 AI가 #' + (nb.total || '?') + '까지 읽고 정리한 것' + (after ? ' · 그 뒤 새 말 ' + after + '줄' : '') + ' · 대화 원문이 아니에요'));
+    c.append(h); kKV(c, '방금 일어난 일', pubNow.just); kKV(c, '하기로 한 일', pubNow.agreed); kKV(c, '미뤄 둔 일', pubNow.held); box.append(c);
+  }
   if (b && (b.hints.length || b.next)) {
-    const c = el('div', 'kcard'); const h = el('div'); h.append(el('span', 'ksrc ai', 'AI 판단 ' + String(log.at).slice(11, 16)), el('b', 'ttl', '막혔을 때')); c.append(h);
-    if (b.next) c.append(el('div', '', '👉 ' + b.next)); b.hints.forEach(x => c.append(el('div', 'note', '💡 ' + x)));
+    // 현황판 힌트는 "그때 그 장면, 그때까지의 기록"으로 AI가 판단한 것이다. 언제·어느 장면·어디까지 읽었는지 적고, 지난 회차 것이면 내용을 접어 둔다
+    const c = el('div', 'kcard'); c.id = 'kNowBoard'; const h = el('div'), bb = b.basis || {}, after = bb.total != null ? Math.max(0, lastId - Number(bb.total)) : 0;
+    const otherScene = !!(bb.scene && place && !kHere(bb.scene, place));
+    h.append(el('span', 'ksrc ai', 'AI 판단 ' + (boardOld ? '세션 ' + log.session + ' ' : '') + String(log.at).slice(11, 16)), el('b', 'ttl', '막혔을 때'));
+    h.append(el('span', 'note', ' 판단할 때: ' + (bb.scene ? '장면 "' + bb.scene + '"' : '장면 기록 없음') + (bb.total != null ? ' · 기록 #' + bb.total + '까지' : '') + (after && !boardOld ? ' · 그 뒤 새 말 ' + after + '줄' : '')));
+    c.append(h);
+    if (boardOld) c.append(el('div', 'note', '지난 회차(세션 ' + log.session + ')의 현황판이라 그때의 힌트는 여기에 섞지 않았어요. 현황판에서 [현황 갱신]을 누르면 이번 회차 기준으로 다시 만들어요.'));
+    else {
+      if (otherScene) c.append(el('div', 'note', '⚠ 지금 장면(' + place + ')이 아니라 "' + bb.scene + '"에 있을 때의 판단이에요.'));
+      if (b.next) c.append(el('div', '', '👉 ' + b.next)); b.hints.forEach(x => c.append(el('div', 'note', '💡 ' + x)));
+    }
     box.append(c);
   }
   const un = here.filter(c => stOf(c) !== 'found');
   if (un.length) { const c = el('div', 'kcard'); const h = el('div'); h.append(el('span', 'ksrc digest', 'AI 정리본'), el('b', 'ttl', '힌트 재료: 이 장면에서 아직 못 찾은 것')); c.append(h); un.slice(0, 3).forEach(x => c.append(el('div', 'note', '· ' + x.text + (x.how ? ' → ' + x.how : '')))); box.append(c); }
 }
-// 장면을 고정하지 않았을 때: 대화가 다른 장소로 옮겨 간 것 같으면 화면을 갈아엎지 않고 한 줄로만 알린다
+// 장면을 고정하지 않았을 때: 대화가 다른 장소 쪽인 것 같으면 화면을 갈아엎지 않고 한 줄로만 알린다. 추정은 추정이라고 적는다
 function kNowHint(){
   const h = $('kNowHint'); if (!h || !K.d || K.view !== 'now') return;
   const sc = kSceneGet(), g = kSceneGuess(); h.innerHTML = '';
-  if (!g.place) { h.textContent = sc.pin ? '' : '대화에서 장소를 찾지 못했어요'; return; }
-  if (g.place === sc.place) { h.textContent = sc.pin ? '' : '자동 추정 (' + g.by + ')'; return; }
-  h.append('대화는 "' + g.place + '" 쪽인 것 같아요 (' + g.by + ') '); const b = el('button', 'icon', '이 장면 보기'); b.onclick = () => { kSceneSet(g.place, false); kRender(); }; h.append(b);
+  const mine = sc.pin || sc.by === 'hand';
+  if (!g.place) { h.textContent = mine ? '' : '대화에서 장소를 찾지 못했어요'; return; }
+  if (g.place === sc.place) { h.textContent = mine ? '' : '추정 근거: ' + g.by + ' · 틀리면 위 칸에서 골라 주세요'; return; }
+  h.append((g.sure ? '대화는 "' + g.place + '"(으)로 옮겨 간 것 같아요' : '대화에 "' + g.place + '"이(가) 나왔어요') + ' (추정: ' + g.by + ') '); const b = el('button', 'icon', '이 장면 보기'); b.onclick = () => { K.sceneOld = null; kSceneSet(g.place, false, 'hand'); kRender(); }; h.append(b);
 }
-setInterval(() => { if (K.d && K.view === 'now' && $('kNowHint')) kNowHint(); }, 8000);      // 화면은 그대로 두고 안내 한 줄만 고친다 (보던 곳·입력이 흐트러지지 않게)
-// 판정 보조로 넘어가서 AI 없이 바로 찾는다
+setInterval(() => {
+  if (!K.d || K.view !== 'now' || !$('kNowHint')) return;
+  // 회차가 넘어갔으면 한 번 다시 그린다 (지난 회차의 고정·추천·현황판 힌트를 걷어야 하므로). 그 밖에는 화면을 그대로 두고 안내 한 줄만 고친다 (보던 곳·입력이 흐트러지지 않게)
+  if (K.scene && K.scene.sess && kSessNow() && K.scene.sess !== kSessNow()) { kRender(); return; }
+  kNowHint();
+}, 8000);
+// 판정 보조로 넘어가서 AI 없이 바로 찾는다. 늦게 온 답이 그사이 고른 다른 판정을 덮어쓰지 않게 번호를 매긴다
 async function kRollQuick(skill, place){
+  const my = K.rollSeq = (K.rollSeq || 0) + 1;
+  if (typeof stat === 'function') { stat('kRollQuick'); stat('kEv'); }
   K.rollF = Object.assign(K.rollF || { level: '성공', text: '', full: false }, { skill, place }); K.view = 'roll'; kRender();
-  try { const r = await kpost({ action: 'kRoll', skill, level: K.rollF.level, place, text: '', ai: false, full: false }); if (r.ok) { K.rollR = Object.assign({ skill, place }, r); if (K.view === 'roll') kRender(); } } catch(_) {}
+  try {
+    const r = await kpost({ action: 'kRoll', skill, level: K.rollF.level, place, text: '', ai: false, full: false });
+    if (my !== K.rollSeq || !K.rollF || K.rollF.skill !== skill || K.rollF.place !== place) return;      // 그사이 다른 판정을 골랐거나 양식을 고쳤다
+    if (r.ok) { K.rollR = Object.assign({ skill, place }, r); if (K.view === 'roll') kRender(); }
+  } catch(_) {}
 }
 
 /* ── 현황판 ── */
@@ -469,7 +554,7 @@ function kvBoard(box){
   }
   const top = el('div', 'row'); const btn = el('button', 'pri', '현황 갱신 (AI 호출 1번)'); const msg = el('span', 'note');
   top.append(btn, kCheck(K.boardFull, '진상 전체도 AI에 보내기 (토큰이 많이 들어요 · 한 번 쓰면 다시 꺼져요)', v => { K.boardFull = v; }), msg);
-  btn.onclick = async () => { const r = await kDo(btn, 'AI가 비교하는 중…', { action: 'kBoard', full: K.boardFull }, msg); K.boardFull = false; if (r.ok) kLoad(); else kRender(); };
+  btn.onclick = async () => { const r = await kDo(btn, 'AI가 비교하는 중…', { action: 'kBoard', full: K.boardFull, scene: kSceneGet().place }, msg); K.boardFull = false; if (r.ok) kLoad(); else kRender(); };
   box.append(top);
   const nNpc = kb.npcs.filter(n => n.secret || n.lies).length;
   box.append(el('div', 'ksent', 'AI에 보내는 자료: 단서 목록 ' + kb.clues.length + '개 · NPC의 비밀·거짓말 ' + nNpc + '명 · 공개 기록(누적 줄거리·플레이어 쪽 단서·최근 요약 8개). "사건의 진상" 글 전체는 위 칸을 켰을 때만 보내요. 끄면 "잘못 짚고 있는 것" 판단이 덜 정확할 수 있어요.'));
@@ -573,7 +658,10 @@ function kvRoll(box){
     kWrap('장소 (선택)', kInput(f.place, '예: 서재', v => { f.place = v.trim(); }, 'klPlace2')), kWrap('상황 메모 (선택, AI 제안에 쓰여요)', kInput(f.text, '예: 책장을 뒤진다', v => { f.text = v; })));
   box.append(g);
   const row = el('div', 'row'); row.style.margin = '12px 0 4px'; const b1 = el('button', 'pri', '시나리오에서 찾기 (AI 호출 0번)'); const b2 = el('button', '', 'AI 제안도 받기 (AI 호출 1번)'); const msg = el('span', 'note');
-  const run = async (btn, ai) => { const r = await kDo(btn, ai ? 'AI가 생각하는 중…' : '찾는 중…', { action: 'kRoll', skill: f.skill, level: f.level, place: f.place, text: f.text, ai, full: ai && f.full }, msg); if (ai) f.full = false; if (r.ok) K.rollR = Object.assign({ skill: f.skill, place: f.place }, r); kRender(); };
+  const run = async (btn, ai) => { const my = K.rollSeq = (K.rollSeq || 0) + 1, q = { skill: f.skill, place: f.place }; if (typeof stat === 'function') stat(ai ? 'kRollAi' : 'kRollQuick');
+    const r = await kDo(btn, ai ? 'AI가 생각하는 중…' : '찾는 중…', { action: 'kRoll', skill: f.skill, level: f.level, place: f.place, text: f.text, ai, full: ai && f.full }, msg); if (ai) f.full = false;
+    if (my !== K.rollSeq) return;                         // 이 답을 기다리는 사이 다른 판정을 찾았다: 늦게 온 답으로 덮어쓰지 않는다
+    if (r.ok) K.rollR = Object.assign(q, r); kRender(); };
   b1.onclick = () => run(b1, false); b2.onclick = () => run(b2, true);
   const fullCk = kCheck(f.full, 'AI 제안에 진상 전체 포함 (토큰이 많이 들어요 · 한 번 쓰면 다시 꺼져요)', v => { f.full = v; }); fullCk.id = 'kRollFull';
   row.append(b1, b2, fullCk, msg); box.append(row);

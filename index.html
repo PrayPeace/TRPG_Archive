@@ -15,7 +15,7 @@
 <link rel="icon" type="image/png" href="icon.png?v=2">
 <link rel="apple-touch-icon" href="icon.png?v=2">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="css/app.css?v=2026-11-21.24">
+<link rel="stylesheet" href="css/app.css?v=2026-11-21.25">
 </head>
 <body>
 
@@ -136,6 +136,7 @@
       <section id="t-next" class="panel hide">
         <div class="ph"><h2>🧭 다음 할 일</h2><span class="note">공개 기록(줄거리·요약·단서·북마크·방금 한 말)을 보고 AI가 추천해요. 마스터의 비밀 자료는 보지 않아요.</span><span class="grow"></span><button id="nextGo">다시 추천</button></div>
         <div id="nextNow"></div>
+        <div id="nextFresh" class="nxfresh hide"></div>
         <div id="nextSt" class="note" style="margin-bottom:10px"></div>
         <div id="nextBox" class="nx"></div>
       </section>
@@ -183,6 +184,11 @@
             <div class="note">화면 오른쪽 아래에 빨간 알림이 뜨고 제목이 깜빡여요. 일부러 나가거나 직접 받아쓰기를 끈 사람은 알리지 않아요.</div>
             <div id="failBox" class="note hide" style="margin-top:14px"></div>
             <div id="gapBox" class="note hide" style="margin-top:10px"></div>
+            <details id="statBox" class="note" style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">세션 측정 (이 기기에서만 세요)</summary>
+              <div class="note">받아쓰기가 얼마나 저장되고 끊겼는지, 화면이 얼마나 빨리 떴는지를 이 기기에서만 세요. 서버에 보내지 않고 요금도 들지 않아요. 세션이 끝나면 복사해서 알려 주세요.</div>
+              <pre id="statTxt" style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:6px 0"></pre>
+              <button id="statCopy">복사</button> <button id="statReset">새로 재기</button>
+            </details>
             <div id="otherQ" class="note hide" style="margin-top:14px"></div>
             <div id="roomsSec" style="margin-top:18px">
               <label>내 방 목록 (이 기기에 저장)</label>
@@ -294,12 +300,12 @@
 <div id="alertBox" aria-live="assertive"></div>
 <div id="srLive" class="sr-only" aria-live="polite"></div>
 
-<script src="js/core.js?v=2026-11-21.24"></script>
-<script src="js/room.js?v=2026-11-21.24"></script>
-<script src="js/export.js?v=2026-11-21.24"></script>
-<script src="js/live.js?v=2026-11-21.24"></script>
-<script src="js/keeper.js?v=2026-11-21.24"></script>
-<script src="js/lobby.js?v=2026-11-21.24"></script>
-<script src="js/main.js?v=2026-11-21.24"></script>
+<script src="js/core.js?v=2026-11-21.25"></script>
+<script src="js/room.js?v=2026-11-21.25"></script>
+<script src="js/export.js?v=2026-11-21.25"></script>
+<script src="js/live.js?v=2026-11-21.25"></script>
+<script src="js/keeper.js?v=2026-11-21.25"></script>
+<script src="js/lobby.js?v=2026-11-21.25"></script>
+<script src="js/main.js?v=2026-11-21.25"></script>
 </body>
 </html>

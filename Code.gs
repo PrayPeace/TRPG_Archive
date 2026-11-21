@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.24';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.25';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -787,7 +787,13 @@ function doGet(e) {
     // 로비(폰 화면)의 방 목록은 비밀번호 없이 읽는다: 방 이름·룰·주소만 있고, 들어가려면 그 방의 비밀번호가 필요하다
     if (p.action === 'hub') return out(hubList());
     // 배포 확인용: 이 주소가 지금 어떤 엔진 판으로 도는지 (비밀번호 없이, 판 번호만)
-    if (p.action === 'ver') return out({ ok: true, ver: CODE_VER });
+    //  tick = 이 방의 자동 정리(트리거)가 마지막으로 돈 시각과 그때의 엔진 판 (웹 앱과 트리거가 같은 판인지 확인용). hosted = 엔진 주소로 직접 도는 방 수(엔진 주소에 물었을 때만)
+    if (p.action === 'ver') {
+      const o = { ok: true, ver: CODE_VER };
+      try { const t = JSON.parse(roomCache().get('lastTick') || 'null'); if (t && t.at) o.tick = { at: t.at, ver: t.ver || '' }; } catch (err) {}
+      try { if (!p.room && engineUrl() && ScriptApp.getService().getUrl() === engineUrl()) o.hosted = hostedIds().length; } catch (err) {}
+      return out(o);
+    }
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
     if (!roleOf(p.pw, null)) return out({ ok: false, error: pwBadMsg(), locked: _pwLocked || undefined });
     const r = readAction(p); if (r) return out(r);
@@ -1222,28 +1228,42 @@ function bookmark(b) {
  * 아직 요약되지 않은 방금 한 말(공개 대화 원문)도 함께 읽어서, 요약이 늦어도 방금 일어난 일을 놓치지 않는다. 마스터 자료는 보지 않는다(publicAi).
  * basis = 추천을 만들 때 읽은 기록의 범위(읽은 시점 기준). behind = 그 뒤로 쌓인 줄 수(화면에서 "오래된 추천"으로 표시). */
 const NEXT_KINDS = ['장소', '인물', '단서', '행동', '준비'];
-const NEXT_RAW_LINES = 80, NEXT_RAW_CHARS = 6000, NEXT_STALE_LINES = 40;
+const NEXT_RAW_LINES = 80, NEXT_RAW_CHARS = 6000, NEXT_RAW_LINE = 600, NEXT_STALE_LINES = 40;
 function nextSteps(force) {
   const rv0 = String(getConf('resetVer') || '0'), sess = String(getConf('session') || '1');
   const key = [getConf('sumVer'), getConf('notesVer'), sess, rv0].join('.');
   const cur = confJson('nextSteps', null);
   const total = totalLines();
-  const behind = cur && cur.basis ? Math.max(0, total - Number(cur.basis.total || 0)) : 0;
-  if (cur && cur.key === key && behind < NEXT_STALE_LINES && !force) return { ok: true, next: cur, fresh: true, behind };
-  if (cur && force && Date.now() - Number(cur.t || 0) < 60 * 1000) return { ok: true, next: cur, fresh: cur.key === key, wait: true, behind };
+  // 다른 세션·초기화 전에 만든 추천은 어떤 경우에도 지금 추천으로 돌려주지 않는다 (1분 제한·만드는 중 안내보다 먼저 본다)
+  const kp = cur && cur.key ? String(cur.key).split('.') : [];
+  const mine = !!cur && String(cur.sess != null ? cur.sess : kp[2]) === sess && String(cur.rv != null ? cur.rv : kp[3]) === rv0;
+  const old = mine ? cur : null;
+  const behind = old && old.basis ? Math.max(0, total - Number(old.basis.total || 0)) : 0;
+  if (old && old.key === key && behind < NEXT_STALE_LINES && !force) return { ok: true, next: old, fresh: true, behind };
+  if (old && force && Date.now() - Number(old.t || 0) < 60 * 1000) return { ok: true, next: old, fresh: old.key === key && !behind, wait: true, behind };
   const sums = sheet(SH.SUM);
   const rows = sums.getLastRow() >= 2 ? sums.getRange(2, 1, sums.getLastRow() - 1, 4).getValues() : [];
   const recent = rows.filter(r => String(r[0]) === sess).map(r => decS(r[3])).filter(t => t && !/\(잡담 위주, 진행 없음\)/.test(t)).slice(-6);
   const story = storyTail(2500);
   // 방금 한 말: 아직 요약되지 않은 이번 세션의 공개 대화 (끝에서부터 80줄·6,000자까지)
   const processed = Math.min(total, Number(getConf('processedId') || 0));
-  let raw = readLines(Math.max(processed, total - NEXT_RAW_LINES), NEXT_RAW_LINES).filter(l => String(l.session) === sess && String(l.text).trim() && !/^※ 받아쓰기 끊김/.test(l.text));
-  let size = 0, cut = raw.length; for (let i = raw.length - 1; i >= 0; i--) { size += String(raw[i].text).length + 20; if (size > NEXT_RAW_CHARS) break; cut = i; }
-  raw = raw.slice(cut);
-  if (!recent.length && !story.trim() && raw.length < 5) return { ok: true, next: null, empty: true };
-  const basis = { processedId: processed, total, rawFrom: raw.length ? raw[0].id : 0, rawN: raw.length, lastTime: raw.length ? raw[raw.length - 1].time : '', sums: recent.length };
+  const unread = readLines(Math.max(processed, total - NEXT_RAW_LINES), NEXT_RAW_LINES).filter(l => String(l.session) === sess && String(l.text).trim() && !/^※ 받아쓰기 끊김/.test(l.text));
+  // 긴 말은 앞 350자와 끝 250자만 보낸다(가운데를 줄였다고 적는다). 가장 새 말은 예산을 넘어도 반드시 넣고, 그 앞은 6,000자 안에서 새것부터 담는다
+  const clip = t => { t = String(t); return t.length <= NEXT_RAW_LINE ? t : t.slice(0, 350) + ' …(가운데 ' + (t.length - 600) + '자 줄임)… ' + t.slice(-250); };
+  let raw = [], size = 0, cutN = 0;
+  for (let i = unread.length - 1; i >= 0; i--) {
+    const full = String(unread[i].text), tx = clip(full);
+    if (raw.length && size + tx.length + 20 > NEXT_RAW_CHARS) break;
+    size += tx.length + 20; if (tx !== full) cutN++;
+    raw.unshift({ id: unread[i].id, last: unread[i].last || unread[i].id, name: unread[i].name, time: unread[i].time, text: tx });
+  }
+  if (!recent.length && !story.trim() && raw.length < 5 && !cutN) return { ok: true, next: null, empty: true };
+  // basis: 실제로 AI에 보낸 범위. rawFrom~rawTo = 보낸 발언 번호, rawSkip = 요약도 안 됐고 이번에 읽지도 못한 줄 수, rawCut = 가운데를 줄여 보낸 긴 말 수
+  const rawFrom = raw.length ? raw[0].id : 0, rawTo = raw.length ? raw[raw.length - 1].last : 0;
+  const basis = { processedId: processed, total, rawFrom, rawTo, rawN: raw.length, rawCut: cutN, rawSkip: raw.length ? Math.max(0, rawFrom - 1 - processed) : Math.max(0, total - processed),
+    lastTime: raw.length ? raw[raw.length - 1].time : '', sums: recent.length, sumVer: String(getConf('sumVer') || ''), notesVer: String(getConf('notesVer') || '') };
   const c = roomCache();
-  if (c.get('nextBusy')) return { ok: true, next: cur, busy: true, behind };
+  if (c.get('nextBusy')) return { ok: true, next: old, busy: true, behind };
   c.put('nextBusy', '1', 150);
   try {
     const n = readNotes() || emptyNotes();
@@ -1264,7 +1284,7 @@ function nextSteps(force) {
     const fresh = '## 누적 줄거리 (끝부분)\n' + (story || '(없음)') + '\n\n## 이번 세션 최근 요약\n' + (recent.join('\n\n') || '(없음)') +
       '\n\n## 장소\n' + (places || '(없음)') + '\n\n## NPC\n' + (npcs || '(없음)') + '\n\n## 풀리지 않은 단서\n' + (clues || '(없음)') +
       '\n\n## 플레이어가 북마크한 장면\n' + (bms || '(없음)') +
-      '\n\n## 방금 한 말 (아직 요약되지 않은 대화 원문, 가장 새로운 정보)\n' + (raw.map(l => '#' + l.id + ' ' + l.name + ': ' + String(l.text).slice(0, 600)).join('\n') || '(없음)');
+      '\n\n## 방금 한 말 (아직 요약되지 않은 대화 원문, 가장 새로운 정보)\n' + (raw.map(l => '#' + l.id + ' ' + l.name + ': ' + l.text).join('\n') || '(없음)');
     const r = publicAi(() => parseJson(claude(sys, [stable, fresh], 3000)));
     const rawIds = new Set(raw.map(l => l.id));
     const items = (Array.isArray(r.items) ? r.items : []).filter(x => x && x.title).slice(0, 10).map(x => ({
@@ -1273,7 +1293,7 @@ function nextSteps(force) {
       src: (Array.isArray(x.src) ? x.src : []).map(Number).filter(i => rawIds.has(i)).slice(0, 3), guess: !!x.guess })).sort((a, b) => a.prio - b.prio);
     items.forEach((x, i) => { if (x.prio === 1 && items.slice(0, i).filter(y => y.prio === 1).length >= 3) x.prio = 2; });      // "지금 할 일"은 세 개까지만
     const nw = r.now && typeof r.now === 'object' ? r.now : {};
-    const o = { key, t: Date.now(), at: now(), items, basis,
+    const o = { key, sess, rv: rv0, t: Date.now(), at: now(), items, basis,
       now: { scene: String(nw.scene || '').slice(0, 120), just: String(nw.just || '').slice(0, 300), agreed: String(nw.agreed || '').slice(0, 200), held: String(nw.held || '').slice(0, 200) } };
     // AI가 답하는 사이 기록이 초기화됐거나 세션이 넘어갔으면 옛 기록으로 만든 추천을 저장하지 않는다
     const saved = withLock(20000, () => {
@@ -1282,7 +1302,9 @@ function nextSteps(force) {
       setJson('nextSteps', o); return true;
     });
     if (!saved) return { ok: true, next: null, changed: true };
-    return { ok: true, next: o, fresh: true, behind: Math.max(0, totalLines() - total) };
+    // 만드는 사이 요약·정리가 바뀌었으면(key가 달라짐) 최신이라고 하지 않는다. 다음에 열 때 새로 만든다
+    const keyNow = [getConf('sumVer'), getConf('notesVer'), sess, rv0].join('.'), b2 = Math.max(0, totalLines() - total);
+    return { ok: true, next: o, fresh: keyNow === key && !b2, moved: keyNow !== key, behind: b2 };
   } finally { c.remove('nextBusy'); }
 }
 
@@ -1541,7 +1563,7 @@ function tick(maxMs) {
 }
 // 마지막 자동 실행 시각·걸린 시간·결과 (진단에서 보여 준다)
 function tickMark(t0, what) {
-  try { const c = roomCache(), o = JSON.parse(c.get('lastTick') || '{}'); o.at = t0; o.ms = Date.now() - t0; if (what) o.what = what; c.put('lastTick', JSON.stringify(o), 21600); } catch (e) {}
+  try { const c = roomCache(), o = JSON.parse(c.get('lastTick') || '{}'); o.at = t0; o.ms = Date.now() - t0; o.ver = CODE_VER; if (what) o.what = what; c.put('lastTick', JSON.stringify(o), 21600); } catch (e) {}
 }
 // 서버 쪽 오류도 '오류기록' 탭에 남긴다 (같은 오류가 몰리면 10분에 10건까지)
 function serverErr(where, e) {
@@ -1625,7 +1647,8 @@ const FACT_RULES =
   '③ 플레이어(탐사자)의 추리·의심·가설은 사실로 적지 말고 "(추측)"을 붙여라. 예: "(추측) 프레이피스는 집사가 범인이라고 의심함". ' +
   '④ 판정은 성공/실패나 수치 변화가 말로 선언된 것만 "[판정]"을 붙여 적는다. 예: "[판정] 프레이피스 도서관 이용 성공". 선언되지 않은 결과를 짐작하지 마라. 성공과 실패를 뒤바꾸지 마라. ' +
   '⑤ 농담, 게임 밖 잡담, 규칙 상의, "만약 ~하면 어떨까" 같은 가정은 캐릭터가 실제로 한 행동으로 적지 마라. 하기로 정하고 마스터가 받아들인 행동만 행동으로 적는다. ' +
-  '⑥ "※ 받아쓰기 끊김"으로 시작하는 줄은 기계가 남긴 안내다. 발언이나 사건으로 적지 말고, 그 구간에 빠진 말을 지어내지도 마라. ';
+  '⑥ "※ 받아쓰기 끊김"으로 시작하는 줄은 기계가 남긴 안내다. 발언이나 사건으로 적지 말고, 그 구간에 빠진 말을 지어내지도 마라. ' +
+  '⑦ 끝에 "(확정 전)"이 붙은 줄은 받아쓰기가 확정하지 못한 채 끊긴 말이라 잘못 들린 낱말이 섞였을 수 있다. 앞뒤 말과 맞을 때만 근거로 쓰고, 표시 자체는 요약에 옮기지 마라. ';
 
 function keeperRules() {
   return R().hint + '가장 중요한 원칙: 마스터의 발언은 이야기의 정보 그 자체다. 마스터가 말한 묘사, NPC 대사, 장소·물건·단서 정보, 판정 요구와 그 결과는 ' +
@@ -2893,7 +2916,7 @@ function keeperTool(b) {
     // 세션 중
     case 'kNpc':           return kNpc(b);
     case 'kRoll':          return kRoll(b);
-    case 'kBoard':         return kBoard(!!b.full);
+    case 'kBoard':         return kBoard(!!b.full, b.scene);
     case 'kClueMark':      return kbGuard(b.gen, () => kClueMark(b.id, b.mark));
     // 세션 사이
     case 'kRecap':         return kRecap(b.session);
@@ -3281,6 +3304,7 @@ function klogAdd(kind, session, title, input, result, deps) {
     const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
     if (deps && deps.rv != null && String(deps.rv) !== rv) return null;
     if (deps && deps.gen != null && String(deps.gen) !== gen) return null;
+    if (deps && deps.sess != null && String(deps.sess) !== String(getConf('session') || '1')) return null;
     const id = 'g' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
     const s = ensureSheet(SH.KLOG);
     s.getRange(s.getLastRow() + 1, 1, 1, 9).setNumberFormat('@').setValues([[id, now(), rv, enc(String(session || '')), String(kind), enc(String(title || '').slice(0, 100)),
@@ -3478,13 +3502,13 @@ function kRoll(b) {
 /* ───────────── 진행 현황판 ───────────── */
 /* full이 참일 때만 '사건의 진상 전체'를 AI에 보낸다.
  * 꺼져 있어도 단서 목록과 NPC의 비밀·거짓말은 보낸다 (그것 없이는 현황판을 만들 수 없다). 무엇을 보냈는지는 sent로 돌려줘서 화면에 보여 준다. */
-function kBoard(full) {
-  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0';
+function kBoard(full, scene) {
+  const rv = getConf('resetVer') || '0', gen = getConf('kbGen') || '0', sess0 = String(getConf('session') || '1');
   const kb = kbRead(), notes = readNotes() || emptyNotes();
   if (!kb.clues.length && !kb.truth) return { ok: false, error: '먼저 시나리오 자료를 올려서 정리본을 만들어 주세요' };
   const sums = sheet(SH.SUM).getDataRange().getValues().slice(1).slice(-8).map(r => '[세션 ' + r[0] + ' ' + String(r[1]).slice(11, 16) + ']\n' + decS(r[3])).join('\n\n');
   const npcs = kb.npcs.map(n => pickF(n, ['name', 'secret', 'lies'])).filter(n => n.secret || n.lies);
-  const basis = { processedId: Number(getConf('processedId') || 0), total: totalLines(), at: now() };     // AI에 보낸 자료를 읽은 시점 (AI가 답한 시점이 아님)
+  const basis = { processedId: Number(getConf('processedId') || 0), total: totalLines(), at: now(), session: sess0, scene: txt(scene, 60) };     // AI에 보낸 자료를 읽은 시점 (AI가 답한 시점이 아님)
   const res = parseJson(claude(
     '너는 TRPG 마스터(게임 마스터)만 보는 진행 현황판을 만드는 조수다. 마스터만 아는 시나리오 자료와, 플레이어들이 지금까지 알아낸 공개 기록을 비교하라. ' +
     '공개 기록에 실제로 있는 내용만 "found"로 판단하고 짐작하지 마라. 주어진 자료만으로 판단할 수 없는 것은 적지 마라. 짧게 써라. JSON 하나만 출력하라.',
@@ -3508,7 +3532,8 @@ function kBoard(full) {
     basis,
     sent: { truth: !!full, clues: kb.clues.length, npcs: npcs.length }
   };
-  if (!klogAdd('board', getConf('session'), '현황판', { full: !!full }, result, { rv, gen })) return staleOut();
+  // AI가 답하는 사이 회차가 넘어갔으면 지난 회차 기록으로 만든 현황판을 새 회차에 저장하지 않는다
+  if (!klogAdd('board', sess0, '현황판', { full: !!full }, result, { rv, gen, sess: sess0 })) return String(getConf('session') || '1') !== sess0 ? { ok: false, stale: true, error: 'AI가 답을 만드는 사이에 다음 회차로 넘어갔어요. 지난 회차 기록으로 만든 현황판이라 저장하지 않았어요. 필요하면 다시 눌러 주세요' } : staleOut();
   return { ok: true, board: result };
 }
 // 마스터가 직접 "찾음/아직"을 표시 (AI 판단보다 우선해서 보여 준다)

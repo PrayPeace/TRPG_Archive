@@ -16,7 +16,7 @@ async function pollOnce(){
       toast('마스터가 기록을 초기화했어요');
       setTimeout(pollOnce, 300); return;
     }
-    live = { session: v.session, resetVer: v.resetVer };
+    live = { session: v.session, resetVer: v.resetVer }; sessMark();
     $('sessPill').textContent = '세션 ' + v.session;
     if (r.jumped) resetLog();                       // 너무 오래 끊겨 있었으면 최근 300줄부터 다시
     if (!lastId) hasOlder = r.from > 0;
@@ -27,6 +27,7 @@ async function pollOnce(){
     renderSumState(v);
     if (data && ver.sumVer && v.sumVer !== ver.sumVer) srSay('새 요약이 도착했어요');
     if (!data || ['sumVer','notesVer','charVer','imgVer','session','resetVer','colorVer'].some(k => v[k] !== ver[k])) await refreshData();
+    nextCheck();                                    // 세션이 넘어갔으면 지난 추천을 걷고, 다음 할 일 탭이 열려 있으면 "그 뒤 새 기록" 줄을 고친다 (AI는 부르지 않음)
   } catch (e) {
     failCount++; net('err', '연결 끊김 · 재시도');
     if (String(e.message || '').includes('비밀번호')) { stopAll(''); showJoin('방 비밀번호가 틀렸어요'); return; }
@@ -54,23 +55,58 @@ function newUid(){
   const r = (window.crypto && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, '').slice(0, 12) : Math.random().toString(36).slice(2, 14);
   return Date.now().toString(36) + r;
 }
-/* 기기 보관 두 번째 자리(IndexedDB): localStorage가 꽉 차거나 지워져도 못 보낸 말이 남게 같은 내용을 한 벌 더 둔다.
- * 다시 읽을 때 이미 보낸 말이 섞여 있어도 서버가 발언ID로 걸러서 두 번 저장되지 않는다. 실패해도 조용히 넘어간다(없던 때와 같음). */
+/* 기기 보관 두 번째 자리(IndexedDB 'trpg_q' v2, 저장소 'u'): 발언 하나가 기록 하나다 (키 = 발언ID).
+ *   기록 = { uid, room(방 주소), st('q' 못 보낸 말 | 'f' 저장 못 한 말), name, session, rv, t, text, why }
+ * 여러 탭이 동시에 써도 자기 발언만 넣고 빼므로 서로의 말을 덮어쓰지 않는다. 상태를 바꿀 때(q↔f)는 같은 키에 한 번 쓰는 것이라 중간 상태가 없다.
+ * 예전 판(v1, 저장소 'q': 방마다 배열 하나)에 남은 말은 처음 열 때 한 번에(트랜잭션 하나로) 옮긴다.
+ * localStorage가 꽉 차거나 지워져도 여기에 남고, 다시 읽을 때 이미 보낸 말이 섞여 있어도 서버가 발언ID로 걸러서 두 번 저장되지 않는다. */
 const qdb = {
-  p: null,
-  open(){ if (this.p) return this.p; this.p = new Promise((ok, no) => { try { const r = indexedDB.open('trpg_q', 1); r.onupgradeneeded = () => r.result.createObjectStore('q'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }); this.p.catch(() => { this.bad = true; }); return this.p; },
-  async put(k, v){ try { const d = await this.open(); await new Promise((ok, no) => { const t = d.transaction('q', 'readwrite'); if (v && v.length) t.objectStore('q').put(v, k); else t.objectStore('q').delete(k); t.oncomplete = ok; t.onerror = t.onabort = () => no(t.error); }); this.bad = false; return true; } catch (_) { this.bad = true; return false; } },
-  async get(k){ try { const d = await this.open(); return await new Promise((ok, no) => { const r = d.transaction('q').objectStore('q').get(k); r.onsuccess = () => ok(r.result || []); r.onerror = () => no(r.error); }); } catch (_) { return []; } }
+  p: null, ok: undefined,
+  open(){
+    if (this.p) return this.p;
+    const p = new Promise((ok, no) => {
+      let end = false; const fin = (f, v) => { if (!end) { end = true; f(v); } };
+      try {
+        const r = indexedDB.open('trpg_q', 2);
+        r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('q')) d.createObjectStore('q'); if (!d.objectStoreNames.contains('u')) d.createObjectStore('u', { keyPath: 'uid' }).createIndex('room', 'room'); };
+        r.onerror = () => fin(no, r.error);
+        r.onsuccess = () => {
+          const d = r.result; d.onversionchange = () => { try { d.close(); } catch(_) {} if (this.p === p) this.p = null; };
+          try {                                   // 예전 판 자료 옮기기: 옮겨 적기와 지우기가 한 트랜잭션이라 중간에 창이 닫혀도 둘 중 하나에는 남는다
+            const t = d.transaction(['q', 'u'], 'readwrite'), q = t.objectStore('q'), u = t.objectStore('u');
+            q.openCursor().onsuccess = ev => { const c = ev.target.result; if (!c) return; const room = String(c.key).slice(4);
+              (Array.isArray(c.value) ? c.value : []).forEach(x => { if (x && x.uid && x.text) { const g = u.get(x.uid); g.onsuccess = () => { if (!g.result) u.put({ uid: x.uid, room, st: 'q', name: x.name, session: x.session, rv: x.rv, t: x.t, text: x.text, why: '' }); }; } });
+              c.delete(); c.continue(); };
+            t.oncomplete = t.onerror = t.onabort = () => fin(ok, d);
+          } catch (_) { fin(ok, d); }
+        };
+        setTimeout(() => fin(no, new Error('열리지 않음')), 4000);     // 예전 판 화면이 다른 탭에 열려 있으면 판 올리기가 막힌다: 기다리지 않고 다음에 다시 연다
+      } catch (e) { fin(no, e); }
+    });
+    this.p = p; p.catch(() => { this.ok = false; if (this.p === p) this.p = null; });
+    return p;
+  },
+  async tx(mode, fn){
+    try { const d = await this.open(); const out = await new Promise((ok, no) => { const t = d.transaction('u', mode); const res = fn(t.objectStore('u')); t.oncomplete = () => ok(res); t.onerror = t.onabort = () => no(t.error); }); this.ok = true; return out; }
+    catch (_) { this.ok = false; return null; }
+  },
+  // 넣기(같은 발언ID가 있으면 상태만 바뀐다). 돌려주는 값: 기록됐으면 true
+  put(items, room, st, why){ if (!items.length) return Promise.resolve(true); return this.tx('readwrite', s => { items.forEach(x => s.put({ uid: x.uid, room, st, name: x.name, session: x.session, rv: x.rv, t: x.t, text: x.text, why: why || x.why || '' })); return true; }).then(r => !!r); },
+  del(uids){ if (!uids.length) return Promise.resolve(true); return this.tx('readwrite', s => { uids.forEach(u => s.delete(u)); return true; }).then(r => !!r); },
+  // 방 하나(또는 전체)의 기록. 읽지 못하면 null
+  all(room){ return this.tx('readonly', s => { const o = { v: [] }, rq = room ? s.index('room').getAll(room) : s.getAll(); rq.onsuccess = () => { o.v = rq.result || []; }; return o; }).then(o => o ? o.v : null); }
 };
+const qItem = x => ({ uid: x.uid, name: x.name, session: x.session || '', rv: x.rv || '', t: x.t, text: x.text });
+const byTime = (x, y) => (String(x.t) < String(y.t) ? -1 : String(x.t) > String(y.t) ? 1 : 0);
+/* qGone: 이 탭이 대기열에서 뺀 말(서버가 확인했거나 "저장 못 한 말"로 옮김) → 다른 탭·저장소에서 다시 주워 오지 않는다
+ * qSaved: 서버가 받았다고 확인한 말 → 두 번째 자리에서도 지운다.  qInDb: 두 번째 자리에 기록된 것이 확인된 말.  qLsOk: 마지막 localStorage 쓰기가 됐는지 */
+const qGone = new Set(), qSaved = new Set(), qInDb = new Set(), qPutting = new Set(), qT = new Map(), qTries = new Map();
+let qLsOk = true, qStoreErr = false;
+// 이 기기 어디에도 저장되지 않고 이 창의 메모리에만 있는 못 보낸 말 수 (창을 닫으면 사라진다)
+function qMemOnly(){ return qLsOk ? 0 : queue.filter(x => !qInDb.has(x.uid)).length; }
 function loadQueue(){
   try { queue = JSON.parse(S.get(qKey()) || '[]'); } catch(_) { queue = []; }
-  const k0 = qKey();
-  qdb.get(k0).then(a => {                               // 두 번째 자리에만 남아 있던 말을 되살린다
-    if (k0 !== qKey() || !Array.isArray(a)) return;
-    const mine = new Set(queue.map(x => x.uid)); let n = 0;
-    a.forEach(x => { if (x && x.uid && x.text && !mine.has(x.uid) && !qGone.has(x.uid)) { queue.push(x); n++; } });
-    if (n) { queue.sort((x, y) => (String(x.t) < String(y.t) ? -1 : String(x.t) > String(y.t) ? 1 : 0)); saveQueue(); }
-  });
+  if (!Array.isArray(queue)) queue = [];
   // 예전 버전 대기열(t_queue)을 지금 방·이름으로 옮긴다
   const old = S.get('t_queue');
   if (old) {
@@ -78,65 +114,106 @@ function loadQueue(){
     S.del('t_queue');
   }
   saveQueue();
+  dbSync(true);                                         // 두 번째 자리에만 남아 있던 말·저장 못 한 말을 되살린다
+}
+/* 두 번째 자리를 읽어 맞춘다. first = 방에 들어온 직후(나이와 상관없이 모두 되살림), 아니면 1분 넘게 그대로인 말만(다른 탭이 남기고 닫힌 것) 이어받는다 */
+function dbSync(first){
+  const room = cfg.url; if (!room) return Promise.resolve();
+  return qdb.all(room).then(a => {
+    if (room !== cfg.url || !Array.isArray(a)) return;
+    const mine = new Set(queue.map(x => x.uid)), old = Date.now() - 60000, fails = []; let n = 0;
+    a.forEach(x => {
+      if (!x || !x.uid || !x.text) return;
+      if (x.st === 'f') { fails.push(x); return; }
+      if (qSaved.has(x.uid)) { qdb.del([x.uid]); return; }                   // 서버 저장이 확인된 뒤에 남은 찌꺼기
+      if (mine.has(x.uid)) { qInDb.add(x.uid); return; }
+      if (qGone.has(x.uid) || (!first && new Date(x.t).getTime() > old)) return;
+      qInDb.add(x.uid); queue.push(qItem(x)); n++;
+    });
+    failDb = fails;
+    if (n) { queue.sort(byTime); saveQueue(); } else sendState();
+  });
 }
 /* 같은 방을 두 탭에서 열어도 서로의 미전송 말을 지우지 않게: 저장할 때 저장소에 있는 다른 탭의 말을 합친다.
- * 이 탭이 서버 저장을 확인한 말(qGone)만 뺀다. 기기 저장이 실패하면(공간 부족 등) 화면에 알린다. */
-const qGone = new Set(); let qStoreErr = false;
+ * 이 탭이 대기열에서 뺀 말(qGone)만 뺀다. 두 번째 자리에는 새로 생긴 내 말만 발언 하나씩 넣는다 (다른 탭의 기록은 건드리지 않음). */
 function saveQueue(){
   // 못 보낸 말이 5,000줄을 넘어도 버리지 않는다: 오래된 것부터 "저장 못 한 말" 목록으로 옮긴다 (복사·내려받기·다시 보내기 가능)
-  if (queue.length > QMAX) { const over = queue.slice(0, queue.length - QMAX); queue = queue.slice(-QMAX); over.forEach(x => qGone.add(x.uid)); failAdd(over, '못 보낸 말이 5,000줄을 넘어 따로 보관'); toast('못 보낸 말이 너무 많아 오래된 ' + over.length + '줄을 "저장 못 한 말"로 옮겼어요 (설정 탭)'); }
+  if (queue.length > QMAX) { const over = queue.slice(0, queue.length - QMAX); queue = queue.slice(-QMAX); over.forEach(x => { qGone.add(x.uid); qInDb.delete(x.uid); }); failAdd(over, '못 보낸 말이 5,000줄을 넘어 따로 보관'); toast('못 보낸 말이 너무 많아 오래된 ' + over.length + '줄을 "저장 못 한 말"로 옮겼어요 (설정 탭)'); }
   if (cfg.url) {
     let other = []; try { other = JSON.parse(localStorage.getItem(qKey()) || '[]'); } catch (_) {}
     const mine = new Set(queue.map(x => x.uid));
     const all = queue.concat((Array.isArray(other) ? other : []).filter(x => x && x.uid && !mine.has(x.uid) && !qGone.has(x.uid)));
-    let lsOk = true;
+    qLsOk = true;
     try { if (all.length) localStorage.setItem(qKey(), JSON.stringify(all)); else localStorage.removeItem(qKey()); }
-    catch (_) { lsOk = false; }
-    qStoreErr = !lsOk && qdb.bad !== false;             // 두 자리 모두 실패했을 때만 "기기 보관 실패"
-    qdb.put(qKey(), all).then(ok => { const e = !lsOk && !ok; if (e !== qStoreErr) { qStoreErr = e; sendState(); } });
+    catch (_) { qLsOk = false; }
+    const fresh = queue.filter(x => !qInDb.has(x.uid) && !qPutting.has(x.uid));
+    if (fresh.length) {
+      const room = cfg.url; fresh.forEach(x => qPutting.add(x.uid));
+      qdb.put(fresh, room, 'q').then(ok => {
+        const late = [];
+        fresh.forEach(x => { qPutting.delete(x.uid); if (!ok) return; if (qSaved.has(x.uid)) late.push(x.uid); else if (!qGone.has(x.uid)) qInDb.add(x.uid); });
+        if (late.length) qdb.del(late);                  // 적는 사이 서버 저장이 확인된 말은 바로 지운다
+        sendState();
+      });
+    }
+    qStoreErr = qMemOnly() > 0;
   }
   if (failMem.length) failAdd([], '');                  // 보관하지 못했던 "저장 못 한 말"을 다시 보관해 본다
   sendState();
 }
-/* 다른 탭이 남기고 닫힌 말(1분 넘게 그대로인 것)을 이 탭이 이어받아 보낸다. 두 탭이 같이 보내도 서버가 발언ID로 거른다 */
+/* 다른 탭이 남기고 닫힌 말(1분 넘게 그대로인 것)을 이 탭이 이어받아 보낸다. 두 탭이 같이 보내도 서버가 발언ID로 거른다.
+ * localStorage와 두 번째 자리를 모두 본다 (저장 공간이 꽉 차 두 번째 자리에만 남은 다른 탭의 말도 이어받는다). */
 function adoptOrphans(){
   if (!cfg.url) return;
-  let other = []; try { other = JSON.parse(localStorage.getItem(qKey()) || '[]') || []; } catch (_) { return; }
+  let other = []; try { other = JSON.parse(localStorage.getItem(qKey()) || '[]') || []; } catch (_) { other = []; }
   const mine = new Set(queue.map(x => x.uid)), old = Date.now() - 60000; let n = 0;
-  other.forEach(x => { if (x && x.uid && x.text && !mine.has(x.uid) && !qGone.has(x.uid) && !(new Date(x.t).getTime() > old)) { queue.push(x); n++; } });
+  (Array.isArray(other) ? other : []).forEach(x => { if (x && x.uid && x.text && !mine.has(x.uid) && !qGone.has(x.uid) && !(new Date(x.t).getTime() > old)) { queue.push(x); n++; } });
   if (n) saveQueue();
+  dbSync(false);
 }
 setInterval(adoptOrphans, 30000);
 function sendState(){
   const n = queue.length, pill = $('sendPill'), st = $('sendSt');
   if (!pill) return;
+  qStoreErr = qMemOnly() > 0;
+  const mem = qMemOnly(), nf = failGet().length, ng = gapGet().length, fm = failMemOnly();
   let txt = '', cls = '';
   if (sendErr && n) { txt = '⚠ 저장 실패 · 미전송 ' + n + '줄'; cls = 'sendErr'; }
   else if (n) { txt = '보내는 중 ' + n + '줄'; cls = 'send'; }
-  else if (failGet().length) { txt = '⚠ 저장 못 한 말 ' + failGet().length + '줄 (설정 탭에서 복사)'; cls = 'sendErr'; }
-  else if (gapGet().length) { txt = '⚠ 기록이 빠졌을 수 있는 구간 ' + gapGet().length + '곳'; cls = 'sendErr'; }
+  else if (nf) { txt = '⚠ 저장 못 한 말 ' + nf + '줄 (설정 탭에서 복사)'; cls = 'sendErr'; }
+  else if (ng) { txt = '⚠ 기록이 빠졌을 수 있는 구간 ' + ng + '곳'; cls = 'sendErr'; }
   pill.classList.toggle('hide', !txt); pill.className = 'chip net ' + cls + (txt ? '' : ' hide');
   pill.lastChild.textContent = txt; pill.title = sendErr ? '마지막 오류: ' + sendErr + ' (자동으로 다시 보내요)' : '내 말이 시트에 저장됐는지';
-  st.className = 'sendst' + (sendErr && n ? ' warn' : '');
-  if (qStoreErr && n) { pill.classList.remove('hide'); pill.className = 'chip net sendErr'; pill.lastChild.textContent = '⚠ 기기 보관 실패 · 미전송 ' + n + '줄'; pill.title = '이 기기 저장 공간이 부족해 못 보낸 말을 보관하지 못했어요. 이 창을 닫으면 사라질 수 있으니 연결이 돌아올 때까지 열어 두세요'; }
-  const nf = failGet().length, ng = gapGet().length;
-  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (' + (qStoreErr ? '⚠ 이 기기에 보관하지 못함: 창을 닫지 마세요' : '이 기기에 보관 중') + ')' : '미전송 ' + n + '줄 보내는 중…')
-    : (nf ? '' : (sentOnce ? '✔ 받아 적은 말은 모두 저장됨' + (ng ? ' · ⚠ 받아쓰기가 끊겨 빠졌을 수 있는 구간 ' + ng + '곳 (설정 탭)' : '') : ''));
-  failShow(); gapShow();
+  st.className = 'sendst' + ((sendErr && n) || mem || fm ? ' warn' : '');
+  // 기기 보관 상태를 세 가지로 나눠 말한다: 이 기기에 보관 중 / 이 기기 어디에도 저장되지 않고 이 창의 메모리에만 있음 / (서버가 받아) 저장됨
+  if (mem) { pill.classList.remove('hide'); pill.className = 'chip net sendErr'; pill.lastChild.textContent = '⚠ 기기에 저장 안 됨 · 메모리에만 ' + mem + '줄'; pill.title = '못 보낸 말 ' + mem + '줄이 이 기기 어디에도 저장되지 않았어요 (저장 공간 부족). 지금은 이 창의 메모리에만 있어서, 창을 닫거나 새로 고치면 사라져요. 연결이 돌아와 보내질 때까지 이 창을 열어 두세요'; }
+  const keep = mem ? '⚠ ' + mem + '줄은 이 기기 어디에도 저장되지 않고 이 창의 메모리에만 있어요: 창을 닫지 마세요' + (n > mem ? ' (나머지 ' + (n - mem) + '줄은 이 기기에 보관 중)' : '') : '이 기기에 보관 중';
+  st.textContent = n ? (sendErr ? '⚠ 미전송 ' + n + '줄 · ' + sendErr + ' · 4초마다 다시 보내요 (' + keep + ')' : '미전송 ' + n + '줄 보내는 중…' + (mem ? ' (' + keep + ')' : ''))
+    : (nf ? (fm ? '⚠ 저장 못 한 말 ' + fm + '줄이 이 창의 메모리에만 있어요: 창을 닫기 전에 설정 탭에서 복사해 주세요' : '') : (sentOnce ? '✔ 받아 적은 말은 모두 저장됨' + (ng ? ' · ⚠ 받아쓰기가 끊겨 빠졌을 수 있는 구간 ' + ng + '곳 (설정 탭)' : '') : ''));
+  failShow(); gapShow(); statShow();
 }
+// 이 기기 어디에도 저장되지 않은 말이 있는 채로 창을 닫으려 하면 브라우저가 한 번 물어보게 한다
+window.addEventListener('beforeunload', ev => { if (qMemOnly() || failMemOnly()) { ev.preventDefault(); ev.returnValue = ''; } });
 async function flush(){
   if (sending || authBad || !queue.length || !cfg.url) return;
   sending = true;
   const batch = queue.slice(0, 100);
   const ac = window.AbortController ? new AbortController() : null;
   const to = setTimeout(() => ac && ac.abort(), 45000);
+  batch.forEach(q => { const k = qTries.get(q.uid) || 0; if (k) stat('resend'); qTries.set(q.uid, k + 1); });
   try {
     const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, pt: ptFor(cfg.url), items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
     if (!r.ok) { if (/비밀번호/.test(r.error || '')) authBad = true; throw new Error(r.error || '저장 실패'); }   // 비밀번호가 바뀌었으면 다시 입장할 때까지 보내지 않는다
     // 서버가 받지 않은 말은 먼저 "저장 못 한 말" 목록에 옮겨 적은 뒤에 대기열에서 뺀다 (목록 보관이 실패하면 이 창의 메모리에 남고 화면에 계속 보인다)
     if ((r.tooLong || []).length) { failAdd(batch.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음'); toast('100만 자가 넘는 말 ' + r.tooLong.length + '줄은 저장하지 못했어요. 원문은 "저장 못 한 말"에서 복사할 수 있어요'); }
-    const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], r.tooLong || []));
-    done.forEach(u => qGone.add(u));
+    const took = [].concat(r.saved || [], r.dup || [], r.dropped || []);            // 서버가 처리를 끝낸 말 (저장됨·이미 있음·초기화 전 말이라 버림)
+    const done = new Set(took.concat(r.tooLong || []));
+    const now = Date.now(); (r.saved || []).forEach(u => { const t0 = qT.get(u); if (t0) statLat(now - t0); });
+    stat('saved', (r.saved || []).length); stat('dup', (r.dup || []).length); stat('dropped', (r.dropped || []).length); stat('tooLong', (r.tooLong || []).length);
+    done.forEach(u => { qGone.add(u); qT.delete(u); qTries.delete(u); });
+    took.forEach(u => { qSaved.add(u); qInDb.delete(u); });
+    qdb.del(took.filter(u => !qPutting.has(u)));
+    failDrop([].concat(r.saved || [], r.dup || []));                                   // "다시 보내기"로 되돌렸던 말이 저장됐으면 목록에 남은 사본도 걷는다
     queue = queue.filter(q => !done.has(q.uid));
     if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
     sendErr = ''; sentOnce = true;
@@ -150,41 +227,61 @@ async function flush(){
 }
 setInterval(flush, 4000);
 /* 다른 방 주소로 못 보낸 말 (예: 방을 엔진 주소로 옮기기 전 주소에 남은 말): 그 주소로 직접 보낸다.
- * 보낼 곳은 대기열에 적힌 주소 그대로라서 언제나 원래 방에 들어가고, 서버가 발언ID로 걸러서 두 번 저장되지 않는다. */
-let othersBusy = false, othersTurn = 0; const othersNeed = {};
+ * 보낼 곳은 대기열에 적힌 주소 그대로라서 언제나 원래 방에 들어가고, 서버가 발언ID로 걸러서 두 번 저장되지 않는다.
+ * localStorage뿐 아니라 두 번째 자리(IndexedDB)에만 남은 다른 방의 말도 함께 찾는다. */
+let othersBusy = false, othersTurn = 0, idbOther = {}; const othersNeed = {};
+function lsOther(){
+  const map = {};
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey()) { let a = []; try { a = JSON.parse(localStorage.getItem(k) || '[]') || []; } catch(_) {} if (Array.isArray(a) && a.length) map[k] = a.slice(); } } } catch(_) {}
+  return map;
+}
+// 방(키 't_q:주소')마다 못 보낸 말: localStorage + 두 번째 자리에만 있는 것
+function otherMap(){
+  const map = lsOther();
+  Object.keys(idbOther).forEach(k => { const a = map[k] = map[k] || [], have = new Set(a.map(x => x.uid)); idbOther[k].forEach(x => { if (!have.has(x.uid)) a.push(x); }); if (!a.length) delete map[k]; });
+  return map;
+}
+async function otherScan(){
+  const all = await qdb.all(); if (!Array.isArray(all)) return;
+  const m = {}; all.forEach(x => { if (x && x.st === 'q' && x.uid && x.text && x.room && x.room !== cfg.url) (m['t_q:' + x.room] = m['t_q:' + x.room] || []).push(qItem(x)); });
+  const was = JSON.stringify(Object.keys(idbOther).map(k => [k, idbOther[k].length])); idbOther = m;
+  if (was !== JSON.stringify(Object.keys(m).map(k => [k, m[k].length]))) otherRooms();
+}
 async function flushOthers(){
   if (othersBusy || sending || !navigator.onLine) return;
-  // 보낼 수 있는 방을 고른다. 비밀번호가 없는 방은 표시만 하고 건너뛰어서, 그 방 때문에 다른 방의 말이 밀리지 않게 한다 (방마다 차례가 돌아가게 순서를 돌린다)
-  const keys = [];
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey() && (JSON.parse(localStorage.getItem(k) || '[]') || []).length) keys.push(k); } } catch(_) { return; }
-  if (!keys.length) return;
-  keys.sort(); othersTurn++;
-  let key = '', url = '', pw = '', pt = '', items = [], changed = false;
-  for (let j = 0; j < keys.length && !key; j++) {
-    const k = keys[(othersTurn + j) % keys.length], u = k.slice(4); if (!/^https:\/\//.test(u)) continue;
-    const room = roomsGet().find(x => scriptUrl(x.url) === u);
-    // 그 방의 비밀번호나 기기 토큰이 이 기기에 없으면 보내지 않는다 (지금 방 비밀번호를 대신 보내지 않음). 원문은 그대로 보관하고 다시 들어가라고 안내한다
-    const w = room && room.pw ? room.pw : '', t = ptFor(u);
-    if (!w && !t) { if (!othersNeed[k]) { othersNeed[k] = 1; changed = true; } continue; }
-    if (othersNeed[k] && Date.now() - othersNeed[k] < 120000) continue;       // 방금 비밀번호 오류가 난 방은 2분 쉬었다가
-    let a = []; try { a = JSON.parse(localStorage.getItem(k) || '[]') || []; } catch(_) {}
-    if (a.length) { key = k; url = u; pw = w; pt = t; items = a; }
-  }
-  if (changed) otherRooms();
-  if (!key) return;
   othersBusy = true;
   try {
+    await otherScan();
+    // 보낼 수 있는 방을 고른다. 비밀번호가 없는 방은 표시만 하고 건너뛰어서, 그 방 때문에 다른 방의 말이 밀리지 않게 한다 (방마다 차례가 돌아가게 순서를 돌린다)
+    const map = otherMap(), keys = Object.keys(map).sort();
+    if (!keys.length) return;
+    othersTurn++;
+    let key = '', url = '', pw = '', pt = '', items = [], changed = false;
+    for (let j = 0; j < keys.length && !key; j++) {
+      const k = keys[(othersTurn + j) % keys.length], u = k.slice(4); if (!/^https:\/\//.test(u)) continue;
+      const room = roomsGet().find(x => scriptUrl(x.url) === u);
+      // 그 방의 비밀번호나 기기 토큰이 이 기기에 없으면 보내지 않는다 (지금 방 비밀번호를 대신 보내지 않음). 원문은 그대로 보관하고 다시 들어가라고 안내한다
+      const w = room && room.pw ? room.pw : '', t = ptFor(u);
+      if (!w && !t) { if (!othersNeed[k]) { othersNeed[k] = 1; changed = true; } continue; }
+      if (othersNeed[k] && Date.now() - othersNeed[k] < 120000) continue;       // 방금 비밀번호 오류가 난 방은 2분 쉬었다가
+      key = k; url = u; pw = w; pt = t; items = map[k];
+    }
+    if (changed) otherRooms();
+    if (!key) return;
     const body = { action: 'lines', items: items.slice(0, 100) }; if (pw) body.pw = pw; if (pt) body.pt = pt;
     const r = await fetch(url, { method: 'POST', body: JSON.stringify(body) }).then(x => x.json());
     if (r && !r.ok && /비밀번호|잠/.test(r.error || '')) { othersNeed[key] = Date.now(); otherRooms(); }
     if (r && r.ok) {
       delete othersNeed[key];
       let kept = true;
-      if ((r.tooLong || []).length) kept = failAdd(items.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음', url);
-      const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || [], kept ? (r.tooLong || []) : []));     // 실패 목록에 옮겨 적지 못했으면 원래 자리에 그대로 둔다
+      if ((r.tooLong || []).length) kept = await failAddOther(items.filter(q => r.tooLong.includes(q.uid)), '100만 자가 넘어 서버가 받지 않음', url);
+      const took = [].concat(r.saved || [], r.dup || [], r.dropped || []);
+      const done = new Set(took.concat(kept ? (r.tooLong || []) : []));     // 실패 목록에 옮겨 적지 못했으면 원래 자리에 그대로 둔다
       let now = []; try { now = JSON.parse(localStorage.getItem(key) || '[]') || []; } catch(_) {}
       now = now.filter(q => !done.has(q.uid));
-      if (now.length) localStorage.setItem(key, JSON.stringify(now)); else localStorage.removeItem(key);
+      try { if (now.length) localStorage.setItem(key, JSON.stringify(now)); else localStorage.removeItem(key); } catch(_) {}
+      await qdb.del(took);                                                   // 저장 못 한 말로 옮긴 것은 같은 기록의 상태가 'f'로 바뀌어 있다 (지우지 않음)
+      if (idbOther[key]) { idbOther[key] = idbOther[key].filter(q => !done.has(q.uid)); if (!idbOther[key].length) delete idbOther[key]; }
       if (done.size) otherRooms();
     }
   } catch(_) {} finally { othersBusy = false; }
@@ -195,72 +292,163 @@ window.addEventListener('pagehide', ev => {
   if (!cfg.url || !navigator.sendBeacon) return;
   // 창을 정말 닫을 때(되돌아올 수 있는 일시 정지가 아닐 때)만 "일부러 나갔다"고 알려서, 다른 사람에게 끊김 알림이 가지 않게 한다
   if (!ev.persisted && cfg.name) { try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, pt: ptFor(cfg.url), name: cfg.name })], { type: 'text/plain' })); } catch(_) {} }
+  statSave(true);
   if (!queue.length) return;
   try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'lines', pw: cfg.pw, pt: ptFor(cfg.url), items: queue.slice(0, 100) })], { type: 'text/plain' })); } catch(_) {}
 });
 function otherRooms(){
-  const box = $('otherQ'); let total = 0; const keys = [];
-  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('t_q:') && k !== qKey()) { const n = JSON.parse(localStorage.getItem(k) || '[]').length; if (n) { total += n; keys.push(k); } } } } catch(_) {}
+  const box = $('otherQ'), map = otherMap(), keys = Object.keys(map); let total = 0; keys.forEach(k => { total += map[k].length; });
   box.classList.toggle('hide', !total); box.innerHTML = '';
   if (!total) return;
   const need = keys.filter(k => othersNeed[k]);
   box.append('다른 방 주소로 못 보낸 말이 ' + total + '줄 있어요. ' + (need.length ? '그 방의 비밀번호가 이 기기에 없어서 보내지 못하고 보관 중이에요. 그 방에 다시 들어가면 자동으로 보내요. ' : '원래 방 주소로 자동으로 보내는 중이에요. '));
   need.forEach(k => { const u = k.slice(4), r = roomsGet().find(x => scriptUrl(x.url) === u); const b2 = el('button', '', (r && r.name ? r.name : '그 방') + '에 다시 들어가기'); b2.onclick = () => { if (r) switchRoom(r); else { S.set('t_url', u); location.reload(); } }; box.append(b2, ' '); });
-  const b = el('button', '', '버리기'); b.dataset.label = '버리기'; twoStep(b, async () => { keys.forEach(k => S.del(k)); otherRooms(); }); box.append(b);
+  const b = el('button', '', '버리기'); b.dataset.label = '버리기'; twoStep(b, async () => { const ids = []; keys.forEach(k => { map[k].forEach(x => ids.push(x.uid)); S.del(k); }); idbOther = {}; await qdb.del(ids); otherRooms(); }); box.append(b);
 }
 
 let ws = null, rec = null, stream = null, running = false, wantStop = false, micStatus = 'off';
 let micWhy = '', micIntent = false;
 let wsGen = 0, starting = false, retryN = 0, tkCache = null, wakeLock = null, dropCount = 0, retryTimer = 0;
-/* 끊긴 동안의 말을 잃지 않기 위한 세 가지:
- *  ① 확정 전 글(pend): Deepgram이 아직 확정하지 않은 글. 연결이 끊기면 그대로 한 줄로 저장한다.
- *  ② 소리 임시 보관(abuf): 연결이 끊긴 동안의 마이크 소리를 이 창의 메모리에만 최대 90초 모아 두었다가, 다시 연결되면 이어서 보낸다.
- *     원래 실시간으로 보내던 바로 그 소리이고, 디스크에 쓰지 않으며, 보낸 뒤나 받아쓰기를 끄면 바로 버린다.
- *  ③ 누락 가능 구간(gap): 90초를 넘겨 소리를 버렸거나 전송이 막혀 못 보낸 구간. 시각을 이 기기에 적고 대화에도 안내 줄을 남긴다. */
-const ABUF_MS = 90000, GAP_MIN = 5000;
-let pend = '', abuf = [], abufAt = 0, abufLost = false, gapFrom = 0, lastDrain = 0, recMime = '';
-function pushLine(text){ lastActivity = Date.now(); queue.push({ uid: newUid(), name: cfg.name, session: live.session || '', rv: live.resetVer || '', t: new Date().toISOString(), text }); saveQueue(); }
-function commitPend(){ const t = pend.trim(); pend = ''; $('interim').textContent = ''; if (t) pushLine(t); }
+/* 끊긴 동안의 말을 잃지 않기 위한 장치.
+ *  ① 확정 전 글(pend): Deepgram이 아직 확정하지 않은 글. 연결이 끊기면 끝에 "(확정 전)"을 붙여 한 줄로 저장한다 (확정된 글과 구별).
+ *  ② 소리 임시 보관: 연결이 끊긴 동안의 마이크 소리를 이 창의 메모리에만 최대 90초 모아 두었다가, 다시 연결되면 처음부터 이어서 보낸다.
+ *     원래 실시간으로 보내던 바로 그 소리이고, 디스크에 쓰지 않으며, 보낸 뒤나 받아쓰기를 끄면 바로 버린다. 90초를 넘기면 가장 오래된 녹음부터 버리고 새로 모은다.
+ *  ③ 누락 가능 구간(gap): Deepgram이 "여기까지 받아 적었다"고 알려 준 시각부터 다시 모으기 시작한 시각까지, 그리고 90초를 넘겨 버린 구간.
+ *     1초 이상이면 이 기기에 적고, 3초 이상이면 대화에도 안내 줄을 남긴다.
+ * 소리 한 줄기(녹음기 하나)는 연결 하나에만 보낸다: 소리 파일의 머리말이 첫 조각에만 있어서, 이미 일부를 보낸 녹음은 새 연결에서 이어 보낼 수 없다.
+ *   그래서 "아직 아무것도 보내지 않은 녹음"만 새 연결에 처음부터 보내고, 보낸 적 있는 녹음은 버리고 그 구간을 누락 가능 구간으로 적는다.
+ *   같은 소리를 두 번 보내는 일이 없으므로 같은 말이 두 번 적히지 않는다. (옛 연결에서 늦게 오는 글은 연결 번호로 버린다.)
+ * "보냈다"와 "받아 적혔다"는 다르다: 소켓에 넘긴 조각 수(out)와 Deepgram이 답으로 알려 준 처리 위치(heard = start + duration)를 따로 센다.
+ * 발언 시각은 저장한 순간이 아니라 말한 순간(녹음 시작 시각 + Deepgram이 알려 준 위치)이고, 세션·초기화 번호도 그 시각의 것을 붙인다. */
+const ABUF_MS = 90000, GAP_MIN = 1000, GAP_LINE = 3000, CHUNK_MS = 250, PUMP_MS = 100, BUF_HI = 64000, STALL_MS = 5000, QUIET_MS = 8000, UNSURE = ' (확정 전)';
+let pend = '', pendAt = 0, gapFrom = 0, recMime = '';
+// 시각 → 그때의 세션·초기화 번호 (늦게 복구된 말을 새 세션에 넣지 않으려고)
+const sessLog = [];
+function sessMark(){ const l = sessLog[sessLog.length - 1]; if (live.session === undefined) return; if (!l || l.session !== live.session || l.rv !== live.resetVer) { sessLog.push({ at: Date.now(), session: live.session || '', rv: live.resetVer || '' }); if (sessLog.length > 50) sessLog.shift(); } }
+function sessAt(t){ let s = null; for (const e of sessLog) { if (e.at <= t || !s) s = e; else break; } return s || { session: live.session || '', rv: live.resetVer || '' }; }
+// at = 말한 시각(ms). 없으면 지금
+function pushLine(text, at){
+  lastActivity = Date.now();
+  const tm = at && at <= Date.now() ? at : Date.now(), s = sessAt(tm), uid = newUid();
+  queue.push({ uid, name: cfg.name, session: s.session, rv: s.rv, t: new Date(tm).toISOString(), text }); qT.set(uid, Date.now()); stat('queued'); saveQueue();
+}
+// 확정되지 못한 글을 한 줄로 저장한다 (확정된 글과 구별되게 끝에 표시를 붙인다)
+function commitPend(){ const t = pend.trim(), at = pendAt; pend = ''; pendAt = 0; $('interim').textContent = ''; if (t) { pushLine(t + UNSURE, at); stat('interim'); } }
 const gapKey = () => 't_gap:' + cfg.url;
-function gapGet(){ if (!cfg.url) return []; try { return JSON.parse(localStorage.getItem(gapKey()) || '[]') || []; } catch(_) { return gapMem; } }
-let gapMem = [];
+let gapMem = [];                  // 이 기기에 적지 못한 구간 (저장 공간 부족). 화면에는 저장된 것과 함께 보인다
+function gapStored(){ try { const a = JSON.parse(localStorage.getItem(gapKey()) || '[]'); return Array.isArray(a) ? a : []; } catch(_) { return []; } }
+function gapGet(){ if (!cfg.url) return []; const a = gapStored(), have = new Set(a.map(g => g.from)); return a.concat(gapMem.filter(g => g.url === cfg.url && !have.has(g.from))); }
 function noteGap(from, to, why){
   if (!from || to - from < GAP_MIN || !cfg.url) return;
   const hm = t => new Date(t).toTimeString().slice(0, 8), sec = Math.round((to - from) / 1000);
-  const a = gapGet().concat([{ from: new Date(from).toISOString(), to: new Date(to).toISOString(), sec, why, name: cfg.name }]).slice(-50);
-  gapMem = a; try { localStorage.setItem(gapKey(), JSON.stringify(a)); } catch(_) {}
-  // 대화에도 한 줄 남겨서 모두(와 요약)에게 이 구간이 비어 있을 수 있음을 알린다
-  pushLine('※ 받아쓰기 끊김 약 ' + (sec >= 60 ? Math.floor(sec / 60) + '분 ' + (sec % 60) + '초' : sec + '초') + ' (' + hm(from) + '~' + hm(to) + ', ' + why + '). 이 사이 ' + cfg.name + '의 말은 기록되지 않았을 수 있어요');
+  const g = { from: new Date(from).toISOString(), to: new Date(to).toISOString(), sec, why, name: cfg.name, url: cfg.url };
+  const a = gapGet().concat([g]).slice(-50);
+  try { localStorage.setItem(gapKey(), JSON.stringify(a)); gapMem = gapMem.filter(x => x.url !== cfg.url); } catch(_) { gapMem.push(g); gapMem = gapMem.slice(-50); }
+  stat('gaps'); stat('gapSec', sec);
+  // 3초 이상이면 대화에도 한 줄 남겨서 모두(와 요약)에게 이 구간이 비어 있을 수 있음을 알린다. 줄의 시각은 끊긴 시각
+  if (to - from >= GAP_LINE) pushLine('※ 받아쓰기 끊김 약 ' + (sec >= 60 ? Math.floor(sec / 60) + '분 ' + (sec % 60) + '초' : sec + '초') + ' (' + hm(from) + '~' + hm(to) + ', ' + why + '). 이 사이 ' + cfg.name + '의 말은 기록되지 않았을 수 있어요', from);
+  else sendState();
 }
 function gapShow(){
   const box = $('gapBox'); if (!box) return;
   const a = gapGet(); box.classList.toggle('hide', !a.length); if (!a.length) return;
   box.innerHTML = '';
-  box.append('⚠ 받아쓰기가 끊겨 내 말이 빠졌을 수 있는 구간 ' + a.length + '곳: ' + a.slice(-8).map(g => new Date(g.from).toTimeString().slice(0, 8) + ' 약 ' + g.sec + '초').join(' · ') + '. 대화 탭에도 "※ 받아쓰기 끊김" 줄로 남아 있어요. 빠진 말은 직접 다시 말하거나 적어 주세요. ');
-  const rm = el('button', '', '확인했어요'); rm.onclick = () => { gapMem = []; try { localStorage.removeItem(gapKey()); } catch(_) {} sendState(); }; box.append(rm);
+  const long = a.filter(g => g.sec >= GAP_LINE / 1000).length;
+  box.append('⚠ 받아쓰기가 끊겨 내 말이 빠졌을 수 있는 구간 ' + a.length + '곳: ' + a.slice(-8).map(g => new Date(g.from).toTimeString().slice(0, 8) + ' 약 ' + g.sec + '초').join(' · ') + '. ' + (long ? '3초 이상인 ' + long + '곳은 대화 탭에도 "※ 받아쓰기 끊김" 줄로 남아 있어요. ' : '') + '빠진 말은 직접 다시 말하거나 적어 주세요. ' + (gapMem.length ? '(이 목록 일부는 기기에 적지 못해 이 창에만 있어요) ' : ''));
+  const rm = el('button', '', '확인했어요'); rm.onclick = () => { gapMem = gapMem.filter(x => x.url !== cfg.url); try { localStorage.removeItem(gapKey()); } catch(_) {} sendState(); }; box.append(rm);
 }
-/* 새 녹음기. 연결이 열려 있으면 바로 보내고, 아니면 메모리에 모은다. 연결마다 새 녹음기가 필요하다(소리 파일의 머리말이 첫 조각에만 있어서). */
-function recStart(){
-  if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_) {} }
-  rec = null; abuf = []; abufAt = Date.now(); abufLost = false;
-  if (!micAlive()) { abufLost = true; return; }
-  let r; try { r = new MediaRecorder(stream, recMime ? { mimeType: recMime } : undefined); } catch(_) { abufLost = true; return; }
-  r.ondataavailable = ev => {
-    if (r !== rec || !ev.data.size) return;
-    const w = ws;
-    if (w && w.readyState === 1 && w._live) {
-      if (w.bufferedAmount < 16000) lastDrain = Date.now();
-      if (w.bufferedAmount > 400000) {                         // 네트워크가 막혀 소리가 밀림: 끊고 새로 연결. 못 보낸 구간은 누락 가능 구간으로 적는다
-        logDrop('전송이 막혀 쌓임(네트워크 정체)'); noteGap(lastDrain || Date.now() - 30000, Date.now(), '전송 정체'); lastDrain = Date.now();
-        try { w.close(); } catch(_) {} return;
-      }
-      try { while (abuf.length) w.send(abuf.shift()); w.send(ev.data); r._sent = true; } catch(_) {}
-    } else if (!abufLost) {
-      if (Date.now() - abufAt <= ABUF_MS) abuf.push(ev.data);
-      else { abuf = []; abufLost = true; }                     // 90초를 넘김: 모아 둔 소리를 버리고, 다시 연결될 때 누락 가능 구간으로 적는다
+function stopRec(r){ if (r && r.m && r.m.state !== 'inactive') { try { r.m.stop(); } catch(_) {} } }
+/* 새 녹음기. w = 이 녹음을 보낼 연결(없으면 메모리에 모으기만 한다). 새 녹음기를 먼저 켜고 나서 옛 녹음기를 멈춘다(사이가 비지 않게).
+ * r = { m: MediaRecorder, t0: 녹음 시작 시각, q: 아직 보내지 않은 조각, out: 소켓에 넘긴 조각 수, sent: 하나라도 넘겼는지, w: 보내는 연결, closing: 끄는 중, done: 마지막 조각까지 받음 } */
+function recStart(w){
+  const old = rec; rec = null;
+  if (!micAlive()) { stopRec(old); return null; }
+  let m; try { m = new MediaRecorder(stream, recMime ? { mimeType: recMime } : undefined); } catch(_) { stopRec(old); return null; }
+  const r = { m, t0: Date.now(), q: [], out: 0, sent: false, w: w || null, closing: false, done: false };
+  m.ondataavailable = ev => {
+    if (!ev.data || !ev.data.size) return;
+    if (r !== rec) return;                                   // 다른 녹음기로 바뀐 뒤의 조각: 이 녹음을 받던 연결이 이미 없다 (그 구간은 누락 가능 구간으로 적혀 있다)
+    r.q.push(ev.data);                                       // 끄는 중(closing)에 오는 마지막 조각도 여기로 들어와서 CloseStream보다 먼저 나간다
+    if (!r.sent && !r.w && Date.now() - r.t0 > ABUF_MS) {    // 90초 동안 보내지 못함: 이 녹음은 버리고 새로 모은다 (메모리에는 언제나 최근 90초 이내의 소리만)
+      if (!gapFrom) gapFrom = r.t0;
+      recStart(null); return;
     }
+    pump();
   };
-  rec = r; try { r.start(250); } catch(_) { rec = null; abufLost = true; }
+  m.onstop = () => { r.done = true; pump(); };
+  rec = r; try { m.start(CHUNK_MS); } catch(_) { rec = null; stopRec(old); return null; }
+  stopRec(old);
+  return r;
+}
+/* 모아 둔 조각을 연결로 내보낸다. 밀린 소리는 한꺼번에 붓지 않고 0.1초에 한 조각(실시간의 2.5배)씩, 소켓에 쌓인 양이 많으면 쉬었다가.
+ * 보내지 못한 조각은 버리지 않고 그대로 둔다(다음 차례에 다시). 끄는 중이면 남은 조각을 모두 내보낸 뒤에 CloseStream을 보낸다. */
+function pump(timer){
+  const r = rec, w = ws; if (!r || !w || w.readyState !== 1 || !w._live || r.w !== w) return;
+  if (w.bufferedAmount < 2000) w._drain = Date.now();
+  let n = r.closing ? r.q.length : r.q.length > 3 ? (timer ? 1 : 0) : r.q.length;
+  while (n-- > 0 && r.q.length) {
+    if (w.readyState !== 1 || w.bufferedAmount > BUF_HI) break;
+    try { w.send(r.q[0]); } catch(_) { stat('sendFail'); break; }
+    r.q.shift(); r.out++; r.sent = true;
+  }
+  if (r.closing && r.done && !r.q.length && !w._closeSent) { w._closeSent = true; try { w.send(JSON.stringify({ type: 'CloseStream' })); } catch(_) {} }
+}
+/* 닫힘 신호 없이 죽은 연결 찾기 (1초마다). ① 소켓에 쌓인 소리가 5초 넘게 빠지지 않음 ② 브라우저가 오프라인이라고 함
+ * ③ Deepgram에서 8초 넘게 아무 답이 없으면 방 주소에 가벼운 요청을 한 번 보내 보고, 그것도 안 되면 네트워크가 죽은 것으로 본다 (조용해서 답이 없는 것과 구별). */
+let watchAt = 0;
+function netProbe(){
+  const ac = window.AbortController ? new AbortController() : null, to = setTimeout(() => ac && ac.abort(), 4000);
+  return fetch(withQ(cfg.url, 'action=ver&_=' + Date.now()), { signal: ac ? ac.signal : undefined, cache: 'no-store' }).then(() => true, () => false).then(v => { clearTimeout(to); return v; });
+}
+function watch(){
+  const now = Date.now(); if (now - watchAt < 1000) return; watchAt = now;
+  const w = ws, r = rec; if (!w || w.readyState !== 1 || !w._live || w._dead || wantStop || !r || r.w !== w) return;
+  if (now - (w._drain || w._openAt) > STALL_MS) { lost(w, '전송 정체'); return; }
+  if (navigator.onLine === false) { lost(w, '인터넷 끊김'); return; }
+  if (now - Math.max(w._msgAt || 0, w._openAt, w._probeAt || 0) > QUIET_MS && !w._probing) {
+    w._probing = true;
+    netProbe().then(ok => { w._probing = false; w._probeAt = Date.now() + (ok ? 12000 : 0); if (!ok && w === ws && !w._dead && !wantStop) lost(w, '응답 없음'); });
+  }
+}
+setInterval(() => { pump(true); watch(); }, PUMP_MS);
+window.addEventListener('offline', () => { if (ws && ws._live && !ws._dead && !wantStop) lost(ws, '인터넷 끊김'); });
+/* 연결 하나가 끝났을 때 (닫힘 신호가 왔거나, 죽은 것으로 판단했거나, 끄는 중에 Deepgram이 닫았을 때). 한 연결에 한 번만 돈다. */
+function lost(w, why, noRetry){
+  if (w._dead) return; w._dead = true; w._live = false; clearInterval(w._ka); clearTimeout(w._stopT);
+  try { if (w.readyState <= 1) w.close(); } catch(_) {}
+  if (w !== ws) return;                                      // 이미 새 연결로 넘어간 옛 연결
+  running = false;
+  const r = rec && rec.w === w ? rec : null, now = Date.now();
+  // Deepgram이 실제로 받아 적은 곳(말한 시각 기준). 한 번도 위치를 알려 주지 않았으면 이 녹음은 하나도 확인되지 않은 것으로 본다
+  const heard = r ? (w._heard != null ? Math.min(now, r.t0 + w._heard * 1000) : r.t0) : now;
+  if (wantStop) { finishStop(w, r, heard); return; }
+  commitPend();                                              // 확정 전 글을 "(확정 전)" 표시와 함께 저장
+  if (w._replay) { w._replay = null; stat('recovFail'); }
+  if (r && r.sent) {
+    // 이 녹음은 죽은 연결로 일부가 나갔다 → 새 녹음을 모으기 시작하고, 받아 적힌 곳부터 새 녹음 시작까지를 누락 가능 구간으로 적는다
+    const n = recStart(null), t1 = n ? n.t0 : now;
+    noteGap(Math.min(heard, t1), t1, why);
+    if (!n && !gapFrom) gapFrom = t1;
+  } else if (r) { r.w = null; }                              // 아직 아무것도 보내지 않은 녹음: 그대로 계속 모은다 (새 연결에 처음부터 보낸다)
+  else if (!rec) { if (!recStart(null) && !gapFrom) gapFrom = now; }      // 모을 녹음기도 없다(마이크가 죽음): 다시 이어질 때까지가 빈 구간
+  if (!w._opened) tkCache = null;                            // 열리지도 못했으면 토큰이 문제일 수 있으니 새로 받는다
+  logDrop(why); stat('drops');
+  if (noRetry) return;
+  micState('conn', '다시 연결 중…');
+  $('micInfo').textContent = '연결이 끊겨 다시 잇는 중이에요 (끊김 ' + dropCount + '번, ' + why + ')';
+  scheduleRestart(Math.min(5000, 400 * Math.pow(2, retryN++)));   // 0.4초부터 시작해 길게는 5초 간격
+}
+// 끄는 중이던 연결이 끝남: 남은 확정 전 글을 저장하고, 끝내 보내지 못했거나 받아 적히지 않은 꼬리가 있으면 적는다
+function finishStop(w, r, heard){
+  commitPend();
+  if (r) {
+    const end = r.tEnd || Date.now();
+    if (r.q.length * CHUNK_MS >= GAP_MIN) noteGap(end - r.q.length * CHUNK_MS, end, '끌 때 보내지 못함');
+    else if (w._heard != null && end - heard >= GAP_LINE) noteGap(heard, end, '끌 때 받아 적지 못함');
+    r.q = [];
+  }
+  if (rec === r || (rec && rec.closing)) { stopRec(rec); rec = null; }
+  flush();
 }
 function micState(cls, text){
   micStatus = cls || 'off';
@@ -295,13 +483,14 @@ async function startMic(isRetry){
   if (starting) return;
   starting = true;
   try {
+    if (rec && rec.closing && ws && !ws._dead) lost(ws, '끔');          // 끄는 중에 다시 켰다: 앞의 것을 먼저 마무리한다
     // 마이크 장치가 끊겼으면(이어폰 뽑힘, 블루투스 전환, 절전) 죽은 마이크로 재연결하지 말고 새로 잡는다
     if (stream && !micAlive()) { try { stream.getTracks().forEach(t => t.stop()); } catch(_) {} stream = null; }
     if (!stream) {
       const fx = $('micFx').checked;
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: fx, noiseSuppression: fx, autoGainControl: fx } });
-        stream.getAudioTracks().forEach(tr => { tr.onended = () => { if (wantStop || tr.readyState !== 'ended') return; logDrop('마이크 장치 끊김'); $('micInfo').textContent = '마이크가 끊겼어요 (장치를 뽑았거나 다른 프로그램이 가져감). 다시 잡는 중…'; try { if (ws) ws.close(); } catch(_) {} if (!ws || ws.readyState > 1) scheduleRestart(500); }; });
+        stream.getAudioTracks().forEach(tr => { tr.onended = () => { if (wantStop || tr.readyState !== 'ended') return; logDrop('마이크 장치 끊김'); $('micInfo').textContent = '마이크가 끊겼어요 (장치를 뽑았거나 다른 프로그램이 가져감). 다시 잡는 중…'; if (ws && !ws._dead) lost(ws, '마이크 장치 끊김'); else scheduleRestart(500); }; });
       }
       catch (e) {
         micState('err', '마이크 오류'); $('micInfo').textContent = micError(e);
@@ -319,67 +508,75 @@ async function startMic(isRetry){
     tkCache = { tk, at: tkCache && tkCache.tk === tk ? tkCache.at : Date.now() };
     const p = new URLSearchParams({ model: 'nova-3', language: 'ko', smart_format: 'true', interim_results: 'true', endpointing: '400' });
     (tk.keyterms || []).forEach(k => p.append('keyterm', k));
-    commitPend();                                           // 옛 연결에서 확정되지 못한 글은 버리지 않고 한 줄로 저장
+    if (ws && !ws._dead && ws.readyState <= 1) lost(ws, '응답 없는 연결을 버림', true);     // 닫힘 신호 없이 죽은 연결을 버릴 때도 끊김과 똑같이 처리 (확정 전 글 저장, 지금부터의 소리 모으기, 빈 구간 적기)
+    commitPend();
     const my = ++wsGen;                                     // 옛 연결의 늦은 신호가 새 연결을 건드리지 못하게 번호를 매긴다
-    if (ws && ws.readyState <= 1) { try { ws.close(); } catch(_) {} if (!gapFrom) gapFrom = Date.now(); recStart(); }    // 죽은 연결을 버릴 때도 지금부터의 소리를 모아 둔다
     const w = new WebSocket('wss://api.deepgram.com/v1/listen?' + p.toString(), ['bearer', tk.token]);
-    ws = w; let opened = false, ka = 0;
+    ws = w;
     w.onopen = () => {
-      if (my !== wsGen) { try { w.close(); } catch(_) {} return; }
-      opened = true; retryN = 0;
+      if (my !== wsGen || w._dead) { try { w.close(); } catch(_) {} return; }
+      w._opened = true; retryN = 0; w._openAt = w._drain = Date.now(); w._live = true;
       recMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
-      // 끊긴 동안 모아 둔 소리가 온전하면(90초 이내) 그 녹음기를 그대로 이어 쓰고 모은 것부터 보낸다. 아니면 새 녹음기로 시작하고 빈 구간을 적는다
-      const keep = rec && rec.state !== 'inactive' && !rec._sent && !abufLost && abuf.length;
-      if (gapFrom && !keep) noteGap(gapFrom, Date.now(), '연결 끊김');
-      gapFrom = 0; lastDrain = Date.now(); w._live = true;
-      if (keep) { try { while (abuf.length) w.send(abuf.shift()); rec._sent = true; } catch(_) {} }
-      else recStart();
-      ka = setInterval(() => { if (w.readyState === 1) { try { w.send(JSON.stringify({ type: 'KeepAlive' })); } catch(_) {} } }, 8000);
+      // 끊긴 동안 모아 둔 녹음이 아직 하나도 나가지 않았으면 그 녹음을 처음부터 이 연결로 보낸다. 아니면 새 녹음으로 시작하고 빈 구간을 적는다
+      let r = rec;
+      if (r && !r.sent && !r.closing && r.m.state !== 'inactive') {
+        if (gapFrom) noteGap(gapFrom, r.t0, '90초 넘게 끊김');
+        r.w = w;
+        if (r.q.length > 3) { w._replay = { from: r.t0, sec: (Date.now() - r.t0) / 1000 }; stat('recovTry'); stat('recovTrySec', Math.round(w._replay.sec)); }
+      } else {
+        const from = gapFrom || (r && !r.sent ? r.t0 : 0); r = recStart(w);
+        if (from) noteGap(from, r ? r.t0 : Date.now(), '연결 끊김');
+      }
+      gapFrom = 0;
+      w._ka = setInterval(() => { if (w.readyState === 1) { try { w.send(JSON.stringify({ type: 'KeepAlive' })); } catch(_) {} } }, 8000);
       running = true; document.title = 'TRPG Archive'; micState('on', '받아쓰는 중 · 멈추기');
-      if (dropCount) $('micInfo').textContent = '연결이 ' + dropCount + '번 끊겼다가 자동으로 다시 이어졌어요'; else $('micInfo').textContent = '';
-      keepAwake(true);
+      if (dropCount) $('micInfo').textContent = '연결이 ' + dropCount + '번 끊겼다가 자동으로 다시 이어졌어요' + (w._replay ? ' · 끊긴 동안의 소리 ' + Math.round(w._replay.sec) + '초를 이어서 보내는 중' : ''); else $('micInfo').textContent = '';
+      keepAwake(true); pump();
     };
     w.onmessage = ev => {
-      if (my !== wsGen) return;
+      if (my !== wsGen || w._dead) return;                   // 옛 연결에서 늦게 온 글은 쓰지 않는다 (그 구간의 확정 전 글은 이미 저장했다)
       let m; try { m = JSON.parse(ev.data); } catch(_) { return; }
+      w._msgAt = Date.now();
       if (m.type !== 'Results') return;
+      const r = rec && rec.w === w ? rec : null;
+      const s0 = Number(m.start), du = Number(m.duration), timed = m.start != null && m.duration != null && isFinite(s0) && isFinite(du);
+      // 이미 확정해 저장한 소리 구간을 다시 가리키는 결과는 버린다 (글이 같아서가 아니라 소리의 위치로 판단)
+      if (timed && w._final != null && s0 + du <= w._final + 0.01) return;
+      if (timed) w._heard = Math.max(w._heard || 0, s0 + du);
+      const at = r && timed ? r.t0 + s0 * 1000 : Date.now();
       const t = (m.channel && m.channel.alternatives && m.channel.alternatives[0] || {}).transcript || '';
-      if (m.is_final) { pend = ''; $('interim').textContent = ''; if (t.trim()) pushLine(t.trim()); }
-      else { pend = t; $('interim').textContent = t ? cfg.name + ': ' + t : ''; }
+      if (m.is_final) { if (timed) w._final = s0 + du; pend = ''; pendAt = 0; $('interim').textContent = ''; if (t.trim()) { pushLine(t.trim(), at); stat('final'); } }
+      else { pend = t; pendAt = t ? at : 0; $('interim').textContent = t ? cfg.name + ': ' + t : ''; }
+      // 끊긴 동안 모아 보낸 소리를 Deepgram이 끝까지 처리했다고 알려 왔을 때에만 "복구됨"으로 센다 (소켓에 넘긴 것만으로는 세지 않는다)
+      if (w._replay && w._heard != null && w._heard >= w._replay.sec - 1) { stat('recovOk'); stat('recovSec', Math.round(w._replay.sec)); w._replay = null; if (!wantStop) $('micInfo').textContent = '끊긴 동안의 소리를 이어서 받아 적었어요'; }
     };
-    w.onclose = ev => {
-      clearInterval(ka);
-      if (my !== wsGen) return;                              // 이미 새 연결로 넘어간 옛 연결의 종료는 무시
-      w._live = false; commitPend();                         // 확정 전 글을 한 줄로 저장
-      running = false;
-      if (wantStop) { if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_){} } rec = null; abuf = []; return; }
-      if (!gapFrom) gapFrom = Date.now();
-      if (opened || !rec) recStart();                        // 끊긴 동안의 소리를 메모리에 모으기 시작 (열리지도 못한 재시도 중에는 이미 모으는 중이라 그대로)
-      if (!opened) tkCache = null;                           // 열리지도 못했으면 토큰이 문제일 수 있으니 새로 받는다
-      logDrop('연결 끊김 코드 ' + (ev && ev.code) + (ev && ev.reason ? ' ' + ev.reason : ''));
-      micState('conn', '다시 연결 중…');
-      $('micInfo').textContent = '연결이 끊겨 다시 잇는 중이에요 (끊김 ' + dropCount + '번, 코드 ' + (ev && ev.code) + ')';
-      scheduleRestart(Math.min(5000, 400 * Math.pow(2, retryN++)));   // 0.4초부터 시작해 길게는 5초 간격
-    };
+    w.onclose = ev => lost(w, '연결 끊김 코드 ' + (ev && ev.code) + (ev && ev.reason ? ' ' + ev.reason : ''));
   } finally { starting = false; }
 }
 // 다른 창을 보다 돌아왔을 때, 또는 인터넷이 다시 연결됐을 때: 끊겨 있으면 바로 다시 잇는다 (화면 꺼짐 방지도 다시 건다)
 function resumeIfDropped(){
   if (wantStop || !stream) return;
-  if (running && ws && ws.readyState === 1) { keepAwake(true); return; }       // 잘 이어져 있으면 건드리지 않는다
+  if (running && ws && ws.readyState === 1 && !ws._dead) { keepAwake(true); return; }       // 잘 이어져 있으면 건드리지 않는다
   if (!starting) { running = false; retryN = 0; scheduleRestart(100); }          // 닫힘 신호 없이 죽은 연결이면 새로 연결
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeIfDropped(); });
 window.addEventListener('online', resumeIfDropped);
+/* 받아쓰기 끄기. 연결이 살아 있으면: 녹음기를 멈춤 → 마지막 소리 조각이 나감 → CloseStream → Deepgram이 남은 글을 확정해 보냄 → 연결이 닫힘(finishStop).
+ * 연결이 끊긴 채로 껐으면: 모아 둔 소리는 보낼 곳이 없어 버리고 그 구간을 적는다. */
 function stopAll(why){
   micWhy = why || ''; micIntent = false;
   wantStop = true; clearTimeout(retryTimer); keepAwake(false); tkCache = null;
-  if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'CloseStream' })); } catch(_){} }
-  const w = ws; setTimeout(() => { if (w) { try { w.close(); } catch(_){} } }, 800);
-  if (rec && rec.state !== 'inactive') { try { rec.stop(); } catch(_){} }
-  rec = null; abuf = [];
-  if (gapFrom) { noteGap(gapFrom, Date.now(), '연결 끊김'); gapFrom = 0; }      // 끊긴 채로 껐으면 그 구간은 받아 적지 못했다
-  if (!ws || ws.readyState !== 1) commitPend();              // 연결이 살아 있으면 0.8초 안에 오는 확정 글을 기다리고(닫힐 때 남은 글을 저장), 아니면 지금 저장
+  const w = ws, r = rec;
+  if (w && !w._dead && w.readyState === 1 && w._live && r && r.w === w && !r.closing) {
+    r.closing = true; r.tEnd = Date.now(); stopRec(r); pump();
+    setTimeout(() => { if (!r.done) { r.done = true; pump(); } }, 700);                                  // 녹음기가 멈췄다는 신호를 주지 않는 브라우저 대비
+    w._stopT = setTimeout(() => lost(w, '끔'), Math.min(20000, 3000 + r.q.length * CHUNK_MS / 4));      // Deepgram이 닫아 주지 않으면 여기서 마무리
+  } else if (!(r && r.closing)) {
+    if (w && !w._dead) { w._dead = true; w._live = false; clearInterval(w._ka); try { w.close(); } catch(_) {} }
+    commitPend();
+    const from = gapFrom || (r && !r.sent ? r.t0 : 0); if (from) noteGap(from, Date.now(), '연결이 끊긴 채로 끔');
+    stopRec(r); rec = null; gapFrom = 0;
+  }
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   running = false;
   micState('', '받아쓰기 시작');
@@ -513,33 +710,104 @@ $('leave').onclick = async () => {
 $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중…'; const r = await post({ action: 'glossary', glossary: $('gloss').value }); $('glossMsg').textContent = r.ok ? '저장됨 (다음에 받아쓰기를 켤 때부터 반영)' : r.error; };
 
 
-/* 저장 못 한 말 (서버가 받지 않은 원문). 지워지지 않게 이 기기에 따로 두고, 복사·파일로 내려받을 수 있게 한다. '모두 저장됨'과 구분해 보여 준다 */
+/* 저장 못 한 말 (서버가 받지 않았거나, 밀려서 따로 옮겨 둔 원문). 지워지지 않게 이 기기에 따로 두고, 복사·파일로 내려받을 수 있게 한다. '모두 저장됨'과 구분해 보여 준다.
+ * 보관 자리 셋: localStorage(t_fail:<주소>) · 두 번째 자리(IndexedDB, 상태 'f') · 둘 다 안 되면 이 창의 메모리(failMem, 화면에 계속 보이고 창을 닫을 때 브라우저가 한 번 물어본다) */
 const failKey = url => 't_fail:' + (url || cfg.url);
-let failMem = [];                 // 이 기기에 보관하지 못한 "저장 못 한 말" (이 창이 열려 있는 동안만 남는다. 화면에는 계속 보인다)
-function failStored(url){ try { return JSON.parse(localStorage.getItem(failKey(url)) || '[]') || []; } catch(_) { return []; } }
-function failGet(url){ const a = failStored(url); if (url && url !== cfg.url) return a; return a.concat(failMem.filter(m => !a.some(x => x.uid === m.uid))); }
-// 돌려주는 값: 이 기기에 보관했으면 true. 보관하지 못하면 (지금 방의 말은) 메모리에 두고 false
+let failMem = [];                 // localStorage에 적지 못한 "저장 못 한 말". db가 참이면 두 번째 자리에는 적혔다
+let failDb = [];                  // 두 번째 자리에서 읽은 지금 방의 "저장 못 한 말"
+function failStored(url){ try { const a = JSON.parse(localStorage.getItem(failKey(url)) || '[]'); return Array.isArray(a) ? a : []; } catch(_) { return []; } }
+function failGet(url){
+  const a = failStored(url); if (url && url !== cfg.url) return a;
+  const have = new Set(a.map(x => x.uid));
+  failMem.concat(failDb).forEach(m => { if (m && m.uid && !have.has(m.uid) && !qSaved.has(m.uid)) { have.add(m.uid); a.push(m); } });
+  return a;
+}
+// 이 기기 어디에도 저장되지 않고 이 창의 메모리에만 있는 "저장 못 한 말" 수
+function failMemOnly(){ return failMem.filter(m => !m.db).length; }
+const failRec = (q, why) => ({ uid: q.uid, name: q.name, t: q.t, text: q.text, session: q.session, rv: q.rv, why: why || q.why || '' });
+// 돌려주는 값: localStorage에 보관했으면 true. 못 했으면 (지금 방의 말은) 메모리에 두고 두 번째 자리에 적어 본다
 function failAdd(items, why, url){
   const here = !url || url === cfg.url;
-  const a = failStored(url), add = (items || []).map(q => ({ uid: q.uid, name: q.name, t: q.t, text: q.text, session: q.session, rv: q.rv, why }));
-  (here ? failMem.concat(add) : add).forEach(q => { if (!a.some(x => x.uid === q.uid)) a.push(q); });
+  const a = failStored(url), add = (items || []).map(q => failRec(q, why));
+  (here ? failMem.concat(add) : add).forEach(q => { if (!a.some(x => x.uid === q.uid)) a.push(failRec(q)); });
   let ok = true;
   try { if (a.length) localStorage.setItem(failKey(url), JSON.stringify(a)); if (here) failMem = []; }
-  catch (_) { ok = false; if (here) { add.forEach(q => { if (!failMem.some(x => x.uid === q.uid)) failMem.push(q); }); } if (add.length) toast('저장 못 한 말을 이 기기에 보관하지 못했어요. 이 창을 닫기 전에 설정 탭에서 복사해 두세요'); }
+  catch (_) { ok = false; if (here) add.forEach(q => { if (!failMem.some(x => x.uid === q.uid)) failMem.push(q); }); }
+  // 두 번째 자리: 같은 발언ID의 기록을 상태 'f'로 바꿔 적는다 (못 보낸 말 → 저장 못 한 말이 한 번에 바뀐다)
+  if (add.length) qdb.put(add, url || cfg.url, 'f', why).then(dbOk => {
+    if (dbOk && here) { add.forEach(q => { const m = failMem.find(x => x.uid === q.uid); if (m) m.db = true; if (!failDb.some(x => x.uid === q.uid)) failDb.push(q); }); }
+    if (!ok && !dbOk && here) toast('저장 못 한 말을 이 기기 어디에도 보관하지 못했어요. 이 창을 닫기 전에 설정 탭에서 복사해 두세요');
+    sendState();
+  });
   if (add.length) sendState();
   return ok;
+}
+// 다른 방의 말을 실패 목록으로: localStorage나 두 번째 자리 중 한 곳에라도 적혔으면 true
+async function failAddOther(items, why, url){ const ls = failAdd(items, why, url); const db = await qdb.put(items.map(q => failRec(q, why)), url, 'f', why); return ls || db; }
+// 서버에 저장된 것이 확인된 말은 목록에서 걷는다 ("다시 보내기"로 되돌린 뒤 창이 닫혀 목록에 사본이 남은 경우)
+function failDrop(uids){
+  if (!uids.length) return; const ids = new Set(uids);
+  failMem = failMem.filter(x => !ids.has(x.uid)); failDb = failDb.filter(x => !ids.has(x.uid));
+  const a = failStored(), rest = a.filter(x => !ids.has(x.uid));
+  if (rest.length !== a.length) { try { if (rest.length) localStorage.setItem(failKey(), JSON.stringify(rest)); else localStorage.removeItem(failKey()); } catch(_) {} }
 }
 function failText(){ return failGet().map(x => '[' + String(x.t || '').replace('T', ' ').slice(0, 19) + '] ' + x.name + ': ' + x.text).join('\n\n'); }
 function failShow(){
   const box = $('failBox'); if (!box) return;
   const a = failGet(); box.classList.toggle('hide', !a.length); if (!a.length) return;
   box.innerHTML = '';
-  box.append('⚠ 저장 못 한 말 ' + a.length + '줄 (' + (a[0].why || '') + '). 원문은 ' + (failMem.length ? '⚠ 이 창의 메모리에만 있어요 (기기 저장 공간 부족). 창을 닫기 전에 복사하거나 내려받아 주세요. ' : '이 기기에만 있어요. '));
+  const mo = failMemOnly();
+  box.append('⚠ 저장 못 한 말 ' + a.length + '줄 (' + (a[0].why || '') + '). 원문은 ' + (mo ? '⚠ ' + mo + '줄이 이 기기 어디에도 저장되지 않고 이 창의 메모리에만 있어요 (기기 저장 공간 부족). 창을 닫기 전에 복사하거나 내려받아 주세요. ' : '서버에는 없고 이 기기에만 있어요. '));
   // 서버가 거절한 것이 아니라 밀려서 옮겨 둔 말은 다시 보낼 수 있다
   const back = a.filter(x => !/100만 자/.test(x.why || '')).slice(0, Math.max(0, QMAX - queue.length));
-  if (back.length) { const rs = el('button', '', '다시 보내기 (' + back.length + '줄)'); rs.onclick = () => { const ids = new Set(back.map(x => x.uid)); back.forEach(x => { qGone.delete(x.uid); if (!queue.some(q => q.uid === x.uid)) queue.push({ uid: x.uid, name: x.name, session: x.session || '', rv: x.rv || '', t: x.t, text: x.text }); }); failMem = failMem.filter(x => !ids.has(x.uid)); const rest = failStored().filter(x => !ids.has(x.uid)); try { if (rest.length) localStorage.setItem(failKey(), JSON.stringify(rest)); else localStorage.removeItem(failKey()); } catch(_) {} saveQueue(); flush(); }; box.append(rs, ' '); }
+  if (back.length) { const rs = el('button', '', '다시 보내기 (' + back.length + '줄)'); rs.onclick = () => failResend(back); box.append(rs, ' '); }
   const cp = el('button', '', '복사'); cp.onclick = async () => { try { await navigator.clipboard.writeText(failText()); toast('복사했어요'); } catch (_) { toast('복사하지 못했어요. 내려받기를 써 주세요'); } };
   const dl = el('button', '', '내려받기'); dl.onclick = () => { const b = new Blob([failText()], { type: 'text/plain' }); const u = URL.createObjectURL(b); const x = document.createElement('a'); x.href = u; x.download = '저장_못_한_말.txt'; x.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); };
-  const rm = el('button', '', '목록 비우기'); rm.dataset.label = '목록 비우기'; if (typeof twoStep === 'function') twoStep(rm, async () => { failMem = []; try { localStorage.removeItem(failKey()); } catch (_) {} sendState(); });
+  const rm = el('button', '', '목록 비우기'); rm.dataset.label = '목록 비우기'; if (typeof twoStep === 'function') twoStep(rm, async () => { const ids = failGet().map(x => x.uid); failMem = []; failDb = []; try { localStorage.removeItem(failKey()); } catch (_) {} await qdb.del(ids.filter(u => !queue.some(q => q.uid === u))); sendState(); });
   box.append(cp, ' ', dl, ' ', rm);
 }
+/* 다시 보내기: 먼저 대기열에 넣어 보관하고(두 번째 자리의 같은 기록은 상태가 'q'로 바뀐다), 그다음에 목록에서 뺀다.
+ * 그 사이에 창이 닫히면 말은 대기열에 남고 목록에는 사본이 남는데, 서버 저장이 확인되면 사본을 걷는다(failDrop). */
+function failResend(back){
+  const ids = new Set(back.map(x => x.uid));
+  back.forEach(x => { qGone.delete(x.uid); qSaved.delete(x.uid); qInDb.delete(x.uid); if (!queue.some(q => q.uid === x.uid)) queue.push(qItem(x)); });
+  queue.sort(byTime); saveQueue();
+  failMem = failMem.filter(x => !ids.has(x.uid)); failDb = failDb.filter(x => !ids.has(x.uid));
+  const rest = failStored().filter(x => !ids.has(x.uid)); try { if (rest.length) localStorage.setItem(failKey(), JSON.stringify(rest)); else localStorage.removeItem(failKey()); } catch(_) {}
+  sendState(); flush();
+}
+
+/* ── 세션 측정 (이 기기에서만 센다. 서버 요청을 늘리지 않고, 화면에는 설정 탭을 펼쳤을 때만 보인다) ──
+ * 받아쓰기: 확정 글·확정 전 글·대기열에 넣은 줄·서버 저장·다시 보냄·서버가 거른 중복·끊김·누락 가능 구간·복구 시도/확인, 저장까지 걸린 시간(p50/p95/최대)
+ * 화면: 다음 할 일·지금 장면을 연 횟수와 뜨는 데 걸린 시간, 근거 보기, AI 없이 찾은 판정, 장면 추정을 고친 횟수 등 (room.js·keeper.js가 stat()으로 센다) */
+const statKey = () => 't_stat:' + cfg.url;
+let statO = null, statDirty = false;
+function statLoad(){ if (statO && statO.url === cfg.url) return statO; let o = null; try { o = JSON.parse(localStorage.getItem(statKey()) || 'null'); } catch(_) {} statO = o && typeof o === 'object' && o.n ? o : { since: Date.now(), n: {}, lat: [], ms: {} }; statO.url = cfg.url; return statO; }
+function stat(k, v){ if (!cfg.url) return; const o = statLoad(); o.n[k] = (o.n[k] || 0) + (v == null ? 1 : v); statDirty = true; }
+// 걸린 시간 표본 (k별로 최근 300개)
+function statMs(k, ms){ if (!cfg.url || !(ms >= 0)) return; const o = statLoad(), a = o.ms[k] = o.ms[k] || []; a.push(Math.round(ms)); if (a.length > 300) a.shift(); statDirty = true; }
+function statLat(ms){ const o = statLoad(); o.lat.push(Math.round(ms)); if (o.lat.length > 3000) o.lat.shift(); statDirty = true; }
+function statSave(force){ if (!statO || (!statDirty && !force)) return; statDirty = false; try { localStorage.setItem(statKey(), JSON.stringify(statO)); } catch(_) {} }
+setInterval(() => statSave(), 15000);
+const pct = (a, p) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
+function statText(){
+  const o = statLoad(), n = k => o.n[k] || 0, sec = ms => ms == null ? '-' : (ms / 1000).toFixed(1) + '초';
+  const tm = k => { const a = o.ms[k] || []; return a.length ? '중간 ' + sec(pct(a, .5)) + ' · 느린 5% ' + sec(pct(a, .95)) + ' (' + a.length + '번)' : '아직 없음'; };
+  return [
+    '세션 측정 · ' + (cfg.name || '') + ' · ' + new Date(o.since).toLocaleString() + ' ~ ' + new Date().toLocaleString() + ' · 화면 판 ' + (typeof APP_VER === 'string' ? APP_VER : ''),
+    '[받아쓰기] 확정 글 ' + n('final') + '줄 · 확정 전 글로 저장 ' + n('interim') + '줄 · 기기에 넣은 줄 ' + n('queued') + ' · 서버 저장 확인 ' + n('saved') + ' · 다시 보낸 줄 ' + n('resend') + ' · 서버가 거른 중복 ' + n('dup') + ' · 초기화 전이라 버림 ' + n('dropped') + ' · 너무 길어 거절 ' + n('tooLong'),
+    '[끊김] 연결 끊김 ' + n('drops') + '번 · 누락 가능 구간 ' + n('gaps') + '곳 합계 ' + n('gapSec') + '초 · 끊긴 동안의 소리 이어 보내기 시도 ' + n('recovTry') + '번(' + n('recovTrySec') + '초) · Deepgram이 끝까지 처리했다고 확인 ' + n('recovOk') + '번(' + n('recovSec') + '초) · 확인 전에 다시 끊김 ' + n('recovFail') + '번 · 소리 조각 보내기 실패 ' + n('sendFail'),
+    '[저장까지 걸린 시간] 중간 ' + sec(pct(o.lat, .5)) + ' · 느린 5% ' + sec(pct(o.lat, .95)) + ' · 최대 ' + sec(o.lat.length ? Math.max.apply(null, o.lat) : null) + ' (' + o.lat.length + '줄)',
+    '[지금 남은 것] 못 보낸 말 ' + queue.length + '줄 (메모리에만 ' + qMemOnly() + ') · 저장 못 한 말 ' + failGet().length + '줄 (메모리에만 ' + failMemOnly() + ') · 누락 가능 구간 ' + gapGet().length + '곳',
+    '[다음 할 일] 연 횟수 ' + n('nextOpen') + ' · 바로 보이는 부분이 뜨기까지 ' + tm('nextInstant') + ' · AI 추천이 뜨기까지 ' + tm('nextAi') + ' · 근거 보기 ' + n('nextEv') + '번 · 다시 추천 ' + n('nextForce') + '번 · "그 뒤 새 기록 있음"이 뜬 채로 본 횟수 ' + n('nextStale'),
+    '[지금 장면] 연 횟수 ' + n('kNow') + ' · 뜨기까지 ' + tm('kNow') + ' · AI 없이 판정 찾기 ' + n('kRollQuick') + '번 · AI로 판정 묻기 ' + n('kRollAi') + '번 · 장면 추정을 손으로 고침 ' + n('kSceneFix') + '번 · 장면 고정 ' + n('kScenePin') + '번 · NPC 카드 펼침 ' + n('kNpcOpen') + '번 · 원문 보기 ' + n('kEv') + '번'
+  ].join('\n');
+}
+function statShow(){ const b = $('statBox'); if (!b || !b.open) return; $('statTxt').textContent = statText(); }
+const statInit = () => {
+  const b = $('statBox'); if (!b) return;
+  b.addEventListener('toggle', statShow);
+  $('statCopy').onclick = async () => { try { await navigator.clipboard.writeText(statText()); toast('복사했어요'); } catch (_) { toast('복사하지 못했어요. 글을 길게 눌러 복사해 주세요'); } };
+  $('statReset').dataset.label = '새로 재기'; twoStep($('statReset'), async () => { statO = { since: Date.now(), n: {}, lat: [], ms: {}, url: cfg.url }; statSave(true); statShow(); });
+};
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', statInit); else setTimeout(statInit, 0);      // twoStep은 뒤에 읽는 파일(keeper.js)에 있다
