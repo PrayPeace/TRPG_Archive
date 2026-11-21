@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.26';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.27';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1108,7 +1108,7 @@ function versions() {
     session: getConf('session'), sumVer: getConf('sumVer'), notesVer: getConf('notesVer'),
     charVer: getConf('charVer'), imgVer: getConf('imgVer'), resetVer: getConf('resetVer') || '0',
     colorVer: getConf('colorVer') || '0', processedId: Number(getConf('processedId') || 0),
-    total: totalLines(), nq: notesQ().length, job: job ? { kind: job.kind, at: job.at, prog: getProg(job) } : null, proc: confJson('procStatus', null)
+    total: totalLines(), nq: notesQ().length, code: CODE_VER, job: job ? { kind: job.kind, at: job.at, prog: getProg(job) } : null, proc: confJson('procStatus', null)
   };
 }
 
