@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.16';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.17';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -458,7 +458,6 @@ function mergeNotes(base, ai, human) {
   return outN;
 }
 function mergeWriteNotes(aiNotes, human) { writeNotes(mergeNotes(readNotes(), aiNotes, human)); bump('notesVer'); }
-function saveAiNotes(aiNotes, human) { withLock(30000, () => mergeWriteNotes(aiNotes, human)); }
 
 const NOTE_FIELDS = ['name', 'aka', 'desc', 'found', 'traits', 'said', 'relation', 'text', 'status', 'kind', 'title', 'img', 'age', 'affil', 'player'];
 function noteSave(sec, item) {
@@ -642,20 +641,26 @@ function doGet(e) {
     if (p.action === 'hub') return out(hubList());
     // 주소에 붙는 요청(GET)은 방 비밀번호만 본다. 마스터 토큰은 주소·기록에 남지 않게 POST로만 받는다.
     if (!roleOf(p.pw, null)) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
-    switch (p.action) {
-      case 'poll':
-        try { touchPresence(p.me, p.mic, p.why, p.hid === '1'); } catch (err) {}
-        return out(poll(Number(p.since || 0)));
-      case 'data':        return out(allData());
-      case 'token':       return out(deepgramToken());
-      case 'history':     return out(history(Number(p.before || 0), Number(p.limit || 300)));
-      case 'sessionLines':return out(sessionLines(String(p.session || '')));
-      case 'sessions':    return out(sessionList());
-      case 'evidence':    return out(evidence(csv(p.uids), csv(p.ids).map(Number), String(p.rv || ''), Number(p.ctx || 2), p.session));
-      case 'ping':  return out({ ok: true, title: roomTitle(), rule: ruleKey(), theme: confJson('theme', {}) });
-    }
+    const r = readAction(p); if (r) return out(r);
     return out({ ok: false, error: '알 수 없는 요청' });
   } catch (err) { return out({ ok: false, error: String(err && err.message || err) }); }
+}
+
+/* 읽기 요청 (방 비밀번호만 필요). 예전 화면은 GET 주소로, 새 화면은 POST 본문으로 보낸다(비밀번호가 주소에 안 남게). */
+function readAction(p) {
+  switch (p.action) {
+    case 'poll':
+      try { touchPresence(p.me, p.mic, p.why, String(p.hid) === '1'); } catch (err) {}
+      return poll(Number(p.since || 0));
+    case 'data':        return allData();
+    case 'token':       return deepgramToken();
+    case 'history':     return history(Number(p.before || 0), Number(p.limit || 300));
+    case 'sessionLines':return sessionLines(String(p.session || ''));
+    case 'sessions':    return sessionList();
+    case 'evidence':    return evidence(csv(p.uids), csv(p.ids).map(Number), String(p.rv || ''), Number(p.ctx || 2), p.session);
+    case 'ping':        return { ok: true, title: roomTitle(), rule: ruleKey(), theme: confJson('theme', {}) };
+  }
+  return null;
 }
 
 function doPost(e) {
@@ -665,7 +670,8 @@ function doPost(e) {
     // 로비의 ⚙ 설정: 방 비밀번호 없이 마스터 비밀번호만으로 로그인 (틀린 횟수 잠금은 keeperLogin이 그대로 한다)
     if (b.action === 'hubLogin') return out(keeperLogin(b.kpw));
     const who = roleOf(b.pw, b.kt);
-    if (!who) return out({ ok: false, error: '방 비밀번호가 틀렸어요' });
+    if (!who) return out({ ok: false, error: '방 비밀번호가 틀렸어요', rp: 1 });
+    const rd = readAction(b); if (rd) { rd.rp = 1; return out(rd); }      // rp: 이 엔진은 읽기를 POST로 받는다는 표시
     // ── 플레이어 누구나
     switch (b.action) {
       case 'lines':      return out(addLines(b));
@@ -1255,11 +1261,14 @@ function quietSkip() {
   const processed = Number(getConf('processedId') || 0), total = totalLines();
   if (total <= processed) return go();
   const rows = readLines(processed, Math.min(total - processed, 400));
+  return sumWait(rows, String(getConf('keeperName') || '').trim(), total - processed) ? true : go();
+}
+/* 쌓인 새 대화를 보고 이번 자동 요약을 쉴지(true) 정한다. 시트를 읽지 않아서 selfTestCore로 점검할 수 있다 */
+function sumWait(rows, keeper, pending) {
   const chars = rows.reduce((n, l) => n + (isFiller(l.text) ? 0 : String(l.text).replace(/\s+/g, '').length), 0);      // 추임새를 뺀 실제 발언 글자 수
-  const keeper = String(getConf('keeperName') || '').trim();
   const keeperSpoke = !keeper || rows.some(l => l.name === keeper);
-  if (chars >= SUM_MIN_CHARS && keeperSpoke) return go();
-  if (total - processed >= WINDOW_LINES) return go();            // 줄 수가 이미 한 구간만큼 쌓였으면 기다리지 않는다
+  if (chars >= SUM_MIN_CHARS && keeperSpoke) return false;
+  if (pending >= WINDOW_LINES) return false;                     // 줄 수가 이미 한 구간만큼 쌓였으면 기다리지 않는다
   return true;
 }
 
@@ -3463,6 +3472,44 @@ function selfTest() {
   check('비밀번호 설정', !pw.filter(w => !/10자/.test(w)).length, pw.join(' / '));
   if (pw.some(w => /10자/.test(w))) log.push('참고 · ' + pw.filter(w => /10자/.test(w))[0]);
   log.push(fails ? '결과: FAIL ' + fails + '건. 위 FAIL 줄을 확인해 주세요.' : '결과: 모두 PASS');
+  Logger.log(log.join('\n'));
+  return { ok: !fails, fails, log };
+}
+/* 핵심 규칙 점검 (AI·시트 쓰기 없음, 몇 초): 비용 계산, 마스터 자료 격리, 요약 건너뛰기 기준, 읽기 요청.
+ * 엔진 Code.gs를 고친 뒤 함수 선택에서 selfTestCore ▶ 실행 → 실행 로그에 PASS/FAIL. */
+function selfTestCore() {
+  const log = []; let fails = 0;
+  const check = (label, pass, extra) => { if (!pass) fails++; log.push((pass ? 'PASS' : 'FAIL') + ' · ' + label + (extra ? ' · ' + extra : '')); };
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  // 1) 비용 계산 (PRICE 표: 백만 토큰당 달러)
+  const s = PRICE['claude-sonnet-5-5'], h = PRICE['claude-haiku-5-5'];
+  check('비용: 소네트 입력 100만 토큰', near(costUsd('claude-sonnet-5-5', { input_tokens: 1e6 }), s[0]));
+  check('비용: 소네트 출력 100만 토큰', near(costUsd('claude-sonnet-5-5', { output_tokens: 1e6 }), s[1]));
+  check('비용: 캐시 쓰기는 입력값의 1.25배', near(costUsd('claude-sonnet-5-5', { cache_creation_input_tokens: 1e6 }), s[0] * 1.25));
+  check('비용: 캐시 읽기', near(costUsd('claude-sonnet-5-5', { cache_read_input_tokens: 1e6 }), s[2]));
+  check('비용: 하이쿠 작은 요청', near(costUsd('claude-haiku-5-5', { input_tokens: 1000 }), h[0] * 1000 / 1e6));
+  check('비용: 하이쿠 10만 토큰 넘으면 비싼 단가', near(costUsd('claude-haiku-5-5', { input_tokens: 200000 }), 0.5 * 0.2));
+  check('비용: 모르는 모델은 소네트 단가', near(costUsd('claude-unknown', { input_tokens: 1e6 }), s[0]));
+  // 2) 마스터 자료 격리: 공개 기록용 AI 작업 안에서는 마스터 자료를 못 읽어야 한다
+  let blocked = false; try { publicAi(() => kbRead()); } catch (e) { blocked = /마스터 자료/.test(String(e.message)); }
+  check('격리: 공개 작업 안에서 시나리오 정리본 읽기 막힘', blocked);
+  let blocked2 = false; try { publicAi(() => publicAi(() => keeperOnly('점검'))); } catch (e) { blocked2 = true; }
+  check('격리: 겹친 공개 작업 안에서도 막힘', blocked2);
+  try { publicAi(() => { throw new Error('일부러'); }); } catch (e) {}
+  let free = true; try { keeperOnly('점검'); } catch (e) { free = false; }
+  check('격리: 공개 작업이 오류로 끝나도 바깥은 다시 열림', free && _publicAi === 0);
+  // 3) 자동 요약 건너뛰기 기준
+  const line = (name, n) => ({ name, text: '가'.repeat(n) });
+  check('요약: 새 대화가 적으면 쉰다', sumWait([line('철수', 100)], '', 1) === true);
+  check('요약: 충분히 쌓이면 한다', sumWait([line('철수', SUM_MIN_CHARS)], '', 1) === false);
+  check('요약: 마스터가 말이 없으면 쉰다', sumWait([line('철수', SUM_MIN_CHARS)], '키퍼', 1) === true);
+  check('요약: 마스터가 말했으면 한다', sumWait([line('철수', SUM_MIN_CHARS), line('키퍼', 5)], '키퍼', 2) === false);
+  check('요약: 줄이 한 구간만큼 쌓이면 기다리지 않는다', sumWait([line('철수', 1)], '키퍼', WINDOW_LINES) === false);
+  // 4) 읽기 요청
+  check('읽기: 모르는 요청은 처리 안 함', readAction({ action: 'nope' }) === null);
+  if (SpreadsheetApp.getActive()) check('읽기: ping', !!(readAction({ action: 'ping' }) || {}).ok);
+  else log.push('건너뜀 · 읽기: ping (시트에 붙은 방에서 실행하면 점검해요)');
+  log.push(fails ? '결과: FAIL ' + fails + '건' : '결과: 모두 PASS');
   Logger.log(log.join('\n'));
   return { ok: !fails, fails, log };
 }
