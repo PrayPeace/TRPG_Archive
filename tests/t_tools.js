@@ -154,6 +154,8 @@ function fakeClasp(LIBV, headVer) {
   ok('check: 같은 방이 두 번 들어 있으면 멈춤', /두 번/.test(dup));
   ok('배포 목록 읽기 (@HEAD와 @버전)', JSON.stringify(R.parseDeployments('2 Deployments.\n- ' + B + ' @HEAD \n- ' + C + ' @12 - TRPG 라이브러리 7')) === JSON.stringify([{ id: B, ver: 'HEAD' }, { id: C, ver: '12' }]));
   // drill: 지금 판과 같은 판으로 "되돌리는" 것은 연습이 아니다
+  ok('판 번호를 답하는 판: .23부터 (옛 .2, .22는 못 답함)', !R.answersVer('2026-11-21.2') && !R.answersVer('2026-11-21.22') && R.answersVer('2026-11-21.23') && R.answersVer('2026-11-21.26') && R.answersVer('2026-11-22.1') && !R.answersVer('2026-11-20.30'));
+  ok('옛 판(.2)으로 되돌릴 때: 판 번호 없는 응답은 통과, 다른 판 번호가 오면 실패', await vr({ ok: true, json: true }, { loose: !R.answersVer('2026-11-21.2') }) === 'ok' && await vr({ ok: true, json: true, ver: '2026-11-21.26' }, { loose: !R.answersVer('2026-11-21.2') }) === 'fail');
   ok('drill: 지금 판과 다른 판 가운데 가장 새 버전으로 되돌아감', JSON.stringify(R.pickPrev({ 9: '운영 2026-11-21.25 abc', 8: '운영 2026-11-21.25 pin', 7: '운영 2026-11-21.24 x', 5: '운영 2026-11-21.23 y', 6: '손으로' }, '2026-11-21.25')) === JSON.stringify({ num: '7', ver: '2026-11-21.24' }));
   ok('drill: 같은 판뿐이면 되돌아갈 곳 없음', R.pickPrev({ 9: '운영 2026-11-21.25 abc', 8: '운영 2026-11-21.25 pin' }, '2026-11-21.25') === null);
   const L = [{ id: 1, name: '가', text: '안녕', uid: 'u1', session: '1', time: '2026-11-21 10:00:00' }, { id: 2, name: '나', text: '열쇠', uid: 'u2', session: '1', time: '2026-11-21 10:00:05' }];

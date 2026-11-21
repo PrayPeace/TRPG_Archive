@@ -207,11 +207,20 @@ function checkProd(states, engineId) {
   return { stop, warn };
 }
 // drill이 되돌아갈 버전: 이 워크플로가 만든 버전 가운데 지금 판(cur)과 "다른" 판 중 가장 새것 (같은 판으로 되돌리는 것은 연습이 아니다)
+/* 이 판의 엔진 코드가 /exec?action=ver에 판 번호를 답할 줄 아는지. 답하는 기능은 2026-11-21.23에 들어왔다.
+ * 그보다 옛 판으로 되돌릴 때(rollback·drill)는 "판 번호 없는 JSON 응답"을 그 판으로 받아들인다 (다른 판 번호가 오면 여전히 실패) */
+const VER_FROM = [2026, 11, 21, 23];
+function answersVer(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})\.(\d+)$/.exec(String(v || '')); if (!m) return true;
+  const a = m.slice(1).map(Number);
+  for (let i = 0; i < 4; i++) if (a[i] !== VER_FROM[i]) return a[i] > VER_FROM[i];
+  return true;
+}
 function pickPrev(versions, cur) {
   const ks = Object.keys(versions).filter(k => { const v = verOfDesc(versions[k]); return v && v !== cur; }).map(Number).sort((a, b) => b - a);
   return ks.length ? { num: String(ks[0]), ver: verOfDesc(versions[ks[0]]) } : null;
 }
-module.exports = { parseRooms, parseVersions, parseDeployments, verOfDesc, checkSeparate, switchAll, diffLines, snapshot, pinRoom, restoreRoom, verifyRoom, stateLine, parseState, checkProd, pickPrev, roomTag, restoreAll, checkHosted };
+module.exports = { parseRooms, parseVersions, parseDeployments, verOfDesc, checkSeparate, switchAll, diffLines, snapshot, pinRoom, restoreRoom, verifyRoom, stateLine, parseState, checkProd, pickPrev, roomTag, restoreAll, checkHosted, answersVer };
 
 if (require.main !== module) return;
 
@@ -295,7 +304,7 @@ const stateTxt = s => '방 ' + s.n + ': 자동 정리 라이브러리 ' + libTxt
     log: m => console.log(m), save,
     snapshot: (room, n) => snapshot(room, n, cl),
     pinRoom: (room, ver, n) => pinRoom(room, ver, n, cl),
-    verify: async (room, expect, n) => { const x = await verifyRoom(room, expect, n, cl); console.log('방 ' + n + ': /exec 응답 판 ' + x.ver + ' ✔' + (x.tick && x.tick.ver && x.tick.ver !== x.ver ? ' (자동 정리는 아직 ' + x.tick.ver + ' 판으로 돌았음: 5분 뒤 진단에서 다시 확인)' : '')); },
+    verify: async (room, expect, n) => { const x = await verifyRoom(room, expect, n, cl, { loose: !answersVer(expect) }); if (x.loose) return console.log('방 ' + n + ': 웹 앱이 답함. ' + expect + ' 판은 판 번호를 답하지 못해서 번호는 확인하지 못했어요 (미확인)'); console.log('방 ' + n + ': /exec 응답 판 ' + x.ver + ' ✔' + (x.tick && x.tick.ver && x.tick.ver !== x.ver ? ' (자동 정리는 아직 ' + x.tick.ver + ' 판으로 돌았음: 5분 뒤 진단에서 다시 확인)' : '')); },
     restore: (room, st, n) => restoreRoom(room, st, n, cl),
     verifyBack: async (room, st, n, expect) => { await verifyRoom(room, st.exec, n, cl, st.exec ? {} : { not: expect }); }
   };
