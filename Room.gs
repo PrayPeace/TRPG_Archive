@@ -23,3 +23,12 @@ function fixTrigger(){ return TRPG.fixTrigger(); }
 function selfTest()  { return TRPG.selfTest(); }
 function selfTestCore(){ return TRPG.selfTestCore(); }   // 비용·마스터 격리·요약 건너뛰기 규칙 점검 (AI 호출 없음)
 function selfTestAi()  { return TRPG.selfTestAi(); }     // Claude·Deepgram 연결 점검
+// (선택) 엔진 하나로 돌리기: 이 방을 엔진에 등록하고, 이 방의 5분 트리거는 끈다(엔진의 tickAll이 대신 돈다).
+// 실행 기록에 나오는 새 주소(엔진주소?room=…)를 로비에 넣으면 된다. 예전 주소도 그대로 열린다.
+function hostThisRoom() {
+  const r = TRPG.hostRoom(SpreadsheetApp.getActive().getId());
+  if (r && r.ok) ScriptApp.getProjectTriggers().forEach(t => { const h = t.getHandlerFunction(); if (h === 'tick' || h === 'tickMore') ScriptApp.deleteTrigger(t); });
+  return r;
+}
+// 엔진 방식을 그만두고 예전처럼 이 방이 직접 돌게 되돌린다
+function unhostThisRoom() { TRPG.unhostRoom(SpreadsheetApp.getActive().getId()); TRPG.fixTrigger(); }

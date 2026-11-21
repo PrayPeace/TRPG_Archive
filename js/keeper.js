@@ -172,7 +172,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.20';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-21.21';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -197,8 +197,8 @@ const uniq = a => a.filter((x, i) => x && a.indexOf(x) === i);
 /* ── 로그인·잠금 ── */
 function keeperShow(){
   $('kLock').classList.add('hide'); $('kMenu').classList.remove('hide'); $('imgUp').classList.remove('hide'); $('tabKeeper').classList.remove('hide');
-  const id = (S.get('t_url') || '').match(/\/s\/([^/]+)/);
-  $('kLink').value = location.origin + location.pathname + '#s=' + encodeURIComponent(id ? id[1] : (S.get('t_url') || '')) + '&p=' + encodeURIComponent(cfg.pw);
+  const id = /[?]room=/.test(cfg.url) ? null : (S.get('t_url') || '').match(/\/s\/([^/?#]+)/);      // 엔진 방식(?room=)이면 주소 전체를 싣는다
+  $('kLink').value = location.origin + location.pathname + '#s=' + encodeURIComponent(id ? id[1] : (cfg.url || S.get('t_url') || '')) + '&p=' + encodeURIComponent(cfg.pw);
 }
 // 회의록(세션 기록)으로 만든 화면 기억을 지운다
 function kForgetSession(){ K.stats = {}; K.statsRv = {}; K.aw = {}; K.awMeta = {}; K.recapF = {}; K.npcR = null; K.rollR = null; K.ccf = null; K.ccfMis = false; }
