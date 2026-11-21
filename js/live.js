@@ -97,7 +97,7 @@ async function flush(){
   const ac = window.AbortController ? new AbortController() : null;
   const to = setTimeout(() => ac && ac.abort(), 45000);
   try {
-    const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
+    const r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'lines', pw: cfg.pw, pt: ptFor(cfg.url), items: batch }), signal: ac ? ac.signal : undefined }).then(x => x.json());
     if (!r.ok) { if (/비밀번호/.test(r.error || '')) authBad = true; throw new Error(r.error || '저장 실패'); }   // 비밀번호가 바뀌었으면 다시 입장할 때까지 보내지 않는다
     const done = new Set([].concat(r.saved || [], r.dup || [], r.dropped || []));
     done.forEach(u => qGone.add(u));
@@ -117,9 +117,9 @@ setInterval(flush, 4000);
 window.addEventListener('pagehide', ev => {
   if (!cfg.url || !navigator.sendBeacon) return;
   // 창을 정말 닫을 때(되돌아올 수 있는 일시 정지가 아닐 때)만 "일부러 나갔다"고 알려서, 다른 사람에게 끊김 알림이 가지 않게 한다
-  if (!ev.persisted && cfg.name) { try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, name: cfg.name })], { type: 'text/plain' })); } catch(_) {} }
+  if (!ev.persisted && cfg.name) { try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, pt: ptFor(cfg.url), name: cfg.name })], { type: 'text/plain' })); } catch(_) {} }
   if (!queue.length) return;
-  try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'lines', pw: cfg.pw, items: queue.slice(0, 100) })], { type: 'text/plain' })); } catch(_) {}
+  try { navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'lines', pw: cfg.pw, pt: ptFor(cfg.url), items: queue.slice(0, 100) })], { type: 'text/plain' })); } catch(_) {}
 });
 function otherRooms(){
   const box = $('otherQ'); let total = 0; const keys = [];
@@ -370,11 +370,11 @@ $('sNameSave').onclick = () => {
 $('leave').onclick = async () => {
   if (queue.length && !confirm('아직 시트에 저장 안 된 말이 ' + queue.length + '줄 있어요. 이 기기에 남겨 두고 나갈까요? (같은 방에 다시 들어오면 보내요)')) return;
   stopAll('user');
-  try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
+  try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, pt: ptFor(cfg.url), name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
   // 마스터로 로그인해 있었다면 서버에서도 로그인을 끊고 나간다 (응답은 2초까지만 기다림)
   if (cfg.kt) { try { await Promise.race([post({ action: 'klogout', kt: cfg.kt }), sleep(2000)]); } catch(_) {} }
   roomsSet(roomsGet().filter(x => scriptUrl(x.url) !== cfg.url));      // 이 방만 목록에서 뺀다 (다른 방은 그대로)
-  SS.del('t_kt'); ['t_url','t_pw','t_name','t_kpw','t_kt','t_colorSent'].forEach(S.del); location.reload();
+  SS.del('t_kt'); S.del('t_pt:' + cfg.url); ['t_url','t_pw','t_name','t_kpw','t_kt','t_colorSent'].forEach(S.del); location.reload();
 };
 $('glossSave').onclick = async () => { $('glossMsg').textContent = '저장 중…'; const r = await post({ action: 'glossary', glossary: $('gloss').value }); $('glossMsg').textContent = r.ok ? '저장됨 (다음에 받아쓰기를 켤 때부터 반영)' : r.error; };
 

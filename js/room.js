@@ -301,7 +301,7 @@ function renderRooms(){
 async function switchRoom(r){
   if (queue.length && !confirm('아직 저장 안 된 말이 ' + queue.length + '줄 있어요. 이 기기에 남겨 두고 옮길까요? (이 방에 다시 오면 보내요)')) return;
   stopAll('user');
-  try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
+  try { navigator.sendBeacon && navigator.sendBeacon(cfg.url, new Blob([JSON.stringify({ action: 'bye', pw: cfg.pw, pt: ptFor(cfg.url), name: cfg.name })], { type: 'text/plain' })); } catch(_) {}
   if (cfg.kt) { try { await Promise.race([post({ action: 'klogout', kt: cfg.kt }), sleep(2000)]); } catch(_) {} }
   SS.del('t_kt'); S.del('t_kt'); S.del('t_colorSent');
   S.set('t_url', r.url); S.set('t_pw', r.pw || ''); SS.set('t_in', scriptUrl(r.url)); SS.set('t_enter', '1');
@@ -352,7 +352,7 @@ function editNote(sec, item){
     ai.disabled = true; ai.textContent = '저장하고 AI가 대화를 읽는 중… (최대 1~2분)';
     const ac = window.AbortController ? new AbortController() : null, to = setTimeout(() => ac && ac.abort(), 170000);
     let r;
-    try { r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'noteHandoff', pw: cfg.pw, sec, item: Object.assign({}, item || {}, v, { id: item && item.id }) }), signal: ac ? ac.signal : undefined }).then(x => x.json()); }
+    try { r = await fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'noteHandoff', pw: cfg.pw, pt: ptFor(cfg.url), sec, item: Object.assign({}, item || {}, v, { id: item && item.id }) }), signal: ac ? ac.signal : undefined }).then(x => x.json()); }
     catch (e) { r = { ok: false, error: e.name === 'AbortError' ? '서버 응답이 오래 걸려요. 입력은 이 창에 그대로 있어요. 잠시 뒤 새로고침해서 저장됐는지 확인해 주세요' : '연결이 끊겼어요. 입력은 이 창에 그대로 있으니 다시 눌러 주세요' }; }
     clearTimeout(to);
     if (r && r.ok) { closeModal(); refreshData(); toast(r.message || '저장했어요'); }
