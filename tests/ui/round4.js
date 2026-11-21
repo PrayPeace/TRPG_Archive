@@ -75,7 +75,7 @@ const kb = { truth: '집사가 편지를 숨겼다', memo: '', glossary: '', don
     // 세션 측정 상자
     await p.evaluate(() => { showTab('set'); document.getElementById('statBox').open = true; statShow(); }); await wait(p, 200);
     const stx = await p.evaluate(() => document.getElementById('statTxt').textContent);
-    ok('세션 측정: 다음 할 일을 연 횟수와 뜨는 시간을 이 기기에서 셈 (서버 요청 없음)', /\[다음 할 일\] 연 횟수 [1-9]/.test(stx) && /바로 보이는 부분이 뜨기까지 중간 0\.\d초/.test(stx) && /\[받아쓰기\]/.test(stx) && !calls.some(c => /stat/i.test(c.a)), stx.split('\n')[5]);
+    ok('세션 측정: 다음 할 일을 연 횟수와 뜨는 시간을 이 기기에서 셈 (서버 요청 없음)', /\[다음 할 일\] 연 횟수 [1-9]/.test(stx) && /바로 보이는 부분이 화면에 뜨기까지 중간 0\.\d초/.test(stx) && /\[받아쓰기\]/.test(stx) && !calls.some(c => /stat/i.test(c.a)), stx.split("\n").find(l => /다음 할 일/.test(l)));
     ok('화면 오류 없음 (다음 할 일)', !errs.length, errs.join(' | '));
     await p.context().close();
   });

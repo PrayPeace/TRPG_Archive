@@ -20,7 +20,9 @@
 #   PRACTICE_ROOMS        연습 방 "스크립트ID:웹앱배포ID" (예: 테스트용 채널). 운영 방과 겹치면 안 됨
 #   PRACTICE_PW           연습 방 비밀번호 (drill이 말을 넣고 줄 수를 셈)
 #   PROD_ROOMS            운영 방 "스크립트ID:웹앱배포ID"를 줄마다 (예: 질긴 결속, 로비). 비어 있으면 엔진을 바꾸지 않고 멈춘다
-#   ENGINE_DEPLOY_ID      선택. 엔진 웹 앱의 배포ID. 있으면 엔진 주소(?room=)로 직접 도는 방이 있는지 알려 준다
+#   ENGINE_DEPLOY_ID      선택. 엔진 웹 앱의 배포ID. 없으면 엔진 프로젝트의 배포를 하나씩 불러 보고 웹 앱을 찾는다
+# 저장소 변수 (Variables)
+#   ALLOW_HOSTED_ROOMS    선택. yes면 엔진 주소(?room=)로 직접 도는 방이 있어도 엔진을 바꾼다 (그 방들이 모두 연습 방일 때만). 없으면 그런 방이 있을 때 멈춘다
 name: 엔진 자동 배포
 on:
   push:
@@ -39,7 +41,7 @@ on:
         options: [practice, prod]
         default: practice
       version:
-        description: 'rollback: 되돌릴 라이브러리 버전 번호 / restore: 기록에 찍힌 되돌림표 한 줄 (예: 1=7@12,2=7@9)'
+        description: 'rollback: 되돌릴 라이브러리 버전 번호 / restore: 기록에 찍힌 되돌림표 한 줄 (예: r3fa1b2c4=7@12!2026-11-21.25)'
         required: false
 concurrency: { group: engine-deploy, cancel-in-progress: false }
 permissions: { contents: read }
@@ -85,6 +87,7 @@ jobs:
           PROD_ROOMS: ${{ secrets.PROD_ROOMS }}
           PRACTICE_ROOMS: ${{ secrets.PRACTICE_ROOMS }}
           ENGINE_DEPLOY_ID: ${{ secrets.ENGINE_DEPLOY_ID }}
+          ALLOW_HOSTED_ROOMS: ${{ vars.ALLOW_HOSTED_ROOMS }}
         run: node tools/release.js check
       - name: 엔진 HEAD를 저장소 판으로 (시험 방에 바로 적용)
         if: env.SKIP != '1' && env.MODE != 'rollback' && env.MODE != 'pin' && env.MODE != 'restore'

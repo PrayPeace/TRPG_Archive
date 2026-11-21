@@ -51,9 +51,10 @@ function fakeClasp(LIBV, headVer) {
       verify: (room, expect, n) => R.verifyRoom(room, expect, n, cl, { tries: 2, wait: 0 }), verifyBack: (room, st, n, expect) => R.verifyRoom(room, st.exec, n, cl, st.exec ? { tries: 2, wait: 0 } : { tries: 2, wait: 0, not: expect }) };
     return { cl, io, saved, all: () => rooms.map(r => cl.st(r)).join(' ') }; };
   const BEFORE = '5@1 5@1 4@1';
+  const T = rooms.map(R.roomTag), LINE0 = T[0] + '=5@1!2026-11-21.23,' + T[1] + '=5@1!2026-11-21.23,' + T[2] + '=4@1!2026-11-21.22';
   // 문제없으면 세 방 모두 새 버전, 되돌림표는 바꾸기 전에 남는다
   let t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io);
-  ok('문제없으면 세 방 모두 새 버전 (웹 앱은 새 방 버전)', t.all() === '9@2 9@2 9@2' && t.saved[0] === '1=5@1,2=5@1,3=4@1', t.all() + ' / ' + t.saved[0]);
+  ok('문제없으면 세 방 모두 새 버전 (웹 앱은 새 방 버전)', t.all() === '9@2 9@2 9@2' && t.saved[0] === LINE0, t.all() + ' / ' + t.saved[0]);
   // 4차 검토에서 재현된 결함: 방을 바꾼 "뒤에" pinRoom이 실패하면 그 방이 되돌려지지 않았다
   for (const [stage, label] of [['afterPush', 'push 뒤 (HEAD 매니페스트만 바뀜)'], ['version', '방 버전 만들기'], ['deploy', '웹 앱 배포'], ['afterDeploy', '배포 뒤 (모두 바뀐 다음 오류)']]) {
     for (const k of [0, 1, 2]) {
@@ -69,7 +70,7 @@ function fakeClasp(LIBV, headVer) {
   // 되돌리는 것마저 실패하면: 못 되돌린 방과 되돌림표를 오류에 적는다
   t = mk(['5', '5', '4']); t.cl.fail = { stage: 'deploy', room: rooms[1].sid };
   let e2 = null; try { await R.switchAll(rooms, '9', LIBV[9], t.io); } catch (e) { e2 = e; }
-  ok('되돌리기도 실패하면 그 방과 되돌림표를 알림', e2 && e2.stuck.length === 1 && /방 2/.test(e2.stuck[0]) && /1=5@1,2=5@1,3=4@1/.test(e2.message) && t.cl.st(rooms[0]) === '5@1', e2 && e2.message.slice(-160));
+  ok('되돌리기도 실패하면 그 방과 되돌림표를 알림', e2 && e2.stuck.length === 1 && /방 2/.test(e2.stuck[0]) && e2.message.indexOf(LINE0) >= 0 && t.cl.st(rooms[0]) === '5@1', e2 && e2.message.slice(-160));
   // 바꾸기 전 상태를 못 읽으면 (배포ID가 틀림) 아무 방도 바꾸지 않는다
   t = mk(['5', '5', '4']); const wrong = rooms.slice(); wrong[2] = { sid: rooms[2].sid, did: 'Z'.repeat(30) };
   let e3 = null; try { await R.switchAll(wrong, '9', LIBV[9], t.io); } catch (e) { e3 = e; }
@@ -80,10 +81,58 @@ function fakeClasp(LIBV, headVer) {
   ok('HEAD였던 방은 HEAD로 되돌림', e4 && t.all() === 'head@1 5@1 4@1');
   // 되돌림표만으로 되돌리기 (실행이 강제로 끝난 뒤 mode=restore)
   t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io);
-  for (const st of R.parseState(t.saved[0])) await R.restoreRoom(rooms[st.n - 1], st, st.n, t.cl);
-  ok('되돌림표 한 줄로 세 방을 바꾸기 전 상태로', t.all() === BEFORE && (await t.cl.exec(rooms[0])).ver === LIBV[5]);
-  let ps = ''; try { R.parseState('1=7'); } catch (e) { ps = e.message; }
-  ok('되돌림표 형식이 틀리면 멈춤', /형식/.test(ps));
+  const rio = (t, extra) => Object.assign({ log() {}, snapshot: (room, n) => R.snapshot(room, n, t.cl), restore: (room, st, n) => R.restoreRoom(room, st, n, t.cl), verify: (room, expect, n) => R.verifyRoom(room, expect, n, t.cl, { tries: 2, wait: 0 }) }, extra || {});
+  const tryR = async (rs, line, io) => { try { return { res: await R.restoreAll(rs, line, io) }; } catch (e) { return { err: e }; } };
+  let rr = await tryR(rooms, t.saved[0], rio(t));
+  ok('되돌림표 한 줄로 세 방을 바꾸기 전 상태로, 되돌린 뒤 /exec가 되돌림표에 적힌 판인지 확인', rr.res && rr.res.done.length === 3 && t.all() === BEFORE && (await t.cl.exec(rooms[0])).ver === LIBV[5] && /\/exec 2026-11-21\.23 확인/.test(rr.res.done[0]), JSON.stringify(rr.res || rr.err.message).slice(0, 200));
+  ok('되돌림표에 방 번호가 아니라 방 식별값을 적음 (스크립트ID·배포ID는 들어가지 않음)', /^r[0-9a-f]{8}=5@1!/.test(t.saved[0]) && t.saved[0].indexOf(A) < 0 && t.saved[0].indexOf(B) < 0 && new Set(T).size === 3, t.saved[0]);
+  // 5차 검토: 되돌림표를 만든 뒤 방 목록의 순서가 바뀌면 다른 방을 되돌릴 수 있었다 → 식별값으로 찾으므로 순서가 바뀌어도 같은 방
+  t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io);
+  const swapped = [rooms[2], rooms[0], rooms[1]];
+  rr = await tryR(swapped, t.saved[0], rio(t));
+  ok('방 목록의 순서가 바뀌어도 방마다 제 상태로 되돌림 (셋째 방은 라이브러리 4, 나머지는 5)', rr.res && t.all() === BEFORE, t.all());
+  // 목록이 달라졌으면 아무 방도 바꾸지 않는다
+  const untouched = async (label, rs, line, re) => { const tt = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], tt.io); const n0 = tt.cl.calls.length; const x = await tryR(rs, line === undefined ? tt.saved[0] : line(tt.saved[0]), rio(tt)); ok(label, !!x.err && re.test(x.err.message) && tt.all() === '9@2 9@2 9@2' && tt.cl.calls.length === n0, (x.err ? x.err.message.slice(0, 110) : '오류 없음') + ' / ' + tt.all()); };
+  await untouched('방 목록에서 방이 하나 빠졌으면 아무 방도 바꾸지 않고 멈춤', rooms.slice(0, 2), undefined, /지금 방 목록에 없어요/);
+  await untouched('방 목록에 방이 하나 늘었으면 아무 방도 바꾸지 않고 멈춤', rooms.concat(R.parseRooms(D + ':' + A)), undefined, /되돌림표에 없어요/);
+  await untouched('다른 목록(연습 방 되돌림표를 운영 방에)이면 멈춤', R.parseRooms([D + ':' + A, D.replace(/.$/, 'q') + ':' + B, D.replace(/.$/, 'w') + ':' + C].join('\n')), undefined, /지금 방 목록에 없어요/);
+  await untouched('예전 형식(방 번호) 되돌림표는 쓰지 않음', rooms, () => '1=5@1,2=5@1,3=4@1', /예전 형식/);
+  await untouched('같은 방이 두 번 들어 있으면 멈춤', rooms, l => l + ',' + l.split(',')[0], /두 번/);
+  await untouched('없는 방 식별값이면 멈춤', rooms, l => l.replace(/^r[0-9a-f]{8}/, 'r00000000'), /지금 방 목록에 없어요/);
+  await untouched('형식이 틀리면 멈춤', rooms, () => T[0] + '=7', /형식/);
+  await untouched('빈 되돌림표는 멈춤', rooms, () => '', /비어/);
+  // 지금 상태를 못 읽는 방이 하나라도 있으면 아무 방도 되돌리지 않는다
+  t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io); let n0 = t.cl.calls.length;
+  rr = await tryR(rooms, t.saved[0], rio(t, { snapshot: (room, n) => { if (n === 3) throw new Error('가짜: 읽기 실패'); return R.snapshot(room, n, t.cl); } }));
+  ok('지금 상태를 못 읽으면 아무 방도 되돌리지 않음', rr.err && rr.err.untouched && t.all() === '9@2 9@2 9@2' && t.cl.calls.length === n0, rr.err && rr.err.message);
+  // 이미 되돌림표의 상태인 방은 건드리지 않는다 (같은 되돌림표로 다시 돌려도 안전)
+  t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io); await R.restoreAll(rooms, t.saved[0], rio(t)); n0 = t.cl.calls.length;
+  rr = await tryR(rooms, t.saved[0], rio(t));
+  ok('이미 그 상태인 방은 건드리지 않음 (다시 돌려도 안전)', rr.res && rr.res.same.length === 3 && !rr.res.done.length && t.cl.calls.length === n0, JSON.stringify(rr.res && rr.res.same).slice(0, 120));
+  // 되돌리기가 한 방에서 실패: 나머지는 되돌리고, 실패한 방을 알림. 같은 표로 다시 돌리면 남은 방만 되돌림
+  t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io); t.cl.fail = { stage: 'deploy', room: rooms[1].sid, once: true };
+  rr = await tryR(rooms, t.saved[0], rio(t));
+  ok('되돌리기가 한 방에서 실패하면 나머지 두 방은 되돌리고 실패한 방을 알림', rr.err && rr.err.stuck.length === 1 && /방 2/.test(rr.err.stuck[0]) && rr.err.done.length === 2 && t.cl.st(rooms[0]) === '5@1' && t.cl.st(rooms[2]) === '4@1', rr.err && rr.err.message.slice(0, 160));
+  rr = await tryR(rooms, t.saved[0], rio(t));
+  ok('같은 되돌림표로 다시 돌리면 남은 방만 되돌림', rr.res && rr.res.done.length === 1 && rr.res.same.length === 2 && t.all() === BEFORE, t.all());
+  // 되돌린 뒤 /exec가 되돌림표에 적힌 판이 아니면 실패로 알림
+  t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io); t.cl.fail = { stage: 'exec', room: rooms[0].sid, ver: LIBV[5] };
+  rr = await tryR(rooms, t.saved[0], rio(t));
+  ok('되돌린 뒤 /exec 판이 되돌림표와 다르면 그 방을 실패로 알림', rr.err && rr.err.stuck.length === 1 && /방 1/.test(rr.err.stuck[0]) && /틀린판/.test(rr.err.stuck[0]), rr.err && rr.err.message.slice(0, 160));
+  // 자동 정리가 돈 판: /exec가 알려 주면 적고, 다르면 5분 뒤 확인하라고 적음
+  t = mk(['5', '5', '4']); await R.switchAll(rooms, '9', LIBV[9], t.io);
+  rr = await tryR(rooms, t.saved[0], rio(t, { verify: async (room, expect, n) => Object.assign(await R.verifyRoom(room, expect, n, t.cl, { tries: 2, wait: 0 }), { tick: { ver: LIBV[9], at: Date.now() } }) }));
+  ok('되돌린 뒤 자동 정리가 마지막으로 돈 판을 적고, 다르면 5분 뒤 확인하라고 알림', rr.res && /마지막 자동 정리 2026-11-21\.25 \(다음 자동 정리가 돌면 2026-11-21\.23/.test(rr.res.done[0]), rr.res && rr.res.done[0]);
+  // 엔진 주소로 직접 도는 방: 있거나 알 수 없으면 멈춤 (경고만 하고 넘어가지 않음)
+  const H = o => R.checkHosted(o);
+  ok('hosted: 직접 도는 방이 있으면 멈춤', H({ given: true, execs: [{ ok: true, json: true, hosted: 2 }] }).stop.length === 1);
+  ok('hosted: ALLOW_HOSTED_ROOMS=yes면 알리고 계속', (x => !x.stop.length && x.warn.length === 1)(H({ given: true, allow: true, execs: [{ ok: true, json: true, hosted: 2 }] })));
+  ok('hosted: 없다고 답하면 통과', (x => !x.stop.length && !x.warn.length)(H({ given: true, execs: [{ ok: true, json: true, hosted: 0 }] })));
+  ok('hosted: 엔진 웹 앱이 답하지 않으면 멈춤 (확인 못 함)', H({ given: true, execs: [{ ok: false, json: false }] }).stop.length === 1);
+  ok('hosted: 비밀값이 없어도 엔진의 배포를 불러 봐서 웹 앱이 있고 방이 있으면 멈춤', H({ listed: true, execs: [{ ok: false, json: false }, { ok: true, json: true, hosted: 1 }] }).stop.length === 1);
+  ok('hosted: 웹 앱으로 답하는 배포가 없으면 통과', (x => !x.stop.length && x.info.length === 1)(H({ listed: true, execs: [{ ok: false, json: false }] })));
+  ok('hosted: 배포 목록도 못 읽으면 멈춤', H({ listed: false, execs: [] }).stop.length === 1);
+  ok('hosted: 예전 판 엔진(방 수를 답하지 못함)은 미확인으로 알리고 계속 (새 판이 올라가야 확인할 수 있으므로)', (x => !x.stop.length && /미확인/.test(x.warn[0]))(H({ given: true, execs: [{ ok: true, json: true, ver: '2026-11-21.24' }] })));
   // pin 모드: 웹 앱이 답하기만 하면 통과하던 문제. 판 번호가 "틀리게" 오면 실패, 판 번호를 모르는 옛 판일 때만 번호 없는 응답을 받아들임
   const one = { sid: A, did: B };
   const vr = (x, opt) => R.verifyRoom(one, '2026-11-21.25', 1, { exec: async () => x, sleep: async () => {} }, Object.assign({ tries: 2, wait: 0 }, opt)).then(() => 'ok', e => 'fail');

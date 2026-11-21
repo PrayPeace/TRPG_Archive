@@ -90,12 +90,35 @@ const qdb = {
     try { const d = await this.open(); const out = await new Promise((ok, no) => { const t = d.transaction('u', mode); const res = fn(t.objectStore('u')); t.oncomplete = () => ok(res); t.onerror = t.onabort = () => no(t.error); }); this.ok = true; return out; }
     catch (_) { this.ok = false; return null; }
   },
-  // 넣기(같은 발언ID가 있으면 상태만 바뀐다). 돌려주는 값: 기록됐으면 true
-  put(items, room, st, why){ if (!items.length) return Promise.resolve(true); return this.tx('readwrite', s => { items.forEach(x => s.put({ uid: x.uid, room, st, name: x.name, session: x.session, rv: x.rv, t: x.t, text: x.text, why: why || x.why || '' })); return true; }).then(r => !!r); },
+  /* 넣기(같은 발언ID가 있으면 상태만 바뀐다). 돌려주는 값: 기록됐으면 true (원문이 이 자리에 남아 있다는 뜻).
+   * 조건부 쓰기: 상태 'q'로 적을 때, 이미 'f'(저장 못 한 말)로 적힌 기록은 덮어쓰지 않는다. 다른 탭이 방금 'f'로 옮긴 말을 옛 상태를 든 탭이 'q'로 되돌리지 못하게 하려는 것.
+   * 읽기와 쓰기가 한 트랜잭션 안이라 사이에 다른 탭이 끼어들지 못한다. 'f' → 'q'는 [다시 보내기]만 한다 (force). 어느 쪽이든 원문은 지워지지 않는다. */
+  put(items, room, st, why, force){
+    if (!items.length) return Promise.resolve(true);
+    return this.tx('readwrite', s => {
+      items.forEach(x => {
+        const rec = { uid: x.uid, room, st, name: x.name, session: x.session, rv: x.rv, t: x.t, text: x.text, why: why || x.why || '' };
+        if (st === 'q' && !force) { const g = s.get(x.uid); g.onsuccess = () => { if (!(g.result && g.result.st === 'f')) s.put(rec); }; }
+        else s.put(rec);
+      });
+      return true;
+    }).then(r => !!r);
+  },
   del(uids){ if (!uids.length) return Promise.resolve(true); return this.tx('readwrite', s => { uids.forEach(u => s.delete(u)); return true; }).then(r => !!r); },
   // 방 하나(또는 전체)의 기록. 읽지 못하면 null
   all(room){ return this.tx('readonly', s => { const o = { v: [] }, rq = room ? s.index('room').getAll(room) : s.getAll(); rq.onsuccess = () => { o.v = rq.result || []; }; return o; }).then(o => o ? o.v : null); }
 };
+/* 같은 기기의 다른 탭에 "서버가 이 발언을 받았다"고 알린다 (지원하는 브라우저만). 받은 탭은 그 말을 대기열에서 걷고 다시 보관하지 않는다.
+ * 이게 없어도 기록은 안전하다(다시 보내면 서버가 발언ID로 거른다). 저장된 말의 옛 사본이 다른 탭에서 되살아나 한 번 더 보내지는 일과 숫자가 두 번 세어지는 일을 줄인다. */
+let qBc = null;
+try { if (typeof BroadcastChannel === 'function') { qBc = new BroadcastChannel('trpg_q'); qBc.onmessage = ev => {
+  const m = ev.data || {}; if (m.room !== cfg.url || !Array.isArray(m.saved) || !m.saved.length) return;
+  const ids = new Set(m.saved); let n = 0;
+  m.saved.forEach(u => { qGone.add(u); qSaved.add(u); qInDb.delete(u); qT.delete(u); qTries.delete(u); });
+  queue = queue.filter(q => { if (ids.has(q.uid)) { n++; return false; } return true; });
+  failDrop(m.saved);
+  if (n) { stat('peerSaved', n); saveQueue(); } else sendState();
+}; } } catch(_) { qBc = null; }
 const qItem = x => ({ uid: x.uid, name: x.name, session: x.session || '', rv: x.rv || '', t: x.t, text: x.text });
 const byTime = (x, y) => (String(x.t) < String(y.t) ? -1 : String(x.t) > String(y.t) ? 1 : 0);
 /* qGone: 이 탭이 대기열에서 뺀 말(서버가 확인했거나 "저장 못 한 말"로 옮김) → 다른 탭·저장소에서 다시 주워 오지 않는다
@@ -209,10 +232,14 @@ async function flush(){
     const took = [].concat(r.saved || [], r.dup || [], r.dropped || []);            // 서버가 처리를 끝낸 말 (저장됨·이미 있음·초기화 전 말이라 버림)
     const done = new Set(took.concat(r.tooLong || []));
     const now = Date.now(); (r.saved || []).forEach(u => { const t0 = qT.get(u); if (t0) statLat(now - t0); });
+    // 보존 성공을 셀 때: "이 창이 받아 적은 말"(qT에 있음)과 "이어받아 보낸 말"(다른 탭·예전 창이 남긴 것)을 나눠 센다. 서버가 "이미 있다(dup)"고 답한 것도 서버에 보존된 것이다
+    // (응답을 받지 못해 다시 보낸 말이 대부분). 같은 말을 여러 탭이 보내도 '이 창이 받아 적은 줄' 대비 보존율이 100%를 넘지 않게 따로 둔다
+    (r.saved || []).forEach(u => stat(qT.has(u) ? 'savedMine' : 'savedOther')); (r.dup || []).forEach(u => stat(qT.has(u) ? 'dupMine' : 'dupOther'));
     stat('saved', (r.saved || []).length); stat('dup', (r.dup || []).length); stat('dropped', (r.dropped || []).length); stat('tooLong', (r.tooLong || []).length);
     done.forEach(u => { qGone.add(u); qT.delete(u); qTries.delete(u); });
     took.forEach(u => { qSaved.add(u); qInDb.delete(u); });
     qdb.del(took.filter(u => !qPutting.has(u)));
+    if (qBc && took.length) { try { qBc.postMessage({ room: cfg.url, saved: [].concat(r.saved || [], r.dup || []) }); } catch(_) {} }
     failDrop([].concat(r.saved || [], r.dup || []));                                   // "다시 보내기"로 되돌렸던 말이 저장됐으면 목록에 남은 사본도 걷는다
     queue = queue.filter(q => !done.has(q.uid));
     if ((r.dropped || []).length) toast('초기화 전에 말한 ' + r.dropped.length + '줄은 저장하지 않았어요');
@@ -320,7 +347,7 @@ let wsGen = 0, starting = false, retryN = 0, tkCache = null, wakeLock = null, dr
  *   같은 소리를 두 번 보내는 일이 없으므로 같은 말이 두 번 적히지 않는다. (옛 연결에서 늦게 오는 글은 연결 번호로 버린다.)
  * "보냈다"와 "받아 적혔다"는 다르다: 소켓에 넘긴 조각 수(out)와 Deepgram이 답으로 알려 준 처리 위치(heard = start + duration)를 따로 센다.
  * 발언 시각은 저장한 순간이 아니라 말한 순간(녹음 시작 시각 + Deepgram이 알려 준 위치)이고, 세션·초기화 번호도 그 시각의 것을 붙인다. */
-const ABUF_MS = 90000, GAP_MIN = 1000, GAP_LINE = 3000, CHUNK_MS = 250, PUMP_MS = 100, BUF_HI = 64000, STALL_MS = 5000, QUIET_MS = 8000, UNSURE = ' (확정 전)';
+const ABUF_MS = 90000, GAP_MIN = 1000, GAP_LINE = 3000, CHUNK_MS = 250, PUMP_MS = 100, BUF_HI = 64000, STALL_MS = 5000, QUIET_MS = 8000, UNSURE = ' (확정 전)', CLOSE_TRIES = 20, STOP_WAIT = 2000;
 let pend = '', pendAt = 0, gapFrom = 0, recMime = '';
 // 시각 → 그때의 세션·초기화 번호 (늦게 복구된 말을 새 세션에 넣지 않으려고)
 const sessLog = [];
@@ -368,6 +395,7 @@ function recStart(w){
   m.ondataavailable = ev => {
     if (!ev.data || !ev.data.size) return;
     if (r !== rec) return;                                   // 다른 녹음기로 바뀐 뒤의 조각: 이 녹음을 받던 연결이 이미 없다 (그 구간은 누락 가능 구간으로 적혀 있다)
+    if (r.w && r.w._closeSent) { r.late = (r.late || 0) + 1; stat('lateTail'); return; }      // 종료 신호가 나간 뒤에 온 조각: Deepgram이 받지 않는다. 보낸 척하지 않고 세어 둔다 (finishStop이 구간으로 적는다)
     r.q.push(ev.data);                                       // 끄는 중(closing)에 오는 마지막 조각도 여기로 들어와서 CloseStream보다 먼저 나간다
     if (!r.sent && !r.w && Date.now() - r.t0 > ABUF_MS) {    // 90초 동안 보내지 못함: 이 녹음은 버리고 새로 모은다 (메모리에는 언제나 최근 90초 이내의 소리만)
       if (!gapFrom) gapFrom = r.t0;
@@ -391,7 +419,11 @@ function pump(timer){
     try { w.send(r.q[0]); } catch(_) { stat('sendFail'); break; }
     r.q.shift(); r.out++; r.sent = true;
   }
-  if (r.closing && r.done && !r.q.length && !w._closeSent) { w._closeSent = true; try { w.send(JSON.stringify({ type: 'CloseStream' })); } catch(_) {} }
+  // 종료 신호는 실제로 나간 뒤에만 "보냈다"고 적는다. 실패하면 다음 차례(0.1초 뒤)에 다시, 20번 실패하면 종료 실패로 마무리한다
+  if (r.closing && r.done && !r.q.length && !w._closeSent) {
+    try { w.send(JSON.stringify({ type: 'CloseStream' })); w._closeSent = true; }
+    catch(_) { w._closeFail = (w._closeFail || 0) + 1; stat('closeFail'); if (w._closeFail >= CLOSE_TRIES) lost(w, '끌 때 종료 신호를 보내지 못함'); }
+  }
 }
 /* 닫힘 신호 없이 죽은 연결 찾기 (1초마다). ① 소켓에 쌓인 소리가 5초 넘게 빠지지 않음 ② 브라우저가 오프라인이라고 함
  * ③ Deepgram에서 8초 넘게 아무 답이 없으면 방 주소에 가벼운 요청을 한 번 보내 보고, 그것도 안 되면 네트워크가 죽은 것으로 본다 (조용해서 답이 없는 것과 구별). */
@@ -410,7 +442,15 @@ function watch(){
     netProbe().then(ok => { w._probing = false; w._probeAt = Date.now() + (ok ? 12000 : 0); if (!ok && w === ws && !w._dead && !wantStop) lost(w, '응답 없음'); });
   }
 }
-setInterval(() => { pump(true); watch(); }, PUMP_MS);
+// 끊겨 있는 동안: 60초가 지나면 "90초를 넘기면 그 사이의 말은 되살리지 못한다"고 미리 알리고, 넘긴 뒤에는 넘겼다고 알린다 (1초에 한 번만 고친다)
+let disconAt = 0;
+function disconNote(){
+  const now = Date.now(); if (now - disconAt < 1000) return; disconAt = now;
+  if (wantStop || running || !stream) return; const r = rec, el_ = $('micInfo'); if (!el_) return;
+  if (gapFrom) el_.textContent = '⚠ 90초 넘게 끊겨 있어요. ' + new Date(gapFrom).toTimeString().slice(0, 8) + '부터의 말은 되살리지 못해요 (다시 이어지면 최근 90초 안의 말만 받아 적어요). 중요한 말은 채팅으로 적어 주세요';
+  else if (r && !r.sent && !r.w && now - r.t0 > 60000) el_.textContent = '⚠ 끊긴 지 ' + Math.round((now - r.t0) / 1000) + '초예요. 90초를 넘기면 그 사이의 말은 되살리지 못해요 (지금은 이 기기의 메모리에 모으는 중)';
+}
+setInterval(() => { pump(true); watch(); disconNote(); }, PUMP_MS);
 window.addEventListener('offline', () => { if (ws && ws._live && !ws._dead && !wantStop) lost(ws, '인터넷 끊김'); });
 /* 연결 하나가 끝났을 때 (닫힘 신호가 왔거나, 죽은 것으로 판단했거나, 끄는 중에 Deepgram이 닫았을 때). 한 연결에 한 번만 돈다. */
 function lost(w, why, noRetry){
@@ -442,9 +482,11 @@ function lost(w, why, noRetry){
 function finishStop(w, r, heard){
   commitPend();
   if (r) {
-    const end = r.tEnd || Date.now();
-    if (r.q.length * CHUNK_MS >= GAP_MIN) noteGap(end - r.q.length * CHUNK_MS, end, '끌 때 보내지 못함');
-    else if (w._heard != null && end - heard >= GAP_LINE) noteGap(heard, end, '끌 때 받아 적지 못함');
+    const end = r.tEnd || Date.now(), left = (r.q.length + (r.late || 0)) * CHUNK_MS;
+    // ① 보내지 못한 꼬리 ② Deepgram이 처리했다고 알려 온 곳 뒤의 꼬리 ③ 처리 위치를 한 번도 듣지 못했으면 이 녹음 전체(heard = 녹음 시작)를 확인 못 한 구간으로
+    if (left >= GAP_MIN) noteGap(end - left, end, w._closeSent ? '끌 때 보내지 못함' : '끌 때 보내지 못함 (종료 신호도 못 보냄)');
+    else if (w._heard == null && r.out > 0 && end - r.t0 >= GAP_LINE) noteGap(r.t0, end, '끌 때 받아 적혔는지 확인 못 함');
+    else if (w._heard != null && end - heard >= GAP_LINE) noteGap(heard, end, w._closeSent ? '끌 때 받아 적지 못함' : '끌 때 받아 적지 못함 (종료 신호를 못 보냄)');
     r.q = [];
   }
   if (rec === r || (rec && rec.closing)) { stopRec(rec); rec = null; }
@@ -543,9 +585,16 @@ async function startMic(isRetry){
       // 이미 확정해 저장한 소리 구간을 다시 가리키는 결과는 버린다 (글이 같아서가 아니라 소리의 위치로 판단)
       if (timed && w._final != null && s0 + du <= w._final + 0.01) return;
       if (timed) w._heard = Math.max(w._heard || 0, s0 + du);
-      const at = r && timed ? r.t0 + s0 * 1000 : Date.now();
-      const t = (m.channel && m.channel.alternatives && m.channel.alternatives[0] || {}).transcript || '';
-      if (m.is_final) { if (timed) w._final = s0 + du; pend = ''; pendAt = 0; $('interim').textContent = ''; if (t.trim()) { pushLine(t.trim(), at); stat('final'); } }
+      const alt = m.channel && m.channel.alternatives && m.channel.alternatives[0] || {};
+      let t = alt.transcript || '', sAt = s0;
+      // 확정한 곳과 일부만 겹치는 결과: 낱말 시각이 있으면 확정한 곳 뒤의 낱말만 남긴다 (글 비교가 아니라 소리 위치). 낱말 시각이 없으면 지우지 않고 통째로 둔다 (빠지는 것보다 겹치는 편이 낫다)
+      if (timed && w._final != null && s0 < w._final - 0.01 && t) {
+        const ws_ = Array.isArray(alt.words) ? alt.words.filter(x => x && isFinite(Number(x.start))) : [];
+        if (ws_.length) { const keep = ws_.filter(x => Number(x.start) >= w._final - 0.01); t = keep.map(x => x.punctuated_word || x.word || '').join(' '); if (keep.length) sAt = Number(keep[0].start); if (m.is_final) stat('overlapCut'); }
+        else if (m.is_final) stat('overlapKept');
+      }
+      const at = r && timed ? r.t0 + sAt * 1000 : Date.now();
+      if (m.is_final) { if (timed) w._final = Math.max(w._final || 0, s0 + du); pend = ''; pendAt = 0; $('interim').textContent = ''; if (t.trim()) { pushLine(t.trim(), at); stat('final'); } }
       else { pend = t; pendAt = t ? at : 0; $('interim').textContent = t ? cfg.name + ': ' + t : ''; }
       // 끊긴 동안 모아 보낸 소리를 Deepgram이 끝까지 처리했다고 알려 왔을 때에만 "복구됨"으로 센다 (소켓에 넘긴 것만으로는 세지 않는다)
       if (w._replay && w._heard != null && w._heard >= w._replay.sec - 1) { stat('recovOk'); stat('recovSec', Math.round(w._replay.sec)); w._replay = null; if (!wantStop) $('micInfo').textContent = '끊긴 동안의 소리를 이어서 받아 적었어요'; }
@@ -569,8 +618,8 @@ function stopAll(why){
   const w = ws, r = rec;
   if (w && !w._dead && w.readyState === 1 && w._live && r && r.w === w && !r.closing) {
     r.closing = true; r.tEnd = Date.now(); stopRec(r); pump();
-    setTimeout(() => { if (!r.done) { r.done = true; pump(); } }, 700);                                  // 녹음기가 멈췄다는 신호를 주지 않는 브라우저 대비
-    w._stopT = setTimeout(() => lost(w, '끔'), Math.min(20000, 3000 + r.q.length * CHUNK_MS / 4));      // Deepgram이 닫아 주지 않으면 여기서 마무리
+    setTimeout(() => { if (!r.done) { r.done = true; r.forced = true; stat('stopForced'); pump(); } }, STOP_WAIT);      // 녹음기가 멈췄다는 신호(onstop)를 2초 안에 주지 않을 때만 기다리지 않고 닫는다 (그 뒤에 온 조각은 lateTail로 센다)
+    w._stopT = setTimeout(() => lost(w, '끔'), Math.min(20000, 3000 + STOP_WAIT + r.q.length * CHUNK_MS / 4));      // Deepgram이 닫아 주지 않으면 여기서 마무리
   } else if (!(r && r.closing)) {
     if (w && !w._dead) { w._dead = true; w._live = false; clearInterval(w._ka); try { w.close(); } catch(_) {} }
     commitPend();
@@ -766,14 +815,24 @@ function failShow(){
   const rm = el('button', '', '목록 비우기'); rm.dataset.label = '목록 비우기'; if (typeof twoStep === 'function') twoStep(rm, async () => { const ids = failGet().map(x => x.uid); failMem = []; failDb = []; try { localStorage.removeItem(failKey()); } catch (_) {} await qdb.del(ids.filter(u => !queue.some(q => q.uid === u))); sendState(); });
   box.append(cp, ' ', dl, ' ', rm);
 }
-/* 다시 보내기: 먼저 대기열에 넣어 보관하고(두 번째 자리의 같은 기록은 상태가 'q'로 바뀐다), 그다음에 목록에서 뺀다.
- * 그 사이에 창이 닫히면 말은 대기열에 남고 목록에는 사본이 남는데, 서버 저장이 확인되면 사본을 걷는다(failDrop). */
-function failResend(back){
-  const ids = new Set(back.map(x => x.uid));
-  back.forEach(x => { qGone.delete(x.uid); qSaved.delete(x.uid); qInDb.delete(x.uid); if (!queue.some(q => q.uid === x.uid)) queue.push(qItem(x)); });
-  queue.sort(byTime); saveQueue();
-  failMem = failMem.filter(x => !ids.has(x.uid)); failDb = failDb.filter(x => !ids.has(x.uid));
-  const rest = failStored().filter(x => !ids.has(x.uid)); try { if (rest.length) localStorage.setItem(failKey(), JSON.stringify(rest)); else localStorage.removeItem(failKey()); } catch(_) {}
+/* 다시 보내기: ① 두 번째 자리의 같은 기록을 상태 'q'로 바꿔 적고(끝날 때까지 기다린다) ② 대기열에 넣어 localStorage에도 적은 뒤 ③ 둘 중 한 곳에라도 적힌 것이 확인된 다음에만 목록에서 뺀다.
+ * 어느 단계에서 창이 닫혀도 원문은 목록이나 대기열 중 적어도 한 곳에 남는다. 양쪽에 다 남으면 서버 저장이 확인될 때 사본을 걷는다(failDrop).
+ * 두 곳 모두 적지 못했으면(저장 공간이 꽉 참) 목록에 그대로 두고 메모리의 대기열로만 보낸다: 그렇다고 화면에 알린다. */
+let failBusy = false;
+async function failResend(back){
+  if (failBusy || !back.length) return; failBusy = true;
+  try {
+    const room = cfg.url, ids = new Set(back.map(x => x.uid));
+    const dbOk = await qdb.put(back.map(qItem), room, 'q', '', true);
+    if (room !== cfg.url) return;                           // 기다리는 사이 다른 방으로 옮김: 그 방의 기록은 두 번째 자리에 'q'로 남아 다음에 보내진다
+    back.forEach(x => { qGone.delete(x.uid); qSaved.delete(x.uid); if (dbOk) qInDb.add(x.uid); else qInDb.delete(x.uid); if (!queue.some(q => q.uid === x.uid)) queue.push(qItem(x)); });
+    queue.sort(byTime); saveQueue();
+    if (dbOk || qLsOk) {
+      failMem = failMem.filter(x => !ids.has(x.uid)); failDb = failDb.filter(x => !ids.has(x.uid));
+      const rest = failStored().filter(x => !ids.has(x.uid)); try { if (rest.length) localStorage.setItem(failKey(), JSON.stringify(rest)); else localStorage.removeItem(failKey()); } catch(_) {}
+    } else toast('다시 보내는 중이에요. 기기에 적지 못해서, 저장이 확인될 때까지 "저장 못 한 말" 목록에도 그대로 둘게요');
+    stat('failResend', back.length);
+  } finally { failBusy = false; }
   sendState(); flush();
 }
 
@@ -785,22 +844,34 @@ let statO = null, statDirty = false;
 function statLoad(){ if (statO && statO.url === cfg.url) return statO; let o = null; try { o = JSON.parse(localStorage.getItem(statKey()) || 'null'); } catch(_) {} statO = o && typeof o === 'object' && o.n ? o : { since: Date.now(), n: {}, lat: [], ms: {} }; statO.url = cfg.url; return statO; }
 function stat(k, v){ if (!cfg.url) return; const o = statLoad(); o.n[k] = (o.n[k] || 0) + (v == null ? 1 : v); statDirty = true; }
 // 걸린 시간 표본 (k별로 최근 300개)
-function statMs(k, ms){ if (!cfg.url || !(ms >= 0)) return; const o = statLoad(), a = o.ms[k] = o.ms[k] || []; a.push(Math.round(ms)); if (a.length > 300) a.shift(); statDirty = true; }
-function statLat(ms){ const o = statLoad(); o.lat.push(Math.round(ms)); if (o.lat.length > 3000) o.lat.shift(); statDirty = true; }
+function statMs(k, ms){ if (!cfg.url || !(ms >= 0)) return; const o = statLoad(), a = o.ms[k] = o.ms[k] || []; a.push(Math.round(ms)); if (a.length > 300) a.shift(); o.msN = o.msN || {}; o.msN[k] = (o.msN[k] || 0) + 1; statDirty = true; }
+// 저장까지 걸린 시간: 표본은 최근 3,000줄만 두고(중간·느린 5% 계산용), 줄 수·합계·최대는 재기 시작한 뒤 전체를 따로 센다
+function statLat(ms){ const o = statLoad(); ms = Math.round(ms); o.lat.push(ms); if (o.lat.length > 3000) o.lat.shift(); o.latN = (o.latN || 0) + 1; o.latSum = (o.latSum || 0) + ms; o.latMax = Math.max(o.latMax || 0, ms); statDirty = true; }
 function statSave(force){ if (!statO || (!statDirty && !force)) return; statDirty = false; try { localStorage.setItem(statKey(), JSON.stringify(statO)); } catch(_) {} }
 setInterval(() => statSave(), 15000);
 const pct = (a, p) => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
 function statText(){
   const o = statLoad(), n = k => o.n[k] || 0, sec = ms => ms == null ? '-' : (ms / 1000).toFixed(1) + '초';
-  const tm = k => { const a = o.ms[k] || []; return a.length ? '중간 ' + sec(pct(a, .5)) + ' · 느린 5% ' + sec(pct(a, .95)) + ' (' + a.length + '번)' : '아직 없음'; };
+  // 화면이 뜨기까지의 시간. 표본은 최근 300번만 둔다: 전체 횟수가 그보다 많으면 그렇다고 적는다
+  const tm = k => { const a = o.ms[k] || [], all = (o.msN && o.msN[k]) || a.length; return a.length ? '중간 ' + sec(pct(a, .5)) + ' · 느린 5% ' + sec(pct(a, .95)) + ' (' + (all > a.length ? '전체 ' + all + '번 중 최근 ' + a.length + '번 표본' : a.length + '번 전체') + ')' : '아직 없음'; };
+  const latAll = o.latN || o.lat.length, kept = n('savedMine') + n('dupMine'), fl = failGet().length;
+  const old = !n('savedMine') && !n('dupMine') && (n('saved') || n('dup'));           // 예전 판에서 재기 시작한 숫자: 나눠 세지 않았다
   return [
-    '세션 측정 · ' + (cfg.name || '') + ' · ' + new Date(o.since).toLocaleString() + ' ~ ' + new Date().toLocaleString() + ' · 화면 판 ' + (typeof APP_VER === 'string' ? APP_VER : ''),
-    '[받아쓰기] 확정 글 ' + n('final') + '줄 · 확정 전 글로 저장 ' + n('interim') + '줄 · 기기에 넣은 줄 ' + n('queued') + ' · 서버 저장 확인 ' + n('saved') + ' · 다시 보낸 줄 ' + n('resend') + ' · 서버가 거른 중복 ' + n('dup') + ' · 초기화 전이라 버림 ' + n('dropped') + ' · 너무 길어 거절 ' + n('tooLong'),
-    '[끊김] 연결 끊김 ' + n('drops') + '번 · 누락 가능 구간 ' + n('gaps') + '곳 합계 ' + n('gapSec') + '초 · 끊긴 동안의 소리 이어 보내기 시도 ' + n('recovTry') + '번(' + n('recovTrySec') + '초) · Deepgram이 끝까지 처리했다고 확인 ' + n('recovOk') + '번(' + n('recovSec') + '초) · 확인 전에 다시 끊김 ' + n('recovFail') + '번 · 소리 조각 보내기 실패 ' + n('sendFail'),
-    '[저장까지 걸린 시간] 중간 ' + sec(pct(o.lat, .5)) + ' · 느린 5% ' + sec(pct(o.lat, .95)) + ' · 최대 ' + sec(o.lat.length ? Math.max.apply(null, o.lat) : null) + ' (' + o.lat.length + '줄)',
-    '[지금 남은 것] 못 보낸 말 ' + queue.length + '줄 (메모리에만 ' + qMemOnly() + ') · 저장 못 한 말 ' + failGet().length + '줄 (메모리에만 ' + failMemOnly() + ') · 누락 가능 구간 ' + gapGet().length + '곳',
-    '[다음 할 일] 연 횟수 ' + n('nextOpen') + ' · 바로 보이는 부분이 뜨기까지 ' + tm('nextInstant') + ' · AI 추천이 뜨기까지 ' + tm('nextAi') + ' · 근거 보기 ' + n('nextEv') + '번 · 다시 추천 ' + n('nextForce') + '번 · "그 뒤 새 기록 있음"이 뜬 채로 본 횟수 ' + n('nextStale'),
-    '[지금 장면] 연 횟수 ' + n('kNow') + ' · 뜨기까지 ' + tm('kNow') + ' · AI 없이 판정 찾기 ' + n('kRollQuick') + '번 · AI로 판정 묻기 ' + n('kRollAi') + '번 · 장면 추정을 손으로 고침 ' + n('kSceneFix') + '번 · 장면 고정 ' + n('kScenePin') + '번 · NPC 카드 펼침 ' + n('kNpcOpen') + '번 · 원문 보기 ' + n('kEv') + '번'
+    '세션 측정 · ' + (cfg.name || '') + ' · ' + new Date(o.since).toLocaleString() + ' ~ ' + new Date().toLocaleString() + ' · 화면 판 ' + (typeof APP_VER === 'string' ? APP_VER : '') + ' · 이 기기의 이 브라우저에서만 센 숫자예요 (탭을 여러 개 열었으면 탭마다 따로 세요)',
+    '[받아쓰기] 확정 글 ' + n('final') + '줄 · 확정 전 글로 저장 ' + n('interim') + '줄 · 이 창이 받아 적어 기기에 넣은 줄 ' + n('queued'),
+    '[기록 보존] ' + (old ? '서버 저장 확인 ' + n('saved') + ' · 서버에 이미 있었음 ' + n('dup') + ' (예전 판에서 재기 시작해 나눠 세지 못함. [새로 재기]를 누르면 나눠 세요)'
+      : '이 창이 받아 적은 ' + n('queued') + '줄 가운데 서버 보존 확인 ' + kept + '줄 (새로 저장 ' + n('savedMine') + ' + 서버에 이미 있었음 ' + n('dupMine') + ': 저장은 됐는데 응답을 못 받아 다시 보낸 말)'
+        + ' · 이어받아 보낸 말(다른 탭·닫힌 창이 남긴 것) 새로 저장 ' + n('savedOther') + ', 이미 있었음 ' + n('dupOther') + ' · 다른 탭이 저장했다고 알려 와 걷은 줄 ' + n('peerSaved'))
+      + ' · 다시 보낸 횟수 ' + n('resend') + ' · 초기화 전이라 서버가 버림 ' + n('dropped') + ' · 너무 길어 거절 ' + n('tooLong') + ' · "저장 못 한 말"에서 다시 보낸 줄 ' + n('failResend'),
+    '  ↳ 보존 판단: "이 창이 받아 적은 줄" = 보존 확인 + 서버가 버림·거절 + 지금 남은 것이면 빠진 것이 없어요. "이미 있었음"도 서버에 보존된 것이에요. 창을 새로 고친 뒤 보낸 말은 "이어받아 보낸 말"로 세어져요',
+    '[끊김] 연결 끊김 ' + n('drops') + '번 · 누락 가능 구간 ' + n('gaps') + '곳 합계 ' + n('gapSec') + '초 · 끊긴 동안의 소리 이어 보내기 시도 ' + n('recovTry') + '번(' + n('recovTrySec') + '초) · Deepgram이 그 소리의 끝 위치까지 처리했다고 알림 ' + n('recovOk') + '번(' + n('recovSec') + '초) · 확인 전에 다시 끊김 ' + n('recovFail') + '번 · 소리 조각 보내기 실패 ' + n('sendFail'),
+    '  ↳ "처리했다고 알림"은 Deepgram이 그 위치까지 들었다는 뜻이에요. 그때 한 말이 글로 맞게 적혔는지는 재지 못해요 (대화 탭에서 사람이 확인)',
+    '[끄기] 종료 신호 보내기 실패 ' + n('closeFail') + '번 · 녹음기가 멈춤 신호를 주지 않아 2초 뒤 닫음 ' + n('stopForced') + '번 · 종료 신호 뒤에 와서 보내지 못한 소리 조각 ' + n('lateTail') + ' · 확정한 곳과 겹쳐 온 결과: 겹친 낱말만 뺌 ' + n('overlapCut') + '번, 낱말 시각이 없어 통째로 둠 ' + n('overlapKept') + '번',
+    '[저장까지 걸린 시간] 중간 ' + sec(pct(o.lat, .5)) + ' · 느린 5% ' + sec(pct(o.lat, .95)) + ' (' + (latAll > o.lat.length ? '전체 ' + latAll + '줄 중 최근 ' + o.lat.length + '줄 표본' : o.lat.length + '줄 전체') + ') · 전체 평균 ' + sec(o.latN ? o.latSum / o.latN : (o.lat.length ? o.lat.reduce((a, b) => a + b, 0) / o.lat.length : null)) + ' · 전체 최대 ' + sec(o.latMax || (o.lat.length ? Math.max.apply(null, o.lat) : null)),
+    '[지금 남은 것] 못 보낸 말 ' + queue.length + '줄 (메모리에만 ' + qMemOnly() + ') · 저장 못 한 말 ' + fl + '줄 (메모리에만 ' + failMemOnly() + ') · 누락 가능 구간 ' + gapGet().length + '곳',
+    '[다음 할 일] 연 횟수 ' + n('nextOpen') + ' · 바로 보이는 부분이 화면에 뜨기까지 ' + tm('nextInstant') + ' · AI 추천이 화면에 뜨기까지 ' + tm('nextAi') + ' · 근거 보기 ' + n('nextEv') + '번 · 다시 추천 ' + n('nextForce') + '번 · "그 뒤 새 기록 있음"이 뜬 채로 본 횟수 ' + n('nextStale'),
+    '[지금 장면] 연 횟수 ' + n('kNow') + ' · 화면에 뜨기까지 ' + tm('kNow') + ' · AI 없이 판정 찾기 ' + n('kRollQuick') + '번 · AI로 판정 묻기 ' + n('kRollAi') + '번 · 장면 추정을 손으로 고침 ' + n('kSceneFix') + '번 · 장면 고정 ' + n('kScenePin') + '번 · NPC 카드 펼침 ' + n('kNpcOpen') + '번 · 원문 보기 ' + n('kEv') + '번',
+    '  ↳ "화면에 뜨기까지"는 누른 뒤 화면에 그려질 때까지의 시간이에요. 읽고 이해하는 데 걸린 시간은 기계가 재지 못해요 (세션 뒤 설문으로)'
   ].join('\n');
 }
 function statShow(){ const b = $('statBox'); if (!b || !b.open) return; $('statTxt').textContent = statText(); }

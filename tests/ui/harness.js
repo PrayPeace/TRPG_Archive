@@ -38,7 +38,7 @@ async function open(browser, opts) {
     // 가짜 Deepgram 연결·녹음기·마이크
     window.__ws = [];
     class FakeWS { constructor(u) { this.url = u; this.readyState = 0; this.sent = []; this.bufferedAmount = 0; window.__ws.push(this); }
-      send(d) { if (this.failSend > 0) { this.failSend--; throw new Error('가짜: 보내기 실패'); } this.sent.push(d && d.tag ? d.tag : String(d).slice(0, 30)); }
+      send(d) { if (this.failSend > 0) { this.failSend--; throw new Error('가짜: 보내기 실패'); } if (this.failText > 0 && typeof d === 'string') { this.failText--; throw new Error('가짜: 종료 신호 보내기 실패'); } this.sent.push(d && d.tag ? d.tag : String(d).slice(0, 30)); }
       close() { if (this.readyState >= 2) return; this.readyState = 3; setTimeout(() => this.onclose && this.onclose({ code: 1000 }), 0); }
       _open() { this.readyState = 1; this.onopen && this.onopen(); } _msg(o) { this.onmessage && this.onmessage({ data: JSON.stringify(o) }); }
       _drop(code) { this.readyState = 3; this.onclose && this.onclose({ code: code || 1006 }); } }
@@ -47,11 +47,10 @@ async function open(browser, opts) {
     class FakeRec { constructor() { this.id = ++recN; this.state = 'inactive'; this.n = 0; }
       start() { this.state = 'recording'; this.t = setInterval(() => { this.ondataavailable && this.ondataavailable({ data: { size: 10, tag: 'r' + this.id + 'c' + (this.n++) } }); }, window.__chunkMs || 250); }       // 실제 녹음기와 같은 0.25초 간격
       stop() { if (this.state === 'inactive') return; this.state = 'inactive'; clearInterval(this.t); if (window.__noFinal) return;       // 실제 녹음기처럼: 멈춘 뒤에 마지막 조각과 멈춤 신호가 따로 온다
-        setTimeout(() => { this.ondataavailable && this.ondataavailable({ data: { size: 10, tag: 'r' + this.id + 'c' + (this.n++) + 'F' } }); this.onstop && this.onstop(); }, 20); }
+        setTimeout(() => { this.ondataavailable && this.ondataavailable({ data: { size: 10, tag: 'r' + this.id + 'c' + (this.n++) + 'F' } }); if (!window.__noStop) this.onstop && this.onstop(); }, window.__finalDelay || 20); }       // __finalDelay: 마지막 조각이 늦게 오는 브라우저, __noStop: 멈춤 신호를 주지 않는 브라우저
       static isTypeSupported() { return true; } }
     window.MediaRecorder = FakeRec;
-    const tr = { readyState: 'live', stop() { this.readyState = 'ended'; } };
-    const md = { getUserMedia: async () => ({ getAudioTracks: () => [tr], getTracks: () => [tr] }) };
+    const md = { getUserMedia: async () => { const tr = { readyState: 'live', stop() { this.readyState = 'ended'; } }; return { getAudioTracks: () => [tr], getTracks: () => [tr] }; } };       // 마이크를 다시 잡을 때마다 새 트랙 (끈 뒤 다시 켜는 시험)
     try { Object.defineProperty(navigator, 'mediaDevices', { value: md, configurable: true }); } catch (_) {}
   }, [U, opts.store || null, opts.session || null]);
   if (opts.initScript) await p.addInitScript(opts.initScript);
