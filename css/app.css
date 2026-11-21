@@ -1,6 +1,6 @@
 :root{
   --bg:#0e1014; --bg2:#13161c; --panel:#181b22; --panel2:#1e222b; --line:#2a2f3a; --line2:#353b48;
-  --txt:#e9e6df; --dim:#9aa1ad; --faint:#6b7280;
+  --txt:#e9e6df; --dim:#9aa1ad; --faint:#8a919c;
   --gold:#d6a84e; --gold2:#f0c873; --ink:#0b0c0f;
   --green:#3fb57a; --red:#e0605a; --blue:#5b8cff; --purple:#a07cf0;
   --r:12px;
@@ -497,10 +497,10 @@ button.icon:hover{color:var(--txt);border-color:var(--line2)}
   .lb-notch,.lb-hbar{display:none}
 }
 /* ── 방 테마 (룰마다 기본, 마스터가 바꿀 수 있음) ── */
-html:not(.lob)[data-theme=coc]{--bg:#120f0b;--bg2:#18140e;--panel:#1e1912;--panel2:#272017;--line:#3a3023;--line2:#4b3e2c;--txt:#eee4cf;--dim:#b8a98b;--faint:#7f725c;--gold:#c99a4e;--gold2:#e4b66c;--ink:#140f08}
-html:not(.lob)[data-theme=ta]{--bg:#0e0a0b;--bg2:#140e0f;--panel:#1a1213;--panel2:#24191a;--line:#3d2427;--line2:#552f33;--txt:#f4ece6;--dim:#bba9a6;--faint:#7e6a68;--gold:#e3222f;--gold2:#ff4753;--ink:#fff}
-html:not(.lob)[data-theme=uw]{--bg:#0a1114;--bg2:#0e171b;--panel:#121e23;--panel2:#18272d;--line:#23383f;--line2:#2e4a53;--txt:#e4f1f0;--dim:#93aeb0;--faint:#5f7a7d;--gold:#3fc8b8;--gold2:#6fe3d5;--ink:#04201c}
-html:not(.lob)[data-theme=sg]{--bg:#0c0c14;--bg2:#11111b;--panel:#161624;--panel2:#1d1d2e;--line:#2b2b42;--line2:#3a3a56;--txt:#ece8e1;--dim:#a6a2b4;--faint:#6c6880;--gold:#e0573d;--gold2:#ff7a5c;--ink:#fff}
+html:not(.lob)[data-theme=coc]{--bg:#120f0b;--bg2:#18140e;--panel:#1e1912;--panel2:#272017;--line:#3a3023;--line2:#4b3e2c;--txt:#eee4cf;--dim:#b8a98b;--faint:#998b72;--gold:#c99a4e;--gold2:#e4b66c;--ink:#140f08}
+html:not(.lob)[data-theme=ta]{--bg:#0e0a0b;--bg2:#140e0f;--panel:#1a1213;--panel2:#24191a;--line:#3d2427;--line2:#552f33;--txt:#f4ece6;--dim:#bba9a6;--faint:#9b8684;--gold:#e3222f;--gold2:#ff4753;--ink:#fff}
+html:not(.lob)[data-theme=uw]{--bg:#0a1114;--bg2:#0e171b;--panel:#121e23;--panel2:#18272d;--line:#23383f;--line2:#2e4a53;--txt:#e4f1f0;--dim:#93aeb0;--faint:#7d999c;--gold:#3fc8b8;--gold2:#6fe3d5;--ink:#04201c}
+html:not(.lob)[data-theme=sg]{--bg:#0c0c14;--bg2:#11111b;--panel:#161624;--panel2:#1d1d2e;--line:#2b2b42;--line2:#3a3a56;--txt:#ece8e1;--dim:#a6a2b4;--faint:#8b87a1;--gold:#e0573d;--gold2:#ff7a5c;--ink:#fff}
 html[data-theme] .top{background:color-mix(in srgb,var(--bg) 90%,transparent)}
 html[data-theme=coc] .brand,html[data-theme=coc] #app h2,html[data-theme=coc] #app h3,html[data-theme=coc] #rIntro .ri-nm{font-family:"Noto Serif KR","Nanum Myeongjo",Batang,serif;letter-spacing:0}
 html[data-theme=ta] .brand,html[data-theme=ta] #rIntro .ri-nm{font-weight:900;letter-spacing:-.02em}
@@ -537,3 +537,15 @@ html[data-theme=etc] #rBg .rb-pat{background:radial-gradient(ellipse 70% 45% at 
 #rIntro .ri-enso circle{fill:none;stroke:var(--gold);stroke-width:7;stroke-linecap:round;stroke-dasharray:330;stroke-dashoffset:330;animation:riEnso .9s cubic-bezier(.5,0,.3,1) .05s forwards;transform:rotate(-100deg);transform-origin:50% 50%}
 @keyframes riEnso{to{stroke-dashoffset:28}}
 #rIntro .ri-d20{width:72px;height:72px;margin:0 auto 4px;display:block;opacity:0;animation:riUp .6s ease .05s forwards}
+
+/* ── 접근성·휴대폰 상단 ── */
+:focus-visible{outline:2px solid var(--gold2);outline-offset:2px}
+.lk:focus-visible{border-radius:3px}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+#app{zoom:var(--zoom,1)}
+@media (max-width:860px){
+  .cost{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  .cost.open{white-space:normal}
+  #netPill.on span:last-child{display:none}
+  #netPill.on{padding:4px 7px}
+}

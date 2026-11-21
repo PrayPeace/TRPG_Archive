@@ -2,7 +2,7 @@
  * 모든 js 파일은 index.html 아래에서 순서대로 읽고 이름(함수·변수)을 함께 쓴다. */
 'use strict';
 /* ── 주기적으로 읽어 오기 ── */
-let failCount = 0, live = {};   // live: 마지막으로 받은 세션 번호·초기화 번호 (말할 때 붙여 둔다)
+let failCount = 0, live = {}, lastNewAt = Date.now();   // live: 마지막으로 받은 세션 번호·초기화 번호 (말할 때 붙여 둔다)
 function net(cls, text){ $('netPill').className = 'chip net ' + cls; $('netPill').lastChild.textContent = text; }
 async function pollOnce(){
   try {
@@ -21,16 +21,26 @@ async function pollOnce(){
     if (r.jumped) resetLog();                       // 너무 오래 끊겨 있었으면 최근 300줄부터 다시
     if (!lastId) hasOlder = r.from > 0;
     addLogLines(r.lines, { quiet: !lastId });
-    if (r.lines.length) lastId = Math.max(lastId, r.lines[r.lines.length - 1].id);
+    if (r.lines.length) { lastId = Math.max(lastId, r.lines[r.lines.length - 1].id); lastNewAt = Date.now(); }
     else if (!allLines.length) renderLog();
     renderWho(r.presence);
     renderSumState(v);
+    if (data && ver.sumVer && v.sumVer !== ver.sumVer) srSay('새 요약이 도착했어요');
     if (!data || ['sumVer','notesVer','charVer','imgVer','session','resetVer','colorVer'].some(k => v[k] !== ver[k])) await refreshData();
   } catch (e) {
     failCount++; net('err', '연결 끊김 · 재시도');
     if (String(e.message || '').includes('비밀번호')) { stopAll(''); showJoin('방 비밀번호가 틀렸어요'); return; }
   }
-  setTimeout(pollOnce, failCount ? 8000 : 5000);
+  setTimeout(pollOnce, pollGap());
+}
+/* 새로 고침 간격: 대화가 오가거나 내 마이크가 켜져 있으면 4초, 조용하면 8~12초, 다른 화면을 보고 있으면 15초.
+ * 서버는 25초 동안 소식이 없으면 '접속 끊김'으로 보므로 15초를 넘기지 않는다. */
+function pollGap(){
+  if (failCount) return 8000;
+  if (document.hidden) return 15000;
+  const quiet = Date.now() - lastNewAt;
+  if (running || quiet < 60000) return 4000;
+  return quiet < 180000 ? 8000 : 12000;
 }
 
 /* ── 받아쓰기 → 시트 ──

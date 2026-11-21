@@ -180,3 +180,22 @@ function openForm(title, fields, values, onSave, opts){
   const first = m.querySelector('input,textarea'); if (first) first.focus();
 }
 
+
+/* 글자 크기 (이 기기에만 저장) */
+(function(){
+  const z = S.get('t_zoom') || '1'; document.documentElement.style.setProperty('--zoom', z);
+  const sel = $('sZoom'); if (sel) { sel.value = z; sel.onchange = () => { S.set('t_zoom', sel.value); document.documentElement.style.setProperty('--zoom', sel.value); }; }
+  const cost = document.querySelector('.cost'); if (cost) cost.onclick = () => cost.classList.toggle('open');      // 휴대폰: 한 줄로 접힌 안내를 눌러서 펼치기
+})();
+function srSay(t){ const r = $('srLive'); if (!r) return; r.textContent = ''; setTimeout(() => { r.textContent = t; }, 50); }   // 화면 낭독기에 알리기
+/* 화면 오류를 방의 '오류기록' 탭으로 보낸다 (방에 들어와 있을 때만, 한 화면에서 5건까지) */
+let errSent = 0;
+function reportErr(msg){
+  try {
+    if (errSent >= 5 || !cfg.url || !cfg.pw || $('app').classList.contains('hide')) return; errSent++;
+    const ver = typeof APP_VER !== 'undefined' ? APP_VER : '';
+    fetch(cfg.url, { method: 'POST', body: JSON.stringify({ action: 'clientErr', pw: cfg.pw, name: cfg.name || '', ver, msg: String(msg).slice(0, 500) }) }).catch(() => {});
+  } catch (_) {}
+}
+window.addEventListener('error', e => reportErr((e.message || '오류') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '')));
+window.addEventListener('unhandledrejection', e => reportErr('Promise: ' + String(e.reason && (e.reason.stack || e.reason.message) || e.reason).slice(0, 400)));
