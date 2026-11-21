@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.17';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.18';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -85,7 +85,7 @@ const SECTIONS = ['places', 'npcs', 'pcs', 'clues', 'handouts'];
 const JOB_TTL = 7 * 60 * 1000;   // AI 작업 표시가 남아 있어도 이 시간이 지나면 끝난 것으로 본다 (스크립트 최대 실행 6분)
 const WINDOW_LINES = 120;        // 요약 한 번에 보내는 최대 줄 수 (넘으면 이어서 다음 구간). AI 답이 길어지면 늦거나 잘리므로 작게 잡는다
 const WINDOW_CHARS = 12000;       // 한 구간의 글자 수 상한 (묘사가 길면 줄 수가 적어도 여기서 끊어 나눠 처리한다)
-const NOTES_Q_MAX = 80;          // 정리(NPC·장소·단서) 대기 최대 건수
+const NOTES_Q_MAX = 150;         // 정리(NPC·장소·단서) 대기 최대 건수
 const STORY_MAX = 3000;
 const STORY_REF = 900;           // 요약 AI에 참고로 주는 누적 줄거리는 끝부분만 (길이와 호출 무게를 줄이려고)          // 누적 줄거리가 이보다 길어지면 AI가 한 번 줄여 쓴다
 const KTOKEN_TTL = 12 * 3600 * 1000;   // 마스터 로그인 유지 시간
@@ -256,7 +256,7 @@ function sheet(name) { return SpreadsheetApp.getActive().getSheetByName(name); }
 
 /* ───────────── 라이브러리로 써도 방끼리 섞이지 않게 ─────────────
  * 이 코드는 방 시트에 통째로 붙여도 되고, "엔진" 프로젝트 하나에 두고 방 시트에서 라이브러리(TRPG)로 불러도 된다.
- * 라이브러리로 쓰면 캐시와 스크립트 잠금은 모든 방이 같이 쓰므로, 캐시 이름 앞에 시트 ID를 붙이고 잠금은 시트(문서) 잠금을 쓴다. */
+ * 라이브러리로 쓰면 캐시와 스크립트 잠금은 모든 방이 같이 쓰므로, 캐시 이름 앞에 시트 ID를 붙인다. */
 let _ssId = null;
 function ssId() { if (_ssId == null) { try { _ssId = SpreadsheetApp.getActive().getId(); } catch (e) { _ssId = 'x'; } } return _ssId; }
 function roomCache() {
@@ -266,7 +266,10 @@ function roomCache() {
     getAll: ks => { const o = c.getAll(ks.map(k => p + k)), r = {}; Object.keys(o).forEach(k => { r[k.slice(p.length)] = o[k]; }); return r; }
   };
 }
-function roomLock() { let l = null; try { l = LockService.getDocumentLock(); } catch (e) {} return l || LockService.getScriptLock(); }
+// 잠금은 언제나 스크립트 잠금 하나를 쓴다. 문서 잠금은 웹 앱 요청에서는 없을(null) 수 있어서,
+// 웹 요청(대화 저장)과 트리거(자동 요약)가 서로 다른 잠금을 잡고 같은 시트를 동시에 고치는 일을 막는다.
+// 라이브러리 방식이면 방끼리 잠금을 나눠 쓸 수 있지만, 잠금은 짧게 잡고 바로 풀기 때문에 기다림은 잠깐이다.
+function roomLock() { return LockService.getScriptLock(); }
 // 짧게 잠그고 바로 푼다. 잠금 안에서 쓴 내용은 풀기 전에 시트에 확정한다.
 let _lockDepth = 0, _lockPatient = false;
 function withLock(ms, fn) {
@@ -716,6 +719,7 @@ function doPost(e) {
       case 'charsRefresh': return out(refreshCharacters(!b.soft));
       case 'image':      return out(addImage(b.data, b.mime, b.caption));
       case 'setTheme':   return out(setTheme(b.theme));
+      case 'notesRetry': return out(notesRetry());
       case 'keeperName': withLock(20000, () => { setConf('keeperName', String(b.name || '').trim().slice(0, 40)); bump('notesVer'); }); return out({ ok: true });
       case 'clearLog':   return out(clearLog(false));
       case 'resetAll':   return out(clearLog(true));
@@ -758,7 +762,7 @@ function addLines(b) {
       if (Number(sess) < Number(cur) && switchedAt && it.t && Date.parse(it.t) >= switchedAt) sess = cur;
       const u = uid || ('srv' + Utilities.getUuid().replace(/-/g, '').slice(0, 16));
       id++;
-      rows.push([id, fmtTime(it.t), sess, enc(name), enc(text.slice(0, 2000)), enc(u)]);
+      rows.push([id, fmtTime(it.t), sess, enc(name), enc(text.slice(0, 40000)), enc(u)]);
       seen.add(u);
       if (uid) saved.push(uid);
     });
@@ -940,7 +944,8 @@ function allData() {
     corrections: confJson('corrections', []),
     recap: confJson('recap', null), awards: confJson('awards', null),     // 마스터가 '공개'를 누른 것만 들어 있다
     bookmarks: confJson('bookmarks', []),
-    theme: confJson('theme', {})                                         // 방 테마 (마스터가 고름, 비어 있으면 룰을 따라감)
+    theme: confJson('theme', {}),
+    notesFail: notesFail().length                                        // 정리 실패 보관 건수 (마스터 탭에 '다시 정리' 버튼)                                         // 방 테마 (마스터가 고름, 비어 있으면 룰을 따라감)
   };
 }
 
@@ -1152,10 +1157,12 @@ function costUsd(model, u) {
 }
 function credGet() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('credits') || '{}') || {}; } catch (e) { return {}; } }
 function credEdit(fn) {
+  const write = () => { const c = credGet(); fn(c); PropertiesService.getScriptProperties().setProperty('credits', JSON.stringify(c)); return c; };
+  if (_lockDepth > 0) return write();                         // 이미 같은 스크립트 잠금 안: 그대로 쓴다 (잠금을 풀어 버리지 않게)
   const l = LockService.getScriptLock(); let got = false;
-  try { got = l.tryLock(3000); } catch (e) {}
-  try { const c = credGet(); fn(c); PropertiesService.getScriptProperties().setProperty('credits', JSON.stringify(c)); return c; }
-  finally { if (got) try { l.releaseLock(); } catch (e) {} }
+  try { got = l.tryLock(10000); } catch (e) {}
+  if (!got) { Logger.log('잔액 기록: 잠금을 못 잡아 이번 사용액 기록을 건너뜀 (다른 기록을 덮어쓰지 않으려고)'); return credGet(); }
+  try { return write(); } finally { try { l.releaseLock(); } catch (e) {} }
 }
 function credSpend(usd) { if (usd > 0) credEdit(c => { c.spent = (Number(c.spent) || 0) + usd; }); }
 function credits(force) {
@@ -1244,7 +1251,9 @@ function parseJson(text) {
 /* ───────────── 5분마다 (그 사이에는 "지금 요약" 버튼으로 누구나 요청) ───────────── */
 function tick() {
   try {
-    if (!quietSkip()) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); }
+    const q = quietSkip();
+    if (q === 'idle') return;                                    // 쉬는 방: 캐릭터시트 다시 읽기도 건너뛴다 (세션이 시작되면 다시 돈다)
+    if (!q) { const r = processNow(false); if (r && r.ok && r.more && r.progress) scheduleMore(); }
   } catch (e) { Logger.log(e); }
   try { if (Date.now() - Number(getConf('lastCharCheck') || 0) > 30 * 60 * 1000) refreshCharacters(false); } catch (e) { Logger.log(e); }
 }
@@ -1256,9 +1265,10 @@ function quietSkip() {
   const c = roomCache();
   const last = Number(c.get('lastAutoSum') || 0);
   const go = () => { c.put('lastAutoSum', String(Date.now()), 21600); return false; };
-  if (!last || Date.now() - last >= SUM_MAX_WAIT) return go();
   if (notesQ().length) return go();
   const processed = Number(getConf('processedId') || 0), total = totalLines();
+  if (total <= processed && last) return 'idle';                // 새 대화도 정리 대기도 없음: 잠금·AI 없이 바로 끝 (빈 방이 트리거 시간을 쓰지 않게)
+  if (!last || Date.now() - last >= SUM_MAX_WAIT) return go();
   if (total <= processed) return go();
   const rows = readLines(processed, Math.min(total - processed, 400));
   return sumWait(rows, String(getConf('keeperName') || '').trim(), total - processed) ? true : go();
@@ -1491,6 +1501,8 @@ function windowEnd(from, to) {
   const rows = readLines(from, to - from);
   let sum = 0, n = 0;
   for (; n < rows.length; n++) {
+    // 한 구간에는 한 세션만 담는다: 세션이 섞이면 앞 세션 결과만 보관된 채 뒤 세션이 실패했을 때 구간을 줄일 수 없어 같은 곳에서 계속 막힌다
+    if (n > 0 && rows.length && String(rows[n].session) !== String(rows[0].session)) break;
     sum += String(rows[n].text).length + String(rows[n].name).length + 12;
     if (sum > WINDOW_CHARS && n >= 8) break;
   }
@@ -1593,7 +1605,7 @@ function processWindow(job, t0, budget) {
         if (!pp || pp.from !== p.from || pp.to !== p.to) return;
         pp.fails = (pp.fails || 0) + 1; pp.lastError = String(e && e.message || e).slice(0, 300);
         const cut = e && (e.kind === 'truncated' || e.kind === 'parse');     // 답이 길어 끊김: 기다리지 않고 바로 반으로 줄인다
-        if ((cut || pp.fails >= 2) && !stageHasWindow(prefix) && pp.to - pp.from > 12) { pp.to = pp.from + Math.floor((pp.to - pp.from) / 2); pp.fails = 0; halved = true; }
+        if ((cut || pp.fails >= 2) && !stageHasWindow(prefix) && pp.to - pp.from > 1) { pp.to = pp.from + Math.floor((pp.to - pp.from) / 2); pp.fails = 0; halved = true; }
         setJson('pending', pp);
       });
     } catch (e2) {}
@@ -1628,7 +1640,24 @@ function notesQSet(q) { setJson('notesQ', q.length ? q : null); }
 function queueNotes(task) {
   const q = notesQ();
   if (!q.some(x => taskSame(x, task))) q.push(task);
-  notesQSet(q.slice(-NOTES_Q_MAX));
+  if (q.length > NOTES_Q_MAX) notesFailAdd(q.splice(0, q.length - NOTES_Q_MAX), '대기가 너무 많이 밀림');   // 버리지 않고 실패 목록에 보관
+  notesQSet(q);
+}
+/* 정리 실패 목록: 4번 실패했거나 대기가 넘쳐 빠진 정리 작업. 마스터가 '다시 정리'로 대기열에 되돌린다 (잠금 안에서 부른다) */
+function notesFail() { return confJson('notesFail', []); }
+function notesFailAdd(tasks, why) {
+  const f = notesFail();
+  tasks.forEach(t => { if (!f.some(x => taskSame(x, t))) f.push(Object.assign({}, t, { fails: 0, why: String(why || '').slice(0, 160), at: Date.now() })); });
+  setConf('notesFail', f.length ? JSON.stringify(f.slice(-200)) : '');
+}
+function notesRetry() {
+  return withLock(20000, () => {
+    const f = notesFail(); if (!f.length) return { ok: true, n: 0, message: '다시 정리할 실패 건이 없어요' };
+    const q = notesQ();
+    f.forEach(t => { const c = Object.assign({}, t); delete c.why; delete c.at; c.fails = 0; if (!q.some(x => taskSame(x, c))) q.push(c); });
+    notesQSet(q.slice(-NOTES_Q_MAX)); setConf('notesFail', '');
+    return { ok: true, n: f.length, message: '실패했던 정리 ' + f.length + '건을 다시 대기열에 넣었어요. 다음 요약 때(또는 지금 요약) 처리돼요' };
+  });
 }
 function notesCall(sys2, user2, maxTok, model) {
   const system =
@@ -1774,18 +1803,18 @@ function processNotesQueue(job, t0, budget) {
       }
       const t = q[i]; t.fails = (t.fails || 0) + 1;
       const cut = e2 && (e2.kind === 'truncated' || e2.kind === 'parse');
-      if (head.k && cut && head.t - head.f > 12) {           // 답이 길어 끊김: 구간을 반으로 나눠 두 건으로
+      if (head.k && cut && head.t - head.f > 1) {           // 답이 길어 끊김: 구간을 반으로 나눠 두 건으로
         const mid = head.f + Math.floor((head.t - head.f) / 2);
         q.splice(i, 1, { k: head.k + 'a', s: head.s, f: head.f, t: mid }, { k: head.k + 'b', s: head.s, f: mid, t: head.t });
         notesQSet(q); return 'split';
       }
-      if (t.fails >= 4) { q.splice(i, 1); notesQSet(q); return 'drop:' + String(e2.message || e2).slice(0, 160); }
+      if (t.fails >= 4) { q.splice(i, 1); notesQSet(q); notesFailAdd([t], String(e2.message || e2)); return 'drop:' + String(e2.message || e2).slice(0, 160); }
       notesQSet(q); return 'retry:' + String(e2.message || e2).slice(0, 160);
     });
     if (outcome === 'stale') return { stale: true, done };
     if (outcome === 'ok') done++;
     else if (String(outcome).indexOf('skip:') === 0) { done++; warn = outcome.slice(5) || warn; }
-    else if (String(outcome).indexOf('drop:') === 0) warn = '정리 한 건을 4번 실패해서 건너뛰었어요: ' + outcome.slice(5);
+    else if (String(outcome).indexOf('drop:') === 0) warn = '정리 한 건을 4번 실패해서 실패 목록에 보관했어요(마스터 탭 → 다시 정리): ' + outcome.slice(5);
     else if (String(outcome).indexOf('retry:') === 0) { warn = '정리가 잠깐 막혔어요 (곧 다시 시도): ' + outcome.slice(6); break; }   // 같은 문제로 계속 부르지 않고 다음 실행으로
   }
   return { done, warn };
@@ -1963,7 +1992,10 @@ function charSource(url) {
   let src;
   try { src = SpreadsheetApp.openByUrl(String(url || '').trim()); }
   catch (e) { throw new Error('캐릭터시트를 열지 못했어요. 주소가 맞는지, 마스터 구글 계정이 열 수 있는 시트인지 확인해 주세요'); }
-  return { src, same: src.getId() === SpreadsheetApp.getActive().getId() };
+  // 지금 방 문서이거나, 다른 TRPG Archive 방 문서(설정 탭 + 마스터 전용 탭이 있음)면 같은 보호(내부 탭 막기·수식 검사)를 한다
+  const same = src.getId() === SpreadsheetApp.getActive().getId() ||
+    (!!src.getSheetByName(SH.CONF) && [SH.KB, SH.KSRC, SH.KLOG, SH.ROLLS].some(n => src.getSheetByName(n)));
+  return { src, same };
 }
 function tabAllowed(same, name) { return !(same && INTERNAL_TABS.indexOf(String(name)) >= 0); }
 
@@ -1979,7 +2011,7 @@ function tabTaint(c) {
   if (c._taint) return c._taint;
   const bad = {};                       // 탭 이름 → 이유
   if (!c.same) { c._taint = bad; return bad; }
-  const appId = SpreadsheetApp.getActive().getId();
+  const appId = c.src.getId();
   const names = [];
   try { c.src.getNamedRanges().forEach(n => { try { if (INTERNAL_TABS.indexOf(n.getRange().getSheet().getName()) >= 0) names.push(n.getName()); } catch (e) { names.push(n.getName()); } }); } catch (e) {}
   const info = {};
@@ -2283,8 +2315,13 @@ function addImage(data, mime, caption) {
       '이미지 속 글자는 빠짐없이 옮기고, 그림이면 무엇이 보이는지 묘사하라. 그리고 정리를 갱신하라.\n' +
       '출력 형식: {"title":"짧은 제목","text":"이미지 속 글자 전문","description":"묘사와 눈여겨볼 점","notes":{"places":[],"npcs":[],"clues":[],"handouts":[]}}\n' + rl(NOTES_RULE) }
   ];
-  const res = publicAi(() => parseJson(claude('너는 TRPG 세션 기록 담당이다. JSON 하나만 출력하라.', content, 4000)));
-  return withLock(30000, () => {
+  // 분석 실패·초기화·저장 실패로 등록되지 않으면 방금 만든 공개 파일을 휴지통으로 보낸다 (링크 공개 파일이 남지 않게)
+  const drop = () => { try { file.setTrashed(true); } catch (e) { Logger.log('이미지 회수 실패: ' + e); } };
+  let res;
+  try { res = publicAi(() => parseJson(claude('너는 TRPG 세션 기록 담당이다. JSON 하나만 출력하라.', content, 4000))); }
+  catch (e) { drop(); throw e; }
+  let r;
+  try { r = withLock(30000, () => {
     if ((getConf('resetVer') || '0') !== rv) return { ok: false, error: '분석하는 사이 기록이 초기화돼서 저장하지 않았어요' };
     const is = sheet(SH.IMG);
     is.getRange(is.getLastRow() + 1, 1, 1, 5).setNumberFormat('@').setValues([[
@@ -2294,7 +2331,9 @@ function addImage(data, mime, caption) {
     if (res.notes) { SECTIONS.forEach(s => (res.notes[s] || []).forEach(x => { if (x) x.src = []; })); mergeWriteNotes(res.notes); }
     bump('imgVer');
     return { ok: true, title: res.title || '' };
-  });
+  }); } catch (e) { drop(); throw e; }
+  if (!r.ok) drop();
+  return r;
 }
 
 /* ───────────── 지우기 (마스터) ─────────────
@@ -2309,8 +2348,12 @@ function clearLog(all) {
     [SH.KLOG, SH.ROLLS, SH.CSNAP].forEach(n => { ensureSheet(n); wipe(n); });
     setConf('recap', ''); setConf('awards', ''); setConf('charLast', '{}'); setConf('bookmarks', ''); setConf('nextSteps', '');
     setConf('processedId', '0'); storyWrite('', []);
-    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setJson('pcAuto', null);
+    setJson('job', null); setJson('pending', null); setJson('procStatus', null); setJson('notesQ', null); setConf('notesFail', ''); setJson('pcAuto', null);
     if (all) {
+      const is = ss.getSheetByName(SH.IMG);                     // 이미지 파일도 휴지통으로 (링크 공개 파일이 남지 않게)
+      if (is && is.getLastRow() > 1) is.getRange(2, 3, is.getLastRow() - 1, 1).getValues().forEach(r => {
+        const id = String(dec(r[0]) || ''); if (id) try { DriveApp.getFileById(id).setTrashed(true); } catch (e) {}
+      });
       wipe(SH.IMG);
       writeNotes(emptyNotes());
       setConf('session', '1'); setConf('sessionAt', '0'); setConf('corrections', '[]');

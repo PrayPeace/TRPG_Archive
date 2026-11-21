@@ -11,18 +11,24 @@ const RULE_AB = { coc: 'CoC', triangle: 'TA', unlimited: 'UW', shinobi: 'SG', et
 const RULE_NM = { coc: '크툴루의 부름', triangle: '트라이앵글 에이전시', unlimited: '언리미티드 월드', shinobi: '시노비가미', etc: '기타 TRPG' };
 const HUB_FROM_LINK = hp.get('hub') || '';
 if (HUB_FROM_LINK) { S.set('t_hub', HUB_FROM_LINK); history.replaceState(null, '', location.pathname + location.search); }
-const L = { hub: '', fixed: false, rooms: [], title: '', timer: 0, fromApp: false, kt: SS.get('t_hubkt') || '' };
+const L = { hub: '', fixed: false, rooms: [], title: '', timer: 0, fromApp: false, kt: '' };
+/* 로비 마스터 토큰은 발급한 로비 주소와 함께 보관하고, 같은 로비에만 보낸다 (링크로 다른 로비를 열어도 새지 않게) */
+function hubKtSave(kt){ L.kt = kt || ''; if (kt) SS.set('t_hubkt', JSON.stringify({ hub: L.hub, kt })); else SS.del('t_hubkt'); }
+function hubKtLoad(){ try { const o = JSON.parse(SS.get('t_hubkt') || 'null'); L.kt = o && o.hub && o.hub === L.hub ? o.kt : ''; } catch (_) { L.kt = ''; } }
 function scriptId(u){ const m = String(u || '').match(/\/macros\/s\/([A-Za-z0-9_\-]+)/); return m ? m[1] : ''; }
 L.ready = (async () => {
-  if (HUB_FROM_LINK) { L.hub = scriptUrl(HUB_FROM_LINK); return; }
-  try { const j = await (await fetch('lobby.json', { cache: 'no-store' })).json(); if (j && j.hub) { L.hub = scriptUrl(j.hub); L.fixed = true; return; } } catch (_) {}
-  L.hub = scriptUrl(S.get('t_hub') || '');
+  let def = '';
+  try { const j = await (await fetch('lobby.json', { cache: 'no-store' })).json(); if (j && j.hub) def = scriptUrl(j.hub); } catch (_) {}
+  if (HUB_FROM_LINK) { L.hub = scriptUrl(HUB_FROM_LINK); L.foreign = !!def && L.hub !== def; }
+  else if (def) { L.hub = def; L.fixed = true; }
+  else L.hub = scriptUrl(S.get('t_hub') || '');
+  hubKtLoad();
 })();
 function lobbyLink(){ return location.origin + location.pathname + (L.fixed ? '' : '#hub=' + scriptId(L.hub)); }
 const isHubKeeper = () => !!(L.hub && L.kt);
 async function hubPost(b){
   const r = await (await fetch(L.hub, { method: 'POST', body: JSON.stringify(Object.assign({ kt: L.kt }, b)) })).json();
-  if (r && r.kexp) { L.kt = ''; SS.del('t_hubkt'); }
+  if (r && r.kexp) hubKtSave('');
   return r;
 }
 function lTick(){
@@ -226,6 +232,7 @@ function hubLoginForm(){
   sheetOpen(s => {
     s.append(el('h3', '', '⚙ 마스터 로그인'));
     s.append(el('div', 'note', '방 개설과 주소 연결은 마스터만 할 수 있어요. 로비 방의 마스터 비밀번호를 넣어 주세요.'));
+    if (L.foreign) { const w = el('div', 'note', '⚠ 링크로 연 다른 로비예요 (주소 끝 …' + scriptId(L.hub).slice(-6) + '). 내 로비가 아니면 비밀번호를 넣지 마세요.'); w.style.color = 'var(--red)'; s.append(w); }
     const k = field(s, '마스터 비밀번호', 'password');
     const go = bigBtn(s, '로그인'), msg = lmsg(s);
     const run = async () => {
@@ -234,7 +241,7 @@ function hubLoginForm(){
       try {
         const r = await hubPost({ action: 'hubLogin', kpw: k.value });
         if (!r.ok || !r.kt) { msg.err(r.error || '로그인하지 못했어요'); go.disabled = false; return; }
-        L.kt = r.kt; SS.set('t_hubkt', r.kt); await lobbyLoad(); settingsPanel();
+        hubKtSave(r.kt); await lobbyLoad(); settingsPanel();
       } catch (e) { msg.err('로비 방에 연결하지 못했어요. 로비 방의 Code.gs가 최신 판인지 확인해 주세요'); go.disabled = false; }
     };
     go.onclick = run; k.onkeydown = e => { if (e.key === 'Enter') run(); };
@@ -255,7 +262,7 @@ function settingsPanel(){
     const b3 = el('button', '', '🔗 로비 링크 복사'); b3.onclick = async () => { try { await navigator.clipboard.writeText(lobbyLink()); toast('로비 링크를 복사했어요'); } catch (_) { prompt('이 링크를 복사해 보내 주세요', lobbyLink()); } };
     const b5 = el('button', '', '🔑 마스터 비밀번호'); b5.onclick = keeperPwForm;
     const b6 = el('button', '', '💳 잔액'); b6.onclick = credForm;
-    const b4 = el('button', '', '로그아웃'); b4.onclick = () => { L.kt = ''; SS.del('t_hubkt'); sheetClose(); lobbyLoad(); };
+    const b4 = el('button', '', '로그아웃'); b4.onclick = () => { hubKtSave(''); sheetClose(); lobbyLoad(); };
     row.append(b1, b2, b3, b5, b6, b4); s.append(row);
     const list = el('div'); list.style.marginTop = '14px'; s.append(list);
     if (!L.rooms.length) list.append(el('div', 'note', '아직 방이 없어요. "＋ 방 개설"로 만들어 보세요.'));
@@ -423,7 +430,7 @@ function keeperPwForm(){
       }
       if (bad) { msg.err(bad + '곳은 바꾸지 못했어요. 그 방의 Code.gs를 최신으로 바꾼 뒤 다시 눌러 주세요 (이미 바뀐 방은 그대로 넘어가요)'); go.disabled = false; return; }
       msg.ok('모든 방의 마스터 비밀번호를 바꿨어요. 새 비밀번호로 다시 로그인해 주세요');
-      L.kt = ''; SS.del('t_hubkt');
+      hubKtSave('');
       if (cfg.kt) { cfg.kt = ''; try { S.del('t_kt'); SS.del('t_kt'); } catch (_) {} }
       go.textContent = '다시 로그인'; go.disabled = false; go.onclick = hubLoginForm;
     };
