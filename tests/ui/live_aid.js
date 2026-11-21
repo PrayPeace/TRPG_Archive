@@ -19,7 +19,7 @@ const kb = { truth: '집사가 편지를 숨겼다', memo: '', glossary: '', don
   rolls: [{ id: 'r1', seq: 1, where: '서재', skill: '관찰력', success: '벽난로 벽돌 하나가 헐겁다', fail: '그을음뿐이다', locked: true }, { id: 'r2', seq: 2, where: '지하실', skill: '듣기', success: '물 떨어지는 소리' }],
   scenes: [{ id: 's1', seq: 1, title: '서재 조사', summary: '서재에서 편지를 찾는다' }, { id: 's2', seq: 2, title: '지하실로', summary: '열쇠로 지하실 문을 연다' }] };
 const kData = { ok: true, kb, sources: [], pending: 0, chunks: 0, board: { at: '2026-11-21 13:05:00', result: { clues: [{ id: 'c1', status: 'unfound', note: '' }, { id: 'c3', status: 'unfound', note: '' }], wrong: [], lies: [], hints: ['집사가 벽난로 쪽을 힐끔 본다'], next: '서재를 더 살피게 유도', basis: { processedId: 30, total: 40 }, sent: { truth: false, clues: 3, npcs: 2 } } },
-  recaps: [], awardsLogs: [], feedbacks: [], npcLog: [], rollLog: [], recap: null, awards: null, rollsTotal: 0, sessions: [{ session: '1', count: 60 }], session: '1', keeperName: '대장', resetVer: '1', kbGen: '0', weak: false, code: '2026-11-21.24' };
+  recaps: [], awardsLogs: [], feedbacks: [], npcLog: [], rollLog: [], recap: null, awards: null, rollsTotal: 0, sessions: [{ session: '1', count: 60 }], session: '1', keeperName: '대장', resetVer: '1', kbGen: '0', weak: false, code: '2026-11-21.25' };
 (async () => {
   const b = await chromium.launch();
   for (const [tag, vp] of [['PC', { width: 1100, height: 800 }], ['좁은 창', { width: 380, height: 720 }]]) {
@@ -38,12 +38,12 @@ const kData = { ok: true, kb, sources: [], pending: 0, chunks: 0, board: { at: '
     // ── 플레이어: 다음 할 일 ──
     const t0 = Date.now(); await p.evaluate(() => showTab('next'));
     const inst = await p.evaluate(() => document.getElementById('nextNow').textContent); const ms = Date.now() - t0;
-    ok('[' + tag + '] 지금 상황은 AI를 기다리지 않고 바로 보임', /마지막 장소\s*서재/.test(inst) && /풀리지 않은 단서 2개/.test(inst) && /북마크/.test(inst), ms + 'ms · ' + inst.slice(0, 70));
+    ok('[' + tag + '] 지금 상황은 AI를 기다리지 않고 바로 보임', /요약에 나온 마지막 장소\s*서재/.test(inst) && /풀리지 않은 단서 2개/.test(inst) && /북마크/.test(inst), ms + 'ms · ' + inst.slice(0, 70));
     await wait(p, 1500);
     const nx = await p.evaluate(() => ({ top: [...document.querySelectorAll('#nextBox > .nxi')].map(x => x.querySelector('b').textContent), more: document.querySelectorAll('#nextBox details .nxi').length, open: document.querySelector('#nextBox details').open,
-      old: (document.querySelector('.nxold') || {}).textContent || '', now: (document.querySelector('.nxnow.ai') || {}).textContent || '', st: document.getElementById('nextSt').textContent, guess: !!document.querySelector('#nextBox details .nxg'), ev: document.querySelectorAll('#nextBox .ev').length, scrollW: document.documentElement.scrollWidth <= window.innerWidth + 1 }));
+      old: (document.getElementById('nextFresh') || {}).textContent || '', now: (document.querySelector('.nxnow.ai') || {}).textContent || '', st: document.getElementById('nextSt').textContent, guess: !!document.querySelector('#nextBox details .nxg'), ev: document.querySelectorAll('#nextBox .ev').length, scrollW: document.documentElement.scrollWidth <= window.innerWidth + 1 }));
     ok('[' + tag + '] 지금 해 볼 만한 것 1~3개만 먼저, 나머지는 접어 둠', nx.top.length === 2 && nx.more === 4 && !nx.open, nx.top.join(' / '));
-    ok('[' + tag + '] 추천 뒤로 말이 쌓였으면 오래된 추천이라고 알림', /20줄 더 쌓였/.test(nx.old), nx.old.slice(0, 40));
+    ok('[' + tag + '] 추천이 읽은 곳과 가장 새 말을 따로 적고, 그 뒤 새 기록 수를 알림', /읽은 곳: #40까지/.test(nx.old) && /지금 가장 새 말: [\d:]* ?#60/.test(nx.old) && /그 뒤 새 기록 20줄/.test(nx.old), nx.old.slice(0, 90));
     ok('[' + tag + '] 추천이 읽은 기록 범위와 시각 표시', /13:05에 만든 추천/.test(nx.st) && /방금 한 말 10줄\(#31~#40\)/.test(nx.st), nx.st);
     ok('[' + tag + '] 지금 장면·하기로 한 일·미뤄 둔 일', /저택 서재/.test(nx.now) && /묻기로 함/.test(nx.now) && /지하실은 나중에/.test(nx.now));
     ok('[' + tag + '] 짐작은 "짐작" 딱지, 근거 발언 버튼', nx.guess && nx.ev === 1);
@@ -53,8 +53,8 @@ const kData = { ok: true, kb, sources: [], pending: 0, chunks: 0, board: { at: '
     ok('[' + tag + '] 가로로 넘치지 않음 (다음 할 일)', nx.scrollW);
     // ── 키퍼: 지금 장면 ──
     const before = calls.length; await p.evaluate(() => showTab('keeper')); await wait(p, 1200);
-    const k1 = await p.evaluate(() => ({ view: K.view, place: document.getElementById('kNowPlace').value, txt: document.getElementById('kview').textContent, hint: document.getElementById('kNowHint').textContent }));
-    ok('[' + tag + '] 키퍼 탭 첫 화면이 "지금 장면", 최근 대화로 장면 추정 (도서실=서재)', k1.view === 'now' && k1.place === '서재' && /자동 추정/.test(k1.hint), k1.place + ' · ' + k1.hint);
+    const k1 = await p.evaluate(() => ({ view: K.view, place: document.getElementById('kNowPlace').value, txt: document.getElementById('kview').textContent, hint: document.getElementById('kNowWho').textContent + ' / ' + document.getElementById('kNowHint').textContent }));
+    ok('[' + tag + '] 키퍼 탭 첫 화면이 "지금 장면", 최근 대화로 장면 추정 (도서실=서재)', k1.view === 'now' && k1.place === '서재' && /^자동 추정 \/ 추정 근거/.test(k1.hint), k1.place + ' · ' + k1.hint);
     ok('[' + tag + '] 이 장면의 단서: 찾음/아직, 핵심 수', /핵심 단서 1\/3 찾음/.test(k1.txt) && /벽난로 뒤 편지/.test(k1.txt) && /찢어진 일기/.test(k1.txt) && /다른 곳에 남은 핵심 단서[^]*녹슨 열쇠/.test(k1.txt));
     ok('[' + tag + '] 등장 NPC: 말투·목적·말해도 되는 것·숨길 것', /집사 윌리엄/.test(k1.txt) && /말투: 느리고 낮게/.test(k1.txt) && /주인이 밤마다 서재에 갔다/.test(k1.txt) && /주인의 편지를 숨겼다/.test(k1.txt) && !/정원사 톰/.test(k1.txt));
     ok('[' + tag + '] 판정 결과를 AI 없이 (마스터가 고친 것은 딱지)', /관찰력[^]*벽난로 벽돌 하나가 헐겁다[^]*그을음뿐이다/.test(k1.txt) && /마스터가 고침/.test(k1.txt) && !/물 떨어지는 소리/.test(k1.txt));
@@ -70,7 +70,7 @@ const kData = { ok: true, kb, sources: [], pending: 0, chunks: 0, board: { at: '
     const k3 = await p.evaluate(() => ({ place: document.getElementById('kNowPlace').value, txt: document.getElementById('kview').textContent }));
     ok('[' + tag + '] [이 장면 보기]로 바로 전환', k3.place === '지하실' && /녹슨 열쇠/.test(k3.txt) && /듣기/.test(k3.txt));
     // 판정 원문 확인: 한 번 눌러 AI 없이 찾기
-    await p.evaluate(() => { kSceneSet('서재', true); kRender(); }); await wait(p, 200);
+    await p.evaluate(() => { kSceneSet('서재', true, 'hand'); kRender(); }); await wait(p, 200);
     await p.evaluate(() => [...document.querySelectorAll('#kview button')].find(x => /원문 확인/.test(x.textContent)).click()); await wait(p, 900);
     const rc = calls.filter(c => c.a === 'kRoll'); const k4 = await p.evaluate(() => ({ view: K.view, txt: document.getElementById('kview').textContent }));
     ok('[' + tag + '] 판정 [원문 확인] 한 번에 판정 보조로 (AI 호출 0번, 장소·기술 채워짐)', k4.view === 'roll' && rc.length === 1 && rc[0].body.ai === false && rc[0].body.place === '서재' && rc[0].body.skill === '관찰력' && /벽난로 벽돌/.test(k4.txt));

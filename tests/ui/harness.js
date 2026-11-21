@@ -16,11 +16,11 @@ async function open(browser, opts) {
   await c.route(SITE + '**', r => { let f = new URL(r.request().url()).pathname.replace(/^\/[^/]+\//, '') || 'index.html'; f = ROOT + f; if (!fs.existsSync(f)) return r.fulfill({ status: 404, body: '' }); r.fulfill({ body: fs.readFileSync(f), contentType: types[path.extname(f)] || 'application/octet-stream' }); });
   await c.route('https://fonts.googleapis.com/**', r => r.fulfill({ body: '', contentType: 'text/css' }));
   await c.route('https://cdn.jsdelivr.net/**', r => r.fulfill({ body: '', contentType: 'text/css' }));
-  await c.route('https://script.google.com/**', r => {
+  await c.route('https://script.google.com/**', async r => {
     const u = new URL(r.request().url()); let j = {}; try { j = JSON.parse(r.request().postData() || '{}'); } catch (_) {}
     const a = j.action || u.searchParams.get('action') || ''; calls.push({ a, url: u.origin + u.pathname, body: j });
     const send = o => r.fulfill({ body: JSON.stringify(o), contentType: 'application/json' });
-    const own = opts.handle && opts.handle(a, j, u.origin + u.pathname, { saved });
+    const own = opts.handle && await opts.handle(a, j, u.origin + u.pathname, { saved });      // handle은 약속(Promise)을 돌려줘도 된다 (늦게 오는 답 흉내)
     if (own === 'abort') return r.abort();
     if (own) return send(own);
     if (a === 'lines') { const sv = [], dp = [], tl = []; (j.items || []).forEach(it => { if (/^big/.test(it.uid)) return tl.push(it.uid); if (saved[it.uid]) { saved[it.uid].n++; dp.push(it.uid); } else { saved[it.uid] = { n: 1, text: it.text, url: u.origin + u.pathname }; sv.push(it.uid); } }); return send({ ok: true, saved: sv, dup: dp, dropped: [], tooLong: tl }); }

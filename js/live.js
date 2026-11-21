@@ -24,6 +24,7 @@ async function pollOnce(){
     if (r.lines.length) { const ll = r.lines[r.lines.length - 1]; lastId = Math.max(lastId, ll.last || ll.id); lastNewAt = Date.now(); }      // last: 나뉘어 저장된 긴 말의 마지막 조각 번호
     else if (!allLines.length) renderLog();
     renderWho(r.presence);
+    nextCheck();                                    // 세션이 넘어갔으면 지난 추천을 걷고, 다음 할 일 탭이 열려 있으면 "그 뒤 새 기록" 줄을 고친다 (AI는 부르지 않음)
     renderSumState(v);
     if (data && ver.sumVer && v.sumVer !== ver.sumVer) srSay('새 요약이 도착했어요');
     if (!data || ['sumVer','notesVer','charVer','imgVer','session','resetVer','colorVer'].some(k => v[k] !== ver[k])) await refreshData();

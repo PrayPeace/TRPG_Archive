@@ -746,61 +746,114 @@ function renderBm(){
   box.append(dt);
 }
 /* ── 🧭 다음 할 일 ──
- * 위쪽 "지금 상황"은 AI를 기다리지 않고 이미 받아 둔 공개 자료(요약·단서·북마크)로 바로 그린다.
- * 아래 추천은 AI가 만든 것: "지금 해 볼 만한 것" 1~3개를 먼저 보이고 나머지는 접어 둔다. 추천이 본 기록의 범위와, 그 뒤로 쌓인 말이 있으면 오래된 추천임을 적는다. */
-let nextSt = { loading: false, data: null, behind: 0 };
+ * 화면은 두 구역으로 나뉜다.
+ *  ① "지금 상황" (#nextNow): AI를 기다리지 않고 이미 받아 둔 공개 자료(요약·단서·북마크·대화 줄 수)로 바로 그린다. 새 말이 들어올 때마다 다시 그린다.
+ *  ② "AI 추천" (#nextBox): AI가 만든 것. "지금 해 볼 만한 것" 1~3개를 먼저 보이고 나머지는 접어 둔다.
+ * 추천이 "어디까지 읽고 만든 것인지"(basis)와 "지금 가장 새 말"을 따로 적는다(#nextFresh). 새 말이 1줄이라도 더 있으면 그 수를 보여 주고,
+ * 탭을 열어 둔 동안에도 새 말이 올 때마다 이 줄만 고친다(AI는 부르지 않는다). 세션이 넘어가거나 기록이 초기화되면 받아 둔 추천을 바로 버린다. */
+let nextSt = { loading: false, data: null, behind: 0, moved: false };
+// 추천이 어느 세션·초기화 번호의 것인지 (예전 서버는 sess·rv를 주지 않아 key에서 읽는다: sumVer.notesVer.session.resetVer)
+function nextOwner(o){ const k = String((o && o.key) || '').split('.'); return { sess: String(o && o.sess != null ? o.sess : (k[2] || '')), rv: String(o && o.rv != null ? o.rv : (k[3] || '')) }; }
+function nextCur(){ const v = (typeof live === 'object' && live.session !== undefined) ? { session: live.session, resetVer: live.resetVer } : ((data && data.v) || {}); return { sess: String(v.session == null ? '' : v.session), rv: String(v.resetVer == null ? '' : v.resetVer) }; }
+// 받아 둔 추천이 지금 세션의 것인지. 아니면 버리고 false
+function nextValid(o){
+  o = o || nextSt.data; if (!o) return false;
+  const a = nextOwner(o), c = nextCur();
+  if ((c.sess && a.sess && a.sess !== c.sess) || (c.rv && a.rv && a.rv !== c.rv)) { if (o === nextSt.data) { nextSt.data = null; nextSt.behind = 0; nextSt.moved = false; } return false; }
+  return true;
+}
+// 세션·초기화가 바뀌었을 때(주기적으로 읽어 올 때마다 확인): 지난 세션 추천을 화면에서 걷는다
+function nextCheck(){
+  if (nextSt.data && !nextValid()) { nextDraw(null); const st = $('nextSt'); if (st) st.textContent = '세션이 넘어가서(또는 기록이 초기화돼서) 지난 추천을 걷었어요. [다시 추천]을 누르면 지금 세션 기록으로 만들어요'; }
+  if ($('nextBox') && $('nextBox').offsetParent !== null) { nextInstant(); nextFresh(); }
+}
 function nextInstant(){
   const box = $('nextNow'); if (!box) return; box.innerHTML = '';
   if (!data) return;
-  const sess = String((data.v && data.v.session) || ''), sums = sortSums(data.summaries || []).filter(x => String(x.session) === sess && !/\(잡담 위주, 진행 없음\)/.test(x.text));
+  const sess = nextCur().sess || String((data.v && data.v.session) || ''), sums = sortSums(data.summaries || []).filter(x => String(x.session) === sess && !/\(잡담 위주, 진행 없음\)/.test(x.text));
   const last = sums[sums.length - 1];
   const place = last ? ((String(last.text).match(/【([^】]+)】/g) || []).pop() || '').replace(/[【】]/g, '') : '';
   const open = ((data.notes && data.notes.clues) || []).filter(c => c.status !== '해결');
   const bms = (data.bookmarks || []).filter(x => String(x.session) === sess).slice(-3);
-  if (!last && !open.length) return;
+  // 요약 뒤에 들어온 말 (이 화면이 받아 둔 대화에서 센다)
+  const lastTo = last ? String(last.to || '') : '', tail = (typeof logTail !== 'undefined' && logTail) || null;
+  const after = allLines.filter(l => String(l.session) === sess && String(l.time || '') > lastTo && !/^※ 받아쓰기 끊김/.test(l.text || '')).length;
+  if (!last && !open.length && !after) return;
   const c = el('div', 'nxnow');
-  const h = el('div', 'nxh'); h.append(el('b', '', '지금 상황'), el('span', 'note', 'AI 없이 바로 보여요 · ' + (last ? String(last.to).slice(11, 16) + '까지의 요약 기준' : '요약 전')));
+  const h = el('div', 'nxh'); h.append(el('b', '', '① 지금 상황'), el('span', 'note', 'AI 없이 바로 보여요 · ' + (last ? lastTo.slice(11, 16) + '까지의 요약 기준' : '아직 요약 전') + (after ? ' · 그 뒤 새 말 ' + after + '줄' + (tail && tail.time ? ' (마지막 ' + String(tail.time).slice(11, 16) + ')' : '') : '')));
   c.append(h);
-  if (place) c.append(nxRow('마지막 장소', place));
+  if (place) c.append(nxRow('요약에 나온 마지막 장소', place));
   if (last) { const t = String(last.text).replace(/\s*\(#[^)]*\)/g, '').split('\n').map(x => x.trim()).filter(x => x && !/^【/.test(x)).slice(-3).join(' '); c.append(nxRow('최근 요약', t.slice(0, 260) + (t.length > 260 ? '…' : ''), () => showTab('sum'))); }
+  if (after) c.append(nxRow('요약 뒤 새 말', after + '줄은 아직 요약에 없어요 (대화 탭에서 볼 수 있어요)', () => showTab('log')));
   if (open.length) c.append(nxRow('풀리지 않은 단서 ' + open.length + '개', open.slice(-3).map(x => String(x.text).slice(0, 70)).join(' / '), () => showTab('notes')));
   if (bms.length) c.append(nxRow('📌 북마크', bms.map(x => String(x.text).replace(/\s*\(#[^)]*\)/g, '').slice(0, 60)).join(' / '), () => showTab('sum')));
   box.append(c);
 }
 function nxRow(k, v, go){ const r = el('div', 'nxr' + (go ? ' go' : '')); r.append(el('span', 'k', k), el('span', 'v', v)); if (go) { r.onclick = go; r.title = '눌러서 자세히 보기'; } return r; }
+// 추천을 만든 뒤로 이 화면에 들어온 말 수 (lastId = 이 화면이 받은 마지막 발언 번호). 서버가 알려 준 수와 큰 쪽
+function nextBehind(o){ o = o || nextSt.data; if (!o || !o.basis) return nextSt.behind || 0; return Math.max(nextSt.behind || 0, Math.max(0, lastId - Number(o.basis.total || 0))); }
+// 추천 뒤에 요약·정리·북마크가 바뀌었는지 (서버 번호 비교. 예전 서버 추천에는 번호가 없어 비교하지 않는다)
+function nextMoved(o){ o = o || nextSt.data; const b = o && o.basis, v = (data && data.v) || {}; if (!b || b.sumVer == null) return !!nextSt.moved; return !!nextSt.moved || (v.sumVer != null && String(v.sumVer) !== String(b.sumVer)) || (v.notesVer != null && String(v.notesVer) !== String(b.notesVer)); }
+/* "어디까지 읽은 추천인지 / 지금 가장 새 말 / 그 뒤 새 기록" 한 줄. AI를 부르지 않고 고친다 (새 말이 올 때마다) */
+function nextFresh(){
+  const box = $('nextFresh'); if (!box) return; box.innerHTML = ''; box.className = 'nxfresh hide';
+  const o = nextSt.data; if (!o || !nextValid(o)) return;
+  const b = o.basis || {}, behind = nextBehind(o), moved = nextMoved(o), tail = (typeof logTail !== 'undefined' && logTail) || null;
+  const read = (b.lastTime ? String(b.lastTime).slice(11, 16) + ' ' : '') + (b.total ? '#' + b.total : '');
+  box.className = 'nxfresh' + (behind >= 15 || moved ? ' old' : behind ? ' some' : '');
+  box.append(el('span', '', '② AI 추천 · ' + String(o.at || '').slice(11, 16) + '에 만듦 · 읽은 곳: ' + (read || '?') + '까지'));
+  box.append(el('span', '', ' · 지금 가장 새 말: ' + (tail && tail.time ? String(tail.time).slice(11, 16) + ' ' : '') + '#' + Math.max(lastId, Number(b.total || 0))));
+  if (behind) box.append(el('b', '', ' · 그 뒤 새 기록 ' + behind + '줄' + (behind >= 15 ? ' (이미 한 일이 섞여 있을 수 있어요)' : '')));
+  else if (!moved) box.append(el('span', 'okk', ' · 그 뒤 새 기록 없음'));
+  if (moved) box.append(el('b', '', ' · 추천을 만든 뒤 요약·정리·북마크가 바뀌었어요'));
+  if (behind || moved) { const bt = el('button', '', '지금 다시 추천'); bt.onclick = () => nextOpen(true); box.append(' ', bt); }
+}
 async function nextOpen(force){
-  nextInstant();
+  const t0 = performance.now();
+  nextCheck(); nextInstant(); nextFresh();
+  if (typeof statMs === 'function') { statMs('nextInstant', performance.now() - t0); stat(force ? 'nextForce' : 'nextOpen'); if (!force && nextSt.data && (nextBehind() || nextMoved())) stat('nextStale'); }
   if (nextSt.loading) return;
   const st = $('nextSt'), go = $('nextGo');
   nextSt.loading = true; go.disabled = true;
   st.textContent = nextSt.data && !force ? '새 기록이 있는지 확인하는 중… (아래는 받아 둔 추천)' : 'AI가 기록을 읽고 추천을 만드는 중… (10~30초' + (nextSt.data ? ' · 아래는 이전 추천' : '') + ')';
+  const asked = nextCur();
   try {
     const r = await post({ action: 'nextSteps', force: !!force });
     if (!r.ok) throw new Error(r.error || '실패');
-    if (r.empty) { nextSt.data = null; nextDraw(null); st.textContent = ''; }
+    const c = nextCur();
+    if (c.sess !== asked.sess || c.rv !== asked.rv) { nextSt.data = null; nextDraw(null); st.textContent = '추천을 받는 사이 세션이 넘어갔어요. [다시 추천]을 눌러 주세요'; }       // 늦게 온 답은 쓰지 않는다
+    else if (r.empty) { nextSt.data = null; nextDraw(null); st.textContent = ''; }
     else if (r.changed) { nextSt.data = null; nextDraw(null); st.textContent = '추천을 만드는 사이 세션이 바뀌었거나 기록이 초기화됐어요. [다시 추천]을 눌러 주세요'; }
-    else {
-      nextSt.behind = Number(r.behind || 0);
-      if (r.next) { nextSt.data = r.next; nextDraw(r.next); }
+    else if (r.next && !nextValid(r.next)) {
+      // 지난 세션의 추천이 돌아옴 (예전 서버가 세션 전환 직후 1분 안에 이렇게 답한다): 지금 추천으로 보이지 않는다
+      nextSt.data = null; nextSt.behind = 0; nextDraw(null);
+      st.textContent = '서버에 지난 세션의 추천만 있어서 보이지 않아요. ' + (r.wait ? '1분 뒤 ' : '') + '[다시 추천]을 누르면 지금 세션 기록으로 만들어요';
+    } else {
+      nextSt.behind = Number(r.behind || 0); nextSt.moved = !!r.moved;
+      if (r.next) { nextSt.data = r.next; nextDraw(r.next); if (typeof statMs === 'function' && !r.wait && !r.busy) statMs('nextAi', performance.now() - t0); }
+      else if (!nextSt.data) nextDraw(null);
+      const stale = r.next && r.fresh === false;         // 서버가 "최신이 아니다"라고 한 추천은 최신이라고 말하지 않는다
       st.textContent = r.busy ? '다른 사람이 새 추천을 만드는 중이에요. 잠시 뒤 [다시 추천]을 눌러 주세요' + (r.next ? ' (아래는 이전 추천)' : '')
-        : r.next ? nextBasis(r.next) + (r.wait ? ' · 방금 만들었어요 (1분 뒤 다시 받을 수 있어요)' : '') : '';
+        : r.next ? nextBasis(r.next) + (r.moved ? ' · 만드는 사이 요약·정리가 바뀌어서, 아래는 그 전 기록 기준이에요' : '') + (r.wait ? ' · 1분 안에 만든 추천이라 새로 만들지 않았어요' + (stale ? ' (그 뒤 새 기록은 반영되지 않음. 1분 뒤 다시 받을 수 있어요)' : '') : (stale && !r.moved ? ' · 만드는 사이 새 말이 들어왔어요' : '')) : '';
     }
-  } catch (e) { st.textContent = '추천을 만들지 못했어요: ' + e.message + (nextSt.data ? ' (아래는 이전 추천)' : ''); }
-  nextSt.loading = false; go.disabled = false;
+  } catch (e) { nextValid(); st.textContent = '추천을 만들지 못했어요: ' + e.message + (nextSt.data ? ' (아래는 이전 추천)' : ''); if (!nextSt.data) nextDraw(null); }
+  nextSt.loading = false; go.disabled = false; nextFresh();
 }
+// 추천이 실제로 읽은 범위. 줄여 읽었거나 읽지 못한 부분이 있으면 그대로 적는다 (다 읽었다고 하지 않는다)
 function nextBasis(o){
-  const b = o.basis;
-  return String(o.at || '').slice(11, 16) + '에 만든 추천' + (b ? ' · 요약 ' + (b.sums || 0) + '개' + (b.rawN ? ' + 방금 한 말 ' + b.rawN + '줄(#' + b.rawFrom + '~#' + b.total + ')' : '') + '까지 읽음' : '');
+  const b = o.basis; if (!b) return String(o.at || '').slice(11, 16) + '에 만든 추천';
+  const to = b.rawTo || b.total;
+  return String(o.at || '').slice(11, 16) + '에 만든 추천 · 요약 ' + (b.sums || 0) + '개' + (b.rawN ? ' + 방금 한 말 ' + b.rawN + '줄(#' + b.rawFrom + '~#' + to + ')' : '') + '을 읽음'
+    + (b.rawCut ? ' · 긴 말 ' + b.rawCut + '개는 앞뒤만 읽음(가운데 줄임)' : '') + (b.rawSkip ? ' · 그 앞의 ' + b.rawSkip + '줄은 요약도 안 됐고 이번에 읽지도 못함' : '');
 }
 function nextDraw(o){
   const box = $('nextBox'); box.innerHTML = '';
-  if (!o || !(o.items || []).length) { box.append(el('div', 'empty', '아직 추천할 만큼 기록이 없어요. 세션이 진행되고 요약이 생기면 추천해 드려요.')); return; }
-  // 추천을 만든 뒤로 말이 더 쌓였으면 오래된 추천임을 알린다 (lastId = 이 화면이 받은 마지막 발언 번호)
-  const behind = Math.max(nextSt.behind || 0, o.basis ? Math.max(0, lastId - Number(o.basis.total || 0)) : 0);
-  if (behind >= 15) { const w = el('div', 'nxold', '⏳ 이 추천을 만든 뒤로 말이 ' + behind + '줄 더 쌓였어요. 이미 한 일이 섞여 있을 수 있어요. '); const b = el('button', '', '지금 다시 추천'); b.onclick = () => nextOpen(true); w.append(b); box.append(w); }
+  if (o && !nextValid(o)) o = null;
+  if (!o || !(o.items || []).length) { box.append(el('div', 'empty', '아직 추천할 만큼 기록이 없어요. 세션이 진행되고 요약이 생기면 추천해 드려요.')); nextFresh(); return; }
+  nextFresh();
   const n = o.now || {};
   if (n.scene || n.just || n.agreed || n.held) {
-    const c = el('div', 'nxnow ai'); const h = el('div', 'nxh'); h.append(el('b', '', '방금까지'), el('span', 'note', 'AI가 기록에서 읽은 것')); c.append(h);
+    const c = el('div', 'nxnow ai'); const h = el('div', 'nxh'); h.append(el('b', '', '방금까지'), el('span', 'note', 'AI가 기록에서 읽은 것 (' + String(o.at || '').slice(11, 16) + ' 기준, 틀릴 수 있어요)')); c.append(h);
     if (n.scene) c.append(nxRow('지금 장면', n.scene)); if (n.just) c.append(nxRow('방금 일어난 일', n.just));
     if (n.agreed) c.append(nxRow('하기로 한 일', n.agreed)); if (n.held) c.append(nxRow('미뤄 둔 일', n.held));
     box.append(c);
@@ -810,7 +863,7 @@ function nextDraw(o){
     const k = el('span', 'nxk nk-' + x.kind, x.kind);
     const body = el('div', 'grow'); const b = el('b'); b.append(linkify(x.title)); body.append(b);
     if (x.why) { const w = el('div', 'why'); if (x.guess) w.append(el('span', 'nxg', '짐작 ')); w.append(linkify(x.why)); body.append(w); }
-    if ((x.src || []).length) { const e = el('span', 'ev', '📎 근거 ' + x.src.map(i => '#' + i).join(' ')); e.title = '근거가 된 발언 보기'; e.onclick = () => showEvidence({ ids: x.src.join(',') }, x.title); body.append(e); }
+    if ((x.src || []).length) { const e = el('span', 'ev', '📎 근거 ' + x.src.map(i => '#' + i).join(' ')); e.title = '근거가 된 발언 보기'; e.onclick = () => { if (typeof stat === 'function') stat('nextEv'); showEvidence({ ids: x.src.join(',') }, x.title); }; body.append(e); }
     it.append(k, body); return it;
   };
   let top = o.items.filter(x => x.prio === 1).slice(0, 3); if (!top.length) top = o.items.slice(0, 2);
