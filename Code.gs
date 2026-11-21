@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.23';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-21.24';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1218,21 +1218,32 @@ function bookmark(b) {
 }
 
 /* ───────────── 🧭 다음 할 일: 지금까지의 공개 기록으로 "다음에 해 볼 만한 것"을 추천 ─────────────
- * 요약·정리·북마크가 바뀌었을 때만 새로 만든다 (그대로면 저장된 것을 돌려줌). 마스터 자료는 보지 않는다(publicAi). */
+ * 요약·정리·북마크가 바뀌었거나(북마크는 sumVer를 올린다) 그 뒤로 말이 40줄 넘게 쌓였을 때만 새로 만든다. 그대로면 저장된 것을 돌려준다.
+ * 아직 요약되지 않은 방금 한 말(공개 대화 원문)도 함께 읽어서, 요약이 늦어도 방금 일어난 일을 놓치지 않는다. 마스터 자료는 보지 않는다(publicAi).
+ * basis = 추천을 만들 때 읽은 기록의 범위(읽은 시점 기준). behind = 그 뒤로 쌓인 줄 수(화면에서 "오래된 추천"으로 표시). */
 const NEXT_KINDS = ['장소', '인물', '단서', '행동', '준비'];
+const NEXT_RAW_LINES = 80, NEXT_RAW_CHARS = 6000, NEXT_STALE_LINES = 40;
 function nextSteps(force) {
-  const key = [getConf('sumVer'), getConf('notesVer'), getConf('session'), getConf('resetVer')].join('.');
+  const rv0 = String(getConf('resetVer') || '0'), sess = String(getConf('session') || '1');
+  const key = [getConf('sumVer'), getConf('notesVer'), sess, rv0].join('.');
   const cur = confJson('nextSteps', null);
-  if (cur && cur.key === key && !force) return { ok: true, next: cur, fresh: true };
-  if (cur && force && Date.now() - Number(cur.t || 0) < 60 * 1000) return { ok: true, next: cur, fresh: cur.key === key, wait: true };
+  const total = totalLines();
+  const behind = cur && cur.basis ? Math.max(0, total - Number(cur.basis.total || 0)) : 0;
+  if (cur && cur.key === key && behind < NEXT_STALE_LINES && !force) return { ok: true, next: cur, fresh: true, behind };
+  if (cur && force && Date.now() - Number(cur.t || 0) < 60 * 1000) return { ok: true, next: cur, fresh: cur.key === key, wait: true, behind };
   const sums = sheet(SH.SUM);
-  const sess = String(getConf('session') || '1');
   const rows = sums.getLastRow() >= 2 ? sums.getRange(2, 1, sums.getLastRow() - 1, 4).getValues() : [];
   const recent = rows.filter(r => String(r[0]) === sess).map(r => decS(r[3])).filter(t => t && !/\(잡담 위주, 진행 없음\)/.test(t)).slice(-6);
   const story = storyTail(2500);
-  if (!recent.length && !story.trim()) return { ok: true, next: null, empty: true };
+  // 방금 한 말: 아직 요약되지 않은 이번 세션의 공개 대화 (끝에서부터 80줄·6,000자까지)
+  const processed = Math.min(total, Number(getConf('processedId') || 0));
+  let raw = readLines(Math.max(processed, total - NEXT_RAW_LINES), NEXT_RAW_LINES).filter(l => String(l.session) === sess && String(l.text).trim() && !/^※ 받아쓰기 끊김/.test(l.text));
+  let size = 0, cut = raw.length; for (let i = raw.length - 1; i >= 0; i--) { size += String(raw[i].text).length + 20; if (size > NEXT_RAW_CHARS) break; cut = i; }
+  raw = raw.slice(cut);
+  if (!recent.length && !story.trim() && raw.length < 5) return { ok: true, next: null, empty: true };
+  const basis = { processedId: processed, total, rawFrom: raw.length ? raw[0].id : 0, rawN: raw.length, lastTime: raw.length ? raw[raw.length - 1].time : '', sums: recent.length };
   const c = roomCache();
-  if (c.get('nextBusy')) return { ok: true, next: cur, busy: true };
+  if (c.get('nextBusy')) return { ok: true, next: cur, busy: true, behind };
   c.put('nextBusy', '1', 150);
   try {
     const n = readNotes() || emptyNotes();
@@ -1241,22 +1252,37 @@ function nextSteps(force) {
     const npcs = (n.npcs || []).map(x => '- ' + nm(x) + (x.affil ? ' (' + x.affil + ')' : '') + (x.relation ? ': ' + String(x.relation).slice(0, 80) : '')).join('\n');
     const clues = (n.clues || []).filter(x => x.status !== '해결').slice(-40).map(x => '- [' + (x.kind || '확인') + '] ' + String(x.text || '').slice(0, 140)).join('\n');
     const bms = confJson('bookmarks', []).filter(x => x.session === sess).slice(-15).map(x => '- ' + String(x.text).replace(/\s*\(#[^)]*\)/g, '')).join('\n');
-    const sys = 'TRPG 세션의 공개 기록(줄거리·요약·정리)을 읽고, 플레이어들이 다음에 해 볼 만한 것을 추천하는 조수다. ' +
-      '기록에 나온 사실만 근거로 삼고, 시나리오의 숨은 진실을 지어내거나 단정하지 마라. 이미 끝낸 일은 다시 권하지 마라. ' +
+    const sys = 'TRPG 세션의 공개 기록(줄거리·요약·정리·방금 한 말)을 읽고, 플레이어들이 지금 상황을 한눈에 떠올리고 다음에 해 볼 만한 것을 고르도록 돕는 조수다. ' +
+      '기록에 나온 사실만 근거로 삼고, 시나리오의 숨은 진실을 지어내거나 단정하지 마라. 이미 끝낸 일은 다시 권하지 마라. 정답을 알려 주거나 한 가지 행동을 강요하지 말고 고를 수 있는 후보로 적어라. ' +
+      '"방금 한 말"은 가장 새로운 정보다. 요약·정리와 어긋나면 방금 한 말을 따르고, 방금 한 말에서 이미 해결됐거나 하지 않기로 한 일은 권하지 마라. ' + FACT_RULES +
       '플레이어가 북마크한 내용과 풀리지 않은 단서를 우선 고려하라. 짧고 구체적으로, 한국어로.';
     const stable = '## 룰\n' + ruleInfo().name + '\n\n## 출력 형식 (JSON 하나만)\n' +
-      '{"items":[{"kind":"' + NEXT_KINDS.join('|') + '","title":"한 줄 제안 (예: 장미 정원의 분수대를 조사한다)","why":"그렇게 권하는 이유 한 문장 (기록 근거)","target":"관련 장소·인물 이름 (정리 목록의 이름 그대로, 없으면 빈칸)","prio":1}]}\n' +
-      '규칙: 5~8개. prio는 1(가장 중요)~3. kind 장소=가 볼 곳, 인물=만나거나 물어볼 사람, 단서=확인·대조할 단서, 행동=해 볼 행동·판정, 준비=챙길 것·조심할 것. 같은 내용을 겹치지 마라.';
+      '{"now":{"scene":"지금 있는 곳과 장면 한 줄 (모르면 빈칸)","just":"방금 일어난 중요한 일 한두 문장 (없으면 빈칸)","agreed":"플레이어들이 하기로 정한 일 (없으면 빈칸)","held":"하다가 멈췄거나 미뤄 둔 일 (없으면 빈칸)"},' +
+      '"items":[{"kind":"' + NEXT_KINDS.join('|') + '","title":"한 줄 제안 (예: 장미 정원의 분수대를 조사한다)","why":"그렇게 권하는 이유 한 문장 (기록 근거)","target":"관련 장소·인물 이름 (정리 목록의 이름 그대로, 없으면 빈칸)","prio":1,"src":[12,15],"guess":false}]}\n' +
+      '규칙: items는 5~8개. prio는 1(지금 바로 할 만한 것)~3이고 prio 1은 많아야 3개. kind 장소=가 볼 곳, 인물=만나거나 물어볼 사람, 단서=확인·대조할 단서, 행동=해 볼 행동·판정, 준비=챙길 것·조심할 것. 같은 내용을 겹치지 마라. ' +
+      'src는 근거가 된 "방금 한 말"의 #번호 (최대 3개, 요약·정리가 근거면 빈 배열). guess는 기록에서 확인되지 않은 짐작에 기대는 제안이면 true. now의 각 칸도 기록에 있는 것만 적어라.';
     const fresh = '## 누적 줄거리 (끝부분)\n' + (story || '(없음)') + '\n\n## 이번 세션 최근 요약\n' + (recent.join('\n\n') || '(없음)') +
       '\n\n## 장소\n' + (places || '(없음)') + '\n\n## NPC\n' + (npcs || '(없음)') + '\n\n## 풀리지 않은 단서\n' + (clues || '(없음)') +
-      '\n\n## 플레이어가 북마크한 장면\n' + (bms || '(없음)');
-    const r = publicAi(() => parseJson(claude(sys, [stable, fresh], 2500)));
+      '\n\n## 플레이어가 북마크한 장면\n' + (bms || '(없음)') +
+      '\n\n## 방금 한 말 (아직 요약되지 않은 대화 원문, 가장 새로운 정보)\n' + (raw.map(l => '#' + l.id + ' ' + l.name + ': ' + String(l.text).slice(0, 600)).join('\n') || '(없음)');
+    const r = publicAi(() => parseJson(claude(sys, [stable, fresh], 3000)));
+    const rawIds = new Set(raw.map(l => l.id));
     const items = (Array.isArray(r.items) ? r.items : []).filter(x => x && x.title).slice(0, 10).map(x => ({
       kind: NEXT_KINDS.indexOf(String(x.kind)) >= 0 ? String(x.kind) : '행동', title: String(x.title).slice(0, 160), why: String(x.why || '').slice(0, 240),
-      target: String(x.target || '').slice(0, 60), prio: Math.min(3, Math.max(1, Number(x.prio) || 2)) })).sort((a, b) => a.prio - b.prio);
-    const o = { key, t: Date.now(), at: now(), items };
-    withLock(20000, () => setJson('nextSteps', o));
-    return { ok: true, next: o, fresh: true };
+      target: String(x.target || '').slice(0, 60), prio: Math.min(3, Math.max(1, Number(x.prio) || 2)),
+      src: (Array.isArray(x.src) ? x.src : []).map(Number).filter(i => rawIds.has(i)).slice(0, 3), guess: !!x.guess })).sort((a, b) => a.prio - b.prio);
+    items.forEach((x, i) => { if (x.prio === 1 && items.slice(0, i).filter(y => y.prio === 1).length >= 3) x.prio = 2; });      // "지금 할 일"은 세 개까지만
+    const nw = r.now && typeof r.now === 'object' ? r.now : {};
+    const o = { key, t: Date.now(), at: now(), items, basis,
+      now: { scene: String(nw.scene || '').slice(0, 120), just: String(nw.just || '').slice(0, 300), agreed: String(nw.agreed || '').slice(0, 200), held: String(nw.held || '').slice(0, 200) } };
+    // AI가 답하는 사이 기록이 초기화됐거나 세션이 넘어갔으면 옛 기록으로 만든 추천을 저장하지 않는다
+    const saved = withLock(20000, () => {
+      confLoad(true);
+      if (String(getConf('resetVer') || '0') !== rv0 || String(getConf('session') || '1') !== sess) return false;
+      setJson('nextSteps', o); return true;
+    });
+    if (!saved) return { ok: true, next: null, changed: true };
+    return { ok: true, next: o, fresh: true, behind: Math.max(0, totalLines() - total) };
   } finally { c.remove('nextBusy'); }
 }
 
@@ -1597,7 +1623,9 @@ const FACT_RULES =
   '② 마스터가 NPC로서 한 말은 사실이 아니라 그 NPC의 주장이다. "OO는 ~라고 말함/주장함"으로 적고 사실처럼 단정하지 마라. ' +
   '예: 마스터가 집사로서 "난 서재에 안 갔어" → "집사는 서재에 가지 않았다고 주장함". ' +
   '③ 플레이어(탐사자)의 추리·의심·가설은 사실로 적지 말고 "(추측)"을 붙여라. 예: "(추측) 프레이피스는 집사가 범인이라고 의심함". ' +
-  '④ 판정은 성공/실패나 수치 변화가 말로 선언된 것만 "[판정]"을 붙여 적는다. 예: "[판정] 프레이피스 도서관 이용 성공". 선언되지 않은 결과를 짐작하지 마라. ';
+  '④ 판정은 성공/실패나 수치 변화가 말로 선언된 것만 "[판정]"을 붙여 적는다. 예: "[판정] 프레이피스 도서관 이용 성공". 선언되지 않은 결과를 짐작하지 마라. 성공과 실패를 뒤바꾸지 마라. ' +
+  '⑤ 농담, 게임 밖 잡담, 규칙 상의, "만약 ~하면 어떨까" 같은 가정은 캐릭터가 실제로 한 행동으로 적지 마라. 하기로 정하고 마스터가 받아들인 행동만 행동으로 적는다. ' +
+  '⑥ "※ 받아쓰기 끊김"으로 시작하는 줄은 기계가 남긴 안내다. 발언이나 사건으로 적지 말고, 그 구간에 빠진 말을 지어내지도 마라. ';
 
 function keeperRules() {
   return R().hint + '가장 중요한 원칙: 마스터의 발언은 이야기의 정보 그 자체다. 마스터가 말한 묘사, NPC 대사, 장소·물건·단서 정보, 판정 요구와 그 결과는 ' +
@@ -1796,9 +1824,22 @@ function windowEnd(from, to) {
  * 마스터 탭에 그 구간 원문을 보여 주고, '다시 시도' 또는 '원문만 남기고 넘어가기'를 고르게 한다. 원문(대화 탭)은 어느 쪽이든 그대로 남는다. */
 const STUCK_FAILS = 3;
 // 처리 번호(processedId)보다 뒤에 있지만 이미 요약한 발언 번호 (보통 비어 있다)
-function sumDoneSet() { const a = confJson('sumDone', []); return new Set(Array.isArray(a) ? a.map(Number) : []); }
-function sumDoneAdd(ids) { if (!ids.length) return; const s = sumDoneSet(); ids.forEach(i => s.add(Number(i))); setJson('sumDone', Array.from(s).sort((a, b) => a - b).slice(-3000)); }
-function sumDonePrune(upTo) { const a = Array.from(sumDoneSet()).filter(i => i > upTo); setJson('sumDone', a.length ? a : null); }
+// 저장 모양: 3,000개까지는 번호 배열(예전 판도 읽는다). 그보다 많으면 번호를 버리지 않고 이어진 번호를 [처음,끝] 쌍으로 묶어 적는다
+function sumDoneSet() {
+  const a = confJson('sumDone', []), s = new Set();
+  (Array.isArray(a) ? a : []).forEach(x => { if (Array.isArray(x)) { for (let i = Number(x[0]); i <= Number(x[1]); i++) s.add(i); } else if (isFinite(Number(x))) s.add(Number(x)); });
+  return s;
+}
+function sumDonePut(set) {
+  const a = Array.from(set).sort((x, y) => x - y);
+  if (a.length <= 3000) { setJson('sumDone', a.length ? a : null); return; }
+  const r = []; a.forEach(i => { const l = r[r.length - 1]; if (l && i === l[1] + 1) l[1] = i; else r.push([i, i]); });
+  const j = JSON.stringify(r);
+  if (j.length > 45000) throw new Error('이미 요약한 번호가 너무 많아 기억하지 못했어요 (' + a.length + '개). 번호를 버리지 않고 여기서 멈춰요');     // 한 칸 한도(5만 자). 조용히 잘라 내면 같은 말을 두 번 요약하게 된다
+  setConf('sumDone', j);
+}
+function sumDoneAdd(ids) { if (!ids.length) return; const s = sumDoneSet(); ids.forEach(i => s.add(Number(i))); sumDonePut(s); }
+function sumDonePrune(upTo) { const s = sumDoneSet(); if (!s.size) return; sumDonePut(new Set(Array.from(s).filter(i => i > upTo))); }
 function stuckInfo() {
   const p = confJson('pending', null);
   if (!p || !(p.stuck || (p.fails || 0) >= STUCK_FAILS)) return null;
@@ -3443,6 +3484,7 @@ function kBoard(full) {
   if (!kb.clues.length && !kb.truth) return { ok: false, error: '먼저 시나리오 자료를 올려서 정리본을 만들어 주세요' };
   const sums = sheet(SH.SUM).getDataRange().getValues().slice(1).slice(-8).map(r => '[세션 ' + r[0] + ' ' + String(r[1]).slice(11, 16) + ']\n' + decS(r[3])).join('\n\n');
   const npcs = kb.npcs.map(n => pickF(n, ['name', 'secret', 'lies'])).filter(n => n.secret || n.lies);
+  const basis = { processedId: Number(getConf('processedId') || 0), total: totalLines(), at: now() };     // AI에 보낸 자료를 읽은 시점 (AI가 답한 시점이 아님)
   const res = parseJson(claude(
     '너는 TRPG 마스터(게임 마스터)만 보는 진행 현황판을 만드는 조수다. 마스터만 아는 시나리오 자료와, 플레이어들이 지금까지 알아낸 공개 기록을 비교하라. ' +
     '공개 기록에 실제로 있는 내용만 "found"로 판단하고 짐작하지 마라. 주어진 자료만으로 판단할 수 없는 것은 적지 마라. 짧게 써라. JSON 하나만 출력하라.',
@@ -3463,7 +3505,7 @@ function kBoard(full) {
     wrong: (Array.isArray(res.wrong) ? res.wrong : []).slice(0, 8).map(w => ({ text: txt(w && w.text, 300), why: txt(w && w.why, 300) })).filter(w => w.text),
     lies: (Array.isArray(res.lies) ? res.lies : []).slice(0, 15).map(l => ({ npc: txt(l && l.npc, 60), claim: txt(l && l.claim, 300), verdict: txt(l && l.verdict, 20), truth: txt(l && l.truth, 200) })).filter(l => l.claim),
     hints: arr(res.hints, 5, 300), next: txt(res.next, 500),
-    basis: { processedId: Number(getConf('processedId') || 0), total: totalLines() },
+    basis,
     sent: { truth: !!full, clues: kb.clues.length, npcs: npcs.length }
   };
   if (!klogAdd('board', getConf('session'), '현황판', { full: !!full }, result, { rv, gen })) return staleOut();

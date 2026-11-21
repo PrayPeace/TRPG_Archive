@@ -745,35 +745,79 @@ function renderBm(){
   });
   box.append(dt);
 }
-/* ── 🧭 다음 할 일 ── */
-let nextSt = { loading: false, data: null };
+/* ── 🧭 다음 할 일 ──
+ * 위쪽 "지금 상황"은 AI를 기다리지 않고 이미 받아 둔 공개 자료(요약·단서·북마크)로 바로 그린다.
+ * 아래 추천은 AI가 만든 것: "지금 해 볼 만한 것" 1~3개를 먼저 보이고 나머지는 접어 둔다. 추천이 본 기록의 범위와, 그 뒤로 쌓인 말이 있으면 오래된 추천임을 적는다. */
+let nextSt = { loading: false, data: null, behind: 0 };
+function nextInstant(){
+  const box = $('nextNow'); if (!box) return; box.innerHTML = '';
+  if (!data) return;
+  const sess = String((data.v && data.v.session) || ''), sums = sortSums(data.summaries || []).filter(x => String(x.session) === sess && !/\(잡담 위주, 진행 없음\)/.test(x.text));
+  const last = sums[sums.length - 1];
+  const place = last ? ((String(last.text).match(/【([^】]+)】/g) || []).pop() || '').replace(/[【】]/g, '') : '';
+  const open = ((data.notes && data.notes.clues) || []).filter(c => c.status !== '해결');
+  const bms = (data.bookmarks || []).filter(x => String(x.session) === sess).slice(-3);
+  if (!last && !open.length) return;
+  const c = el('div', 'nxnow');
+  const h = el('div', 'nxh'); h.append(el('b', '', '지금 상황'), el('span', 'note', 'AI 없이 바로 보여요 · ' + (last ? String(last.to).slice(11, 16) + '까지의 요약 기준' : '요약 전')));
+  c.append(h);
+  if (place) c.append(nxRow('마지막 장소', place));
+  if (last) { const t = String(last.text).replace(/\s*\(#[^)]*\)/g, '').split('\n').map(x => x.trim()).filter(x => x && !/^【/.test(x)).slice(-3).join(' '); c.append(nxRow('최근 요약', t.slice(0, 260) + (t.length > 260 ? '…' : ''), () => showTab('sum'))); }
+  if (open.length) c.append(nxRow('풀리지 않은 단서 ' + open.length + '개', open.slice(-3).map(x => String(x.text).slice(0, 70)).join(' / '), () => showTab('notes')));
+  if (bms.length) c.append(nxRow('📌 북마크', bms.map(x => String(x.text).replace(/\s*\(#[^)]*\)/g, '').slice(0, 60)).join(' / '), () => showTab('sum')));
+  box.append(c);
+}
+function nxRow(k, v, go){ const r = el('div', 'nxr' + (go ? ' go' : '')); r.append(el('span', 'k', k), el('span', 'v', v)); if (go) { r.onclick = go; r.title = '눌러서 자세히 보기'; } return r; }
 async function nextOpen(force){
+  nextInstant();
   if (nextSt.loading) return;
   const st = $('nextSt'), go = $('nextGo');
   nextSt.loading = true; go.disabled = true;
-  st.textContent = nextSt.data && !force ? '새 기록이 있는지 확인하는 중…' : 'AI가 기록을 읽고 추천을 만드는 중… (10~30초)';
+  st.textContent = nextSt.data && !force ? '새 기록이 있는지 확인하는 중… (아래는 받아 둔 추천)' : 'AI가 기록을 읽고 추천을 만드는 중… (10~30초' + (nextSt.data ? ' · 아래는 이전 추천' : '') + ')';
   try {
     const r = await post({ action: 'nextSteps', force: !!force });
     if (!r.ok) throw new Error(r.error || '실패');
     if (r.empty) { nextSt.data = null; nextDraw(null); st.textContent = ''; }
+    else if (r.changed) { nextSt.data = null; nextDraw(null); st.textContent = '추천을 만드는 사이 세션이 바뀌었거나 기록이 초기화됐어요. [다시 추천]을 눌러 주세요'; }
     else {
+      nextSt.behind = Number(r.behind || 0);
       if (r.next) { nextSt.data = r.next; nextDraw(r.next); }
       st.textContent = r.busy ? '다른 사람이 새 추천을 만드는 중이에요. 잠시 뒤 [다시 추천]을 눌러 주세요' + (r.next ? ' (아래는 이전 추천)' : '')
-        : r.next ? String(r.next.at || '').slice(11, 16) + ' 기준 추천' + (r.wait ? ' · 방금 만들었어요 (1분 뒤 다시 받을 수 있어요)' : '') : '';
+        : r.next ? nextBasis(r.next) + (r.wait ? ' · 방금 만들었어요 (1분 뒤 다시 받을 수 있어요)' : '') : '';
     }
-  } catch (e) { st.textContent = '추천을 만들지 못했어요: ' + e.message; }
+  } catch (e) { st.textContent = '추천을 만들지 못했어요: ' + e.message + (nextSt.data ? ' (아래는 이전 추천)' : ''); }
   nextSt.loading = false; go.disabled = false;
+}
+function nextBasis(o){
+  const b = o.basis;
+  return String(o.at || '').slice(11, 16) + '에 만든 추천' + (b ? ' · 요약 ' + (b.sums || 0) + '개' + (b.rawN ? ' + 방금 한 말 ' + b.rawN + '줄(#' + b.rawFrom + '~#' + b.total + ')' : '') + '까지 읽음' : '');
 }
 function nextDraw(o){
   const box = $('nextBox'); box.innerHTML = '';
   if (!o || !(o.items || []).length) { box.append(el('div', 'empty', '아직 추천할 만큼 기록이 없어요. 세션이 진행되고 요약이 생기면 추천해 드려요.')); return; }
-  o.items.forEach(x => {
+  // 추천을 만든 뒤로 말이 더 쌓였으면 오래된 추천임을 알린다 (lastId = 이 화면이 받은 마지막 발언 번호)
+  const behind = Math.max(nextSt.behind || 0, o.basis ? Math.max(0, lastId - Number(o.basis.total || 0)) : 0);
+  if (behind >= 15) { const w = el('div', 'nxold', '⏳ 이 추천을 만든 뒤로 말이 ' + behind + '줄 더 쌓였어요. 이미 한 일이 섞여 있을 수 있어요. '); const b = el('button', '', '지금 다시 추천'); b.onclick = () => nextOpen(true); w.append(b); box.append(w); }
+  const n = o.now || {};
+  if (n.scene || n.just || n.agreed || n.held) {
+    const c = el('div', 'nxnow ai'); const h = el('div', 'nxh'); h.append(el('b', '', '방금까지'), el('span', 'note', 'AI가 기록에서 읽은 것')); c.append(h);
+    if (n.scene) c.append(nxRow('지금 장면', n.scene)); if (n.just) c.append(nxRow('방금 일어난 일', n.just));
+    if (n.agreed) c.append(nxRow('하기로 한 일', n.agreed)); if (n.held) c.append(nxRow('미뤄 둔 일', n.held));
+    box.append(c);
+  }
+  const card = x => {
     const it = el('div', 'nxi' + (x.prio === 1 ? ' p1' : ''));
     const k = el('span', 'nxk nk-' + x.kind, x.kind);
     const body = el('div', 'grow'); const b = el('b'); b.append(linkify(x.title)); body.append(b);
-    if (x.why) { const w = el('div', 'why'); w.append(linkify(x.why)); body.append(w); }
-    it.append(k, body); box.append(it);
-  });
+    if (x.why) { const w = el('div', 'why'); if (x.guess) w.append(el('span', 'nxg', '짐작 ')); w.append(linkify(x.why)); body.append(w); }
+    if ((x.src || []).length) { const e = el('span', 'ev', '📎 근거 ' + x.src.map(i => '#' + i).join(' ')); e.title = '근거가 된 발언 보기'; e.onclick = () => showEvidence({ ids: x.src.join(',') }, x.title); body.append(e); }
+    it.append(k, body); return it;
+  };
+  let top = o.items.filter(x => x.prio === 1).slice(0, 3); if (!top.length) top = o.items.slice(0, 2);
+  const rest = o.items.filter(x => top.indexOf(x) < 0);
+  box.append(el('div', 'nxh2', '지금 해 볼 만한 것'));
+  top.forEach(x => box.append(card(x)));
+  if (rest.length) { const dt = document.createElement('details'); dt.className = 'nxmore'; const sm = document.createElement('summary'); sm.textContent = '다른 후보 ' + rest.length + '개 더 보기'; dt.append(sm); rest.forEach(x => dt.append(card(x))); box.append(dt); }
 }
 $('nextGo').onclick = () => nextOpen(true);
 const sortSums = list => list.slice().sort((a, b) => (Number(a.session) - Number(b.session)) || (a.from < b.from ? -1 : a.from > b.from ? 1 : a.id - b.id));
