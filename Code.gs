@@ -2656,17 +2656,29 @@ function storySplit(t) {
   t = String(t || ''); const i = t.lastIndexOf('【세션 ');
   return i < 0 ? { head: '', tail: t } : { head: t.slice(0, i), tail: t.slice(i) };
 }
+// 이번 세션의 시간대별 요약 (요약 탭에 보이는 것, 시간 순). 줄거리를 줄여 쓸 때 바탕으로 준다 (대장 11-28: "시간대별로 말을 잘 정리해두잖아? 그걸 토대로")
+function storySessionSums(sess) {
+  const sh = sheet(SH.SUM); if (!sh || sh.getLastRow() < 2) return '';
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().filter(r => String(r[0]) === String(sess));
+  const hm = v => { const t = v instanceof Date ? Utilities.formatDate(v, TZ, 'HH:mm') : String(v || '').slice(11, 16); return t; };
+  return rows.map(r => ({ f: hm(r[1]), to: hm(r[2]), t: decS(r[3]).trim() }))
+    .filter(x => x.t && !/^\s*-?\s*\(잡담 위주, 진행 없음\)\s*$/.test(x.t))
+    .map(x => '[' + x.f + (x.to && x.to !== x.f ? '~' + x.to : '') + ']\n' + x.t).join('\n\n');
+}
 function storyTailLong() { return storySplit(storyText()).tail.length > STORY_TAIL_MAX; }
 function compactStory(job) {
   const story = storyText(), sp = storySplit(story);
   if (sp.tail.length <= STORY_TAIL_MAX) return false;
-  const m = /^(【세션 [^】]*】)\s*/.exec(sp.tail), hdr = m ? m[1] : '', body = m ? sp.tail.slice(m[0].length) : sp.tail;
+  const m = /^(【세션 ([^】]*)】)\s*/.exec(sp.tail), hdr = m ? m[1] : '', body = m ? sp.tail.slice(m[0].length) : sp.tail;
+  const sums = storySessionSums(m ? m[2].trim() : String(getConf('session') || '1'));
   let res;
   try {
     res = publicAi(() => parseJson(claude(
       '너는 TRPG 세션 기록 담당이다. 이번 세션의 길어진 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
       (sp.head ? '## 지난 세션 줄거리 (참고만, 다시 쓰지 않는다)\n' + sp.head.slice(-1500) + '\n\n' : '') +
-      '## 이번 세션' + (hdr ? ' ' + hdr : '') + ' 줄거리\n' + body + '\n\n## 할 일\n이번 세션 줄거리만 4500~5000자로 다시 써라. 너무 짧게 깎지 말고, 장면마다 무슨 일이 있었는지 알 수 있게 남겨라. 【세션 N】 구분 줄은 쓰지 않는다.\n' +
+      (sums ? '## 이번 세션 시간대별 요약 (이것을 토대로 쓴다. 줄 끝 (#번호)는 근거 표시라서 줄거리에 옮기지 않는다)\n' + sums + '\n\n' : '') +
+      '## 지금까지 쌓인 이번 세션' + (hdr ? ' ' + hdr : '') + ' 줄거리' + (sums ? ' (참고)' : '') + '\n' + body + '\n\n## 할 일\n' +
+      (sums ? '시간대별 요약을 토대로, 이번 세션에 있었던 일을 처음부터 끝까지 시간 순서대로 ' : '이번 세션 줄거리만 ') + '4500~5000자로 다시 써라. 너무 짧게 깎지 말고, 장면마다 무슨 일이 있었는지 알 수 있게 남겨라. 【세션 N】 구분 줄은 쓰지 않는다.\n' +
       '- 문체: 짧고 쉬운 평서문 이야기체 ("~했다"). 판정 요구·규칙 설명·"결과는 아직 나오지 않았다" 같은 진행 상황, "마스터는 ~라고 밝혔다" 같은 말 전달은 빼고 이야기 속 사건으로만 쓴다. 같은 일을 되풀이하지 않는다. 장면이 바뀌면 문단을 나눈다.\n' +
       '- 인물·장소 이름과 중요한 사건·결정·알아낸 사실·결말은 빠뜨리지 마라. 확인된 사실, NPC의 주장, ' + R().pc + '의 추측을 섞지 마라.\n' +
       '## 출력 형식\n{"story":"줄여 쓴 이번 세션 줄거리"}', 8000)));

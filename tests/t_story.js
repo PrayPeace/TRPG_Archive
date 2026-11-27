@@ -39,10 +39,12 @@ const s2 = '\n\n【세션 2】\n' + Array.from({ length: 300 }, (_, i) => '이�
 st.aiFail = null; let sentText = '';
 st.aiReply = (sys, text) => { if (/줄거리를 줄여 다시 쓴다/.test(sys)) { sentText = text; return JSON.stringify({ story: '【세션 2】\n일행은 지하실로 내려가 쇠사슬에 묶인 주인을 찾았다. 집사는 도망쳤고, 일행은 경찰을 불러 저택을 넘긴 뒤 주인을 병원으로 옮겼다. 편지는 벽난로 뒤에서 찾았다. 일행은 다음 날 아침 병원에서 주인의 이야기를 듣기로 했다.' }); } return ''; };
 run(ex(), 'withLock(20000, () => storyWrite(' + JSON.stringify(s1 + s2) + ', storyDoc().k))');
+run(ex(), "withLock(20000, () => { sheet(SH.SUM).appendRow(['2','2026-11-27 21:00:00','2026-11-27 21:20:00', enc('【지하실】\\n- 일행이 쇠사슬에 묶인 주인을 찾음 (#40)'),'','']); sheet(SH.SUM).appendRow(['2','2026-11-27 21:20:00','2026-11-27 21:40:00', enc('- (잡담 위주, 진행 없음)'),'','']); sheet(SH.SUM).appendRow(['1','2026-11-20 21:00:00','2026-11-20 21:20:00', enc('- 지난 세션 요약 줄'),'','']); })");
 run(ex(), '(() => { const job = acquireJob("summary", 0); compactStory(job); releaseJob(job); })()');
 const t3 = run(ex(), 'storyText()');
 ok('지난 세션(세션 1) 부분은 글자 하나 안 바뀜', t3.indexOf(s1) === 0, t3.slice(0, 60));
 ok('지금 세션(세션 2) 부분만 줄여 씀, 구분 줄 하나', /【세션 2】\n일행은 지하실로/.test(t3) && (t3.match(/【세션 2】/g) || []).length === 1 && !/번째 일이 있었다/.test(t3), t3.slice(-160));
+ok('이번 세션의 시간대별 요약을 토대로 쓰라고 줌 (잡담 구간·지난 세션 요약은 빼고)', /시간대별 요약 \(이것을 토대로/.test(sentText) && /\[21:00~21:20\]\n【지하실】\n- 일행이 쇠사슬에 묶인 주인을 찾음/.test(sentText) && !/잡담 위주/.test(sentText) && !/지난 세션 요약 줄/.test(sentText), sentText.slice(0, 300));
 ok('AI에는 지난 세션을 참고로만 주고 이번 세션만 다시 쓰라고 함', /지난 세션 줄거리 \(참고만/.test(sentText) && /이번 세션 【세션 2】 줄거리/.test(sentText));
 // 지금 세션이 짧으면 지난 세션이 길어도 줄이지 않는다
 const calls0 = st.aiCalls;
