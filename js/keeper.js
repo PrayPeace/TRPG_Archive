@@ -118,7 +118,6 @@ async function kArcLoad(){
   const sent = Object.entries(r.sent || {}).sort((a, b) => +b[0] - +a[0]).slice(0, 3).map(([s, x]) => '세션 ' + s + (x.ok ? ' 보냄 ✔' : ' 못 보냄 (' + (x.error || '') + ')') + ' ' + String(x.when || '').slice(5, 16)).join(' · ');
   $('kArcState').textContent = r.linked ? '연결됨 · 서고 주인 ' + (r.me || '?') + (sent ? ' · ' + sent : ' · 아직 보낸 세션 없음') : '연결 안 됨: 서고 사이트 작업함에서 연결 코드를 만들어 붙여 주세요';
   if (!$('kArcMe').value) $('kArcMe').value = r.me || cfg.name || '';
-  if (!$('kArcSess').value) $('kArcSess').value = (data && data.v && data.v.session) || '1';
 }
 $('kArcSave').onclick = async () => {
   $('kArcOut').textContent = '서고에 확인하는 중…';
@@ -128,9 +127,19 @@ $('kArcSave').onclick = async () => {
 };
 $('kArcOff').onclick = async () => { const r = await kpost({ action: 'kArchiveSet', code: '' }); $('kArcOut').textContent = r.ok ? '연결을 끊었어요' : r.error; kArcLoad(); };
 $('kArcSend').onclick = async () => {
-  const b = $('kArcSend'); b.disabled = true; $('kArcOut').textContent = '세션 기록을 만들고 서고로 보내는 중… (처음이면 1~3분)';
-  try { const r = await kpost({ action: 'kArchiveSend', session: $('kArcSess').value.trim() }); $('kArcOut').textContent = r.ok ? '✔ 서고로 보냈어요 (' + (r.title || '') + ')' : (r.error || '보내지 못했어요'); }
-  catch (e) { $('kArcOut').textContent = '보내지 못했어요: ' + (e.message || e); }
+  const b = $('kArcSend'), out = $('kArcOut'); b.disabled = true;
+  let list = [];
+  try { const r = await api('sessions'); list = (r.sessions || []).filter(x => x.count !== 0).map(x => String(x.session)); } catch (_) {}
+  if (!list.length) list = [...new Set((data && data.summaries || []).map(s => String(s.session)))];
+  const n = { sent: 0, already: 0, skipped: 0, empty: 0 }, bad = [];
+  for (let i = 0; i < list.length; i++) {
+    out.textContent = '세션 ' + list[i] + ' 보내는 중… (' + (i + 1) + '/' + list.length + ', 세션 기록이 처음이면 1~3분)';
+    try {
+      const r = await kpost({ action: 'kArchiveSend', session: list[i], auto: true });
+      if (r.empty) n.empty++; else if (r.skipped) n.skipped++; else if (r.ok && r.already) n.already++; else if (r.ok) n.sent++; else bad.push(list[i] + ' (' + (r.error || '실패') + ')');
+    } catch (e) { bad.push(list[i] + ' (' + (e.message || e) + ')'); }
+  }
+  out.textContent = (list.length ? '✔ 보냄 ' + n.sent + ' · 이미 보낸 그대로 ' + n.already + ' · ' + ($('kArcMe').value || '서고 주인') + ' 없는 세션 ' + n.skipped + ' · 요약 없음 ' + n.empty : '보낼 세션이 없어요') + (bad.length ? ' · 못 보냄: ' + bad.join(', ') : '');
   b.disabled = false; kArcLoad();
 };
 $('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '마스터 이름 저장됨' : r.error; refreshData(); };
@@ -204,7 +213,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-27.32';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-27.33';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['now', '지금 장면'], ['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };

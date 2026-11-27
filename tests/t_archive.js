@@ -47,7 +47,7 @@ ok('마스터의 "이 세션 서고로 보내기": 서고 주인 기준 기록�
 const calls = st.aiCalls; st.fetches.length = 0;
 const k2 = run(ex(), "kArchiveSend('1')");
 ok('한 번 더 누르면 저장된 기록을 다시 보냄 (AI 다시 안 부름)', k2.ok && k2.reused && st.aiCalls === calls && st.fetches.length === 1, JSON.stringify(k2));
-ok('요약 없는 세션은 보내지 않고 알려 줌', !run(ex(), "kArchiveSend('9')").ok);
+ok('요약 없는 세션은 보내지 않고 알려 줌', run(ex(), "kArchiveSend('9')").empty === true);
 // 마스터가 서고 주인이면 KP는 '나', 대장PC는 비움
 run(ex(), "setConf('keeperName','프레이피스')"); st.fetches.length = 0;
 run(ex(), "kArchiveSend('1')");
@@ -62,5 +62,9 @@ r = post(ex(), { action: 'myRecord', pw: 'pwA', session: '2', me: '소금빵' })
 ok('서고 주인이 말 한 마디 없는 세션은 자동으로 안 보냄 (기록은 그대로)', r.ok && r.archive && r.archive.skipped && st.fetches.length === 0, JSON.stringify(r.archive));
 const k3 = run(ex(), "kArchiveSend('2')");
 ok('그래도 마스터 단추로는 보낼 수 있음', k3.ok && st.fetches.length === 1 && st.fetches[0].b.id.endsWith('#2'), JSON.stringify(k3));
+// 방 전체 보내기(auto): 이미 보낸 그대로면 건너뜀, 서고 주인 없는 세션은 뺌
+st.fetches.length = 0;
+const a1 = run(ex(), "kArchiveSend('1', true)"), a2 = run(ex(), "kArchiveSend('2', true)"), a9 = run(ex(), "kArchiveSend('9', true)");
+const a0 = run(ex(), "kArchiveSend('1', true)"); ok('방 전체: 바뀐 세션은 보내고, 한 번 더 누르면 "이미 보냄", 주인 없는 세션은 뺌, 요약 없는 세션은 빈 것', a1.ok && !a1.already && a0.ok && a0.already && a2.ok && a2.skipped && a9.empty && st.fetches.length === 1, JSON.stringify([a0, a1, a2, a9, st.fetches.length]));
 ok('연결 끊기', run(ex(), "kArchiveSet('', '')").ok && !run(ex(), 'archiveLinked()'));
 done();

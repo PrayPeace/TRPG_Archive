@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-27.32';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.33';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1527,16 +1527,17 @@ function kArchiveSet(code, me) {
   return withLock(20000, () => { setConf('archiveUrl', m[1]); setConf('archiveKey', m[2]); setConf('archiveMe', me); return { ok: true, linked: true }; });
 }
 // 마스터가 누르는 "이 세션 서고로 보내기": 기록이 없으면 만들고(같은 내용이면 저장된 것), 이미 보낸 판이어도 다시 보낸다
-function kArchiveSend(sess) {
+// 방 전체 보내기(auto): 화면이 세션마다 한 번씩 부른다. 이미 보낸 같은 내용은 건너뛰고, 서고 주인이 없는 세션은 뺀다
+function kArchiveSend(sess, auto) {
   sess = String(sess || getConf('session') || '1');
   if (!archiveLinked()) return { ok: false, error: '먼저 서고 연결 코드를 붙여 주세요' };
   if (!/^\d{1,5}$/.test(sess)) return { ok: false, error: '세션을 골라 주세요' };
-  withLock(20000, () => { confLoad(true); const s2 = confJson('archiveSent', {}); delete s2[sess]; setJson('archiveSent', s2); });
+  if (!auto) withLock(20000, () => { confLoad(true); const s2 = confJson('archiveSent', {}); delete s2[sess]; setJson('archiveSent', s2); });
   const rec = myRecord(sess, String(getConf('archiveMe') || ''), false);
   if (!rec.ok) return rec;
-  if (rec.empty) return { ok: false, error: rec.error };
-  if (rec.archive && rec.archive.skipped) { delete rec.archive; archiveAfter(sess, rec, null, true); }
-  return { ok: !!(rec.archive && rec.archive.ok), error: rec.archive && rec.archive.error, title: rec.title, reused: rec.reused };
+  if (rec.empty) return { ok: true, empty: true };
+  if (rec.archive && rec.archive.skipped) { if (auto) return { ok: true, skipped: true }; delete rec.archive; archiveAfter(sess, rec, null, true); }
+  return { ok: !!(rec.archive && rec.archive.ok), already: !!(rec.archive && rec.archive.already), error: rec.archive && rec.archive.error, title: rec.title, reused: rec.reused };
 }
 
 function saveColor(name, color) {
@@ -3133,7 +3134,7 @@ function keeperTool(b) {
     case 'kData':          return kData();
     case 'kArchive':       return kArchive();
     case 'kArchiveSet':    return kArchiveSet(b.code, b.me);
-    case 'kArchiveSend':   return kArchiveSend(b.session);
+    case 'kArchiveSend':   return kArchiveSend(b.session, !!b.auto);
     // 시나리오 자료
     case 'kSrcAdd':        return kbGuard(b.gen, () => kSrcAdd(b));
     case 'kSrcDel':        return kSrcDel(b.source);
