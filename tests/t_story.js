@@ -17,7 +17,7 @@ st.aiReply = (sys, text) => {
 };
 say(6);
 for (let k = 0; k < 4; k++) run(ex(), 'processNow(true)');
-const story = run(ex(), 'storyText()'), bak = JSON.parse(run(ex(), "getConf('storyBak') || '{}'"));
+const story = run(ex(), 'storyText()'), bak = JSON.parse(run(ex(), "getConfLong('storyBak') || '{}'"));
 ok('긴 줄거리를 줄여 씀 (세션 구분 줄은 그대로)', story.length < 300 && /^【세션 1】\n일행은 저택 서재에서 찢어진 일기/.test(story), story.slice(0, 120));
 ok('줄이기 전 글을 storyBak에 남김', (bak.t || '').indexOf('119번째 일') >= 0, String(bak.t || '').length);
 ok('요약 지시: 줄거리에는 큰 일만 1~2문장, 판정·마스터 말 전달은 쓰지 말 것', /1~2문장\(150자 이내\)/.test(sawAdd) && /마스터는 ~라고 밝혔다/.test(sawAdd));
@@ -49,4 +49,15 @@ const calls0 = st.aiCalls;
 run(ex(), 'withLock(20000, () => storyWrite(' + JSON.stringify(s1 + '\n\n【세션 3】\n짧은 이야기.') + ', storyDoc().k))');
 run(ex(), '(() => { const job = acquireJob("summary", 0); compactStory(job); releaseJob(job); })()');
 ok('지금 세션이 짧으면 AI를 부르지 않고 그대로', st.aiCalls === calls0 && run(ex(), 'storyText()').indexOf(s1) === 0);
+// 길이 상한 없음: 아주 길어져도 앞부분이 잘리지 않고, 시트 칸 한도(5만 자)를 넘으면 여러 칸에 나눠 담는다 (대장 "앞부분이 잘려나가는 방지로 그리고 상한은 일단 없애")
+const big = '【세션 1】\n맨 앞 첫 문장.\n' + '옛 일 '.repeat(30000) + '\n\n【세션 2】\n' + '이번 일 '.repeat(2000);
+run(ex(), 'withLock(20000, () => { storyWrite(' + JSON.stringify(big) + ', []); storyApply("kbig", { session: "2", storyAdd: "일행은 맨 끝 문장을 남겼다." }); })');
+const tb = run(ex(), 'storyText()');
+ok('10만 자가 넘어도 앞부분이 그대로 남고 뒤에 이어 붙음', tb.length > 100000 && tb.indexOf('【세션 1】\n맨 앞 첫 문장.') === 0 && /맨 끝 문장을 남겼다\.$/.test(tb), tb.length);
+ok('시트 칸 하나에는 5만 자 넘게 넣지 않음 (여러 칸에 나눔)', run(ex(), "[getConf('story'), getConf('story#2'), getConf('story#3'), getConf('story#4')].every(v => v == null || v.length <= 50000) && !!getConf('story#3')"));
+run(ex(), "withLock(20000, () => storyWrite('짧은 글', storyDoc().k))");
+ok('다시 짧아지면 남은 칸을 비움', run(ex(), "storyText() === '짧은 글' && !getConf('story#2') && !getConf('story#3')"));
+const sv = post(ex(), { action: 'storySave', pw: 'pwA', text: big });
+ok('직접 고치기(storySave)도 길이 상한 없이 글자 그대로 저장', sv.ok && run(ex(), 'storyText()') === big, run(ex(), 'storyText().length'));
+ok('정정 AI가 끊겨 짧아진 줄거리는 쓰지 않음', run(ex(), "!storyKeepsFront('【세션 1】\\n' + 'a'.repeat(1000) + '\\n【세션 2】\\nb', '【세션 2】\\nb') && storyKeepsFront('【세션 1】\\naaaa\\n【세션 2】\\nbbbb', '【세션 1】\\naaab\\n【세션 2】\\nbbbb')"));
 done();
