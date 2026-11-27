@@ -7,7 +7,7 @@ run(ex(), "setConf('keeperName','키퍼')");
 const base = Date.parse('2026-11-27T10:00:00Z'); let n = 0;
 const say = k => post(ex(), { action: 'lines', pw: 'pwA', items: Array.from({ length: k }, () => { n++; return { uid: 'S' + n, name: n % 2 ? '키퍼' : '철수', session: '1', t: new Date(base + n * 9000).toISOString(), text: '저택으로 간다 ' + n }; }) });
 // 지어낸 긴 줄거리 (7,000자 넘게)
-const long = '【세션 1】\n' + Array.from({ length: 160 }, (_, i) => '일행은 저택 근처에서 ' + i + '번째 일을 겪었다고 마스터가 밝혔다.').join('\n');
+const long = '【세션 1】\n' + Array.from({ length: 300 }, (_, i) => '일행은 저택 근처에서 ' + i + '번째 일을 겪었다고 마스터가 밝혔다.').join('\n');
 run(ex(), 'withLock(20000, () => storyWrite(' + JSON.stringify(long) + ', []))');
 let compactMax = 0, sawAdd = '';
 st.aiReply = (sys, text) => {
@@ -35,7 +35,7 @@ run(ex(), "withLock(20000, () => { storyWrite('【세션 1】\\n짧은 줄거리
 ok('덧붙인 글의 &#39; &#34; 표시는 따옴표 글자로 바꿔 넣음', /'서재'에서 "쿵" 소리/.test(run(ex(), 'storyText()')), run(ex(), 'storyText()'));
 // 지난 세션은 글자 그대로, 지금 세션 부분만 줄인다 (대장: 세션1의 사건은 그대로 두고)
 const s1 = '【세션 1】\n세션 일의 줄거리. 지난 세션은 이미 잘 정리돼 있다. ' + '지난 일 '.repeat(400);
-const s2 = '\n\n【세션 2】\n' + Array.from({ length: 150 }, (_, i) => '이번 세션 ' + i + '번째 일이 있었다고 마스터가 밝혔다.').join('\n');
+const s2 = '\n\n【세션 2】\n' + Array.from({ length: 300 }, (_, i) => '이번 세션 ' + i + '번째 일이 있었다고 마스터가 밝혔다.').join('\n');
 st.aiFail = null; let sentText = '';
 st.aiReply = (sys, text) => { if (/줄거리를 줄여 다시 쓴다/.test(sys)) { sentText = text; return JSON.stringify({ story: '【세션 2】\n일행은 지하실로 내려가 쇠사슬에 묶인 주인을 찾았다. 집사는 도망쳤고, 일행은 경찰을 불러 저택을 넘긴 뒤 주인을 병원으로 옮겼다. 편지는 벽난로 뒤에서 찾았다. 일행은 다음 날 아침 병원에서 주인의 이야기를 듣기로 했다.' }); } return ''; };
 run(ex(), 'withLock(20000, () => storyWrite(' + JSON.stringify(s1 + s2) + ', storyDoc().k))');
