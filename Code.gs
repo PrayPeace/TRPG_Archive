@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-27.35';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.36';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -721,6 +721,14 @@ function touchPresence(name, mic, why, hid, bye) {
   const names = JSON.parse(c.get('p_names') || '[]');
   if (names.indexOf(name) < 0) { names.push(name); c.put('p_names', JSON.stringify(names.slice(-30)), 21600); }
 }
+/* 받아쓴 말이 저장됐다 = 그 사람은 접속해 있다. 새 말 확인(poll)이 늦어져도(숨은 탭에서 타이머가 밀리거나 요청이 멈춤)
+ * 말을 보내는 동안에는 '접속 끊김'으로 보이지 않게, 이미 있는 접속 기록의 시각만 고친다 (마이크 상태 등은 그대로) */
+function touchAlive(items) {
+  const names = []; (Array.isArray(items) ? items : []).forEach(it => { const n = it && String(it.name || '').slice(0, 40); if (n && names.indexOf(n) < 0) names.push(n); });
+  if (!names.length || names.length > 5) return;
+  const c = roomCache(), all = c.getAll(names.map(n => 'p_' + n)), t = Date.now();
+  names.forEach(n => { const v = all['p_' + n]; if (!v) return; const o = JSON.parse(v); if (o.bye || t - o.t < 3000) return; o.t = t; c.put('p_' + n, JSON.stringify(o), 600); });
+}
 function presence() {
   const c = roomCache();
   const names = JSON.parse(c.get('p_names') || '[]');
@@ -837,7 +845,7 @@ function doPost(e) {
     }
     // ── 플레이어 누구나
     switch (b.action) {
-      case 'lines':      return out(addLines(b));
+      case 'lines':      { const r = addLines(b); try { if (r && r.ok) touchAlive(b.items); } catch (err) {} return out(r); }
       case 'clientErr':  return out(clientErr(b));
       case 'bye':        try { touchPresence(String(b.name || ''), 'off', 'bye', false, true); } catch (err) {} return out({ ok: true });
       case 'noteHandoff': return out(noteHandoff(b.sec, b.item));
@@ -2110,7 +2118,7 @@ function processNow(manual, maxMs) {
       if (nr.stale) stale = true; else { nDone = nr.done; nWarn = nr.warn || ''; }
     } catch (e) { nWarn = '정리 처리 중 오류: ' + String(e && e.message || e).slice(0, 160); }
   }
-  if (!err && !stale && Date.now() - t0 < budget) {
+  if (!err && !stale && (Date.now() - t0 < budget || (Date.now() - t0 < 270000 && storyText().length > STORY_MAX * 2))) {     // 줄거리가 많이 길면 요약 시간을 다 썼어도 줄인다 (6분 한도 안)
     try { setProg(job, '누적 줄거리를 다듬는 중', 94, 98); confLoad(true); compactStory(job); } catch (e) { Logger.log('줄거리 줄이기 실패: ' + e); }
   }
   releaseJob(job);
@@ -2571,7 +2579,7 @@ function summarizeGroup(g, sess) {
       '길이: 구간 전체 12줄 안팎(최대 16줄), 문단마다 2~5줄. 한 줄은 한두 문장으로 핵심만 쓴다. ' +
       '마스터가 준 정보(이름·장소·단서·판정 결과·NPC의 주장)는 빠뜨리지 말고 한 줄에 압축해서 담되, 분위기 묘사 문장은 줄여라 (자세한 묘사는 NPC·장소·단서 정리에 따로 남는다). ' +
       '줄마다 끝에 근거 발언 번호를 (#12, #15)처럼 붙여라",' +
-      '"storyAdd":"이 구간에서 누적 줄거리 뒤에 덧붙일 내용. 중요한 사건·결정·알아낸 사실만 2~4문장(250자 이내)으로. 누적 줄거리를 다시 쓰지 말고 새로 더할 부분만 써라. 이야기 진행이 없으면 빈칸"}\n' +
+      '"storyAdd":"이 구간에서 누적 줄거리 뒤에 덧붙일 내용. 이야기가 크게 움직인 일(새 장소로 감, 중요한 단서·사실을 알아냄, 큰 결정, 전투·죽음, 결말)만 1~2문장(150자 이내)으로, 짧고 쉬운 이야기체로. 판정 요구·규칙 이야기·아직 결과가 안 난 일·마스터가 한 말 전달(\\"마스터는 ~라고 밝혔다\\")은 쓰지 마라. 누적 줄거리를 다시 쓰지 말고 새로 더할 부분만. 큰 진행이 없으면 빈칸 (대부분의 구간은 빈칸이어도 된다)"}\n' +
       '(NPC·장소·단서 정리는 따로 처리하니 여기서는 출력하지 마라.)\n' +
       '\n새 대화에 이야기 진행이 거의 없으면 summary는 "- (잡담 위주, 진행 없음)"으로 하고 storyAdd는 빈칸으로 하라.' + '\n';
     const fresh =
@@ -2604,7 +2612,7 @@ function storyApply(segKey, r) {
   let t = d.t;
   if (r.story) t = String(r.story).slice(0, 20000);              // 예전 버전이 보관해 둔 결과 (줄거리 전체를 다시 쓴 것)
   else {
-    const add = String(r.storyAdd || '').trim();
+    const add = String(r.storyAdd || '').replace(/&#39;|&apos;/g, "'").replace(/&#34;|&quot;/g, '"').replace(/&amp;/g, '&').trim();
     // 예전 버전에서 넘어온 직후 한 번만: 예전 버전이 이 구간 글을 붙인 직후에 멈췄다면 줄거리 맨 끝이 바로 그 글이다 → 다시 붙이지 않고 표시만 남긴다
     const already = d.legacy && add && t.replace(/\s+$/, '').slice(-add.length) === add;
     if (add && !already) {
@@ -2618,20 +2626,30 @@ function storyApply(segKey, r) {
   return true;
 }
 // 누적 줄거리가 길어지면 한 번 줄여 쓴다. 실패해도 기록에는 영향이 없다 (다음 정리 때 다시 시도).
+/* 줄여 쓰기 (11-27.36 고침): 예전에는 답 길이 한도가 2600으로 작아서, 줄거리가 길어지면(두 세션째) 답이 잘려 매번 실패했고
+ * 실패가 기록에 남지 않아 줄거리가 끝없이 길어졌다. 이제 한도를 넉넉히 주고, 세션마다 따로 줄인다(지난 세션은 짧게, 지금 세션은 조금 자세히).
+ * 줄이기 전 글은 storyBak에 한 벌 남긴다 (사람이 되돌릴 수 있게). 실패하면 procStatus에 이유를 남긴다. */
 function compactStory(job) {
   const story = storyText();
   if (story.length <= STORY_MAX) return false;
-  const res = publicAi(() => parseJson(claude(
-    '너는 TRPG 세션 기록 담당이다. 길어진 누적 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
-    '## 누적 줄거리\n' + story + '\n\n## 할 일\n1500자 이내로 다시 써라. 【세션 N】 구분 줄은 그대로 두어라. 오래된 일은 짧게, 최근 일은 자세히. ' +
-    '인물·장소 이름과 중요한 사건·결정·알아낸 사실은 빠뜨리지 마라. 확인된 사실, NPC의 주장, ' + R().pc + '의 추측을 섞지 마라.\n' +
-    '## 출력 형식\n{"story":"줄여 쓴 누적 줄거리"}', 2600)));
+  let res;
+  try {
+    res = publicAi(() => parseJson(claude(
+      '너는 TRPG 세션 기록 담당이다. 길어진 누적 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
+      '## 누적 줄거리\n' + story + '\n\n## 할 일\n다시 써라. 【세션 N】 구분 줄은 그대로 두고, 세션마다 그 아래에 줄거리를 쓴다.\n' +
+      '- 지난 세션: 세션마다 400자 이내. 무슨 사건이었고 어떻게 끝났는지, 남은 떡밥만.\n' +
+      '- 가장 마지막 세션: 1000자 이내.\n' +
+      '- 문체: 짧고 쉬운 평서문 이야기체 ("~했다"). 판정 요구·규칙 설명·"결과는 아직 나오지 않았다" 같은 진행 상황, "마스터는 ~라고 밝혔다" 같은 말 전달은 빼고 이야기 속 사건으로만 쓴다. 같은 일을 되풀이하지 않는다.\n' +
+      '- 인물·장소 이름과 중요한 사건·결정·알아낸 사실·결말은 빠뜨리지 마라. 확인된 사실, NPC의 주장, ' + R().pc + '의 추측을 섞지 마라.\n' +
+      '## 출력 형식\n{"story":"줄여 쓴 누적 줄거리"}', 8000)));
+  } catch (e) { try { withLock(20000, () => setJson('storyFail', { at: now(), error: String(e && e.message || e).slice(0, 200), len: story.length })); } catch (x) {} throw e; }
   const outStory = String(res.story || '').trim();
   if (outStory.length < 100 || outStory.length >= story.length) return false;
   return withLock(20000, () => {
     const d = storyDoc();
     if (!jobAlive(job) || d.t !== story) return false;     // 그 사이 초기화됐거나 누가 고쳤으면 그대로 둔다
-    storyWrite(outStory, d.k); bump('sumVer');              // 글만 바꾸고 "반영한 구간" 목록은 그대로
+    setConf('storyBak', JSON.stringify({ at: now(), t: story.slice(-45000) }));
+    storyWrite(outStory, d.k); setJson('storyFail', null); bump('sumVer');              // 글만 바꾸고 "반영한 구간" 목록은 그대로
     return true;
   });
 }
