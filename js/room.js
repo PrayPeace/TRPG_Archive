@@ -410,7 +410,7 @@ function openDetail(sec, id){
   bd.append(el('div', 'kind', '✦ ' + def.kind + (it.locked ? ' · 🔒 사람이 확정함' : '')));
   bd.append(el('h2', '', it[def.key] || ''));
   if (sec === 'npcs' || sec === 'pcs') {
-    const sub = (sec === 'pcs' ? [it.player && '플레이어 ' + it.player] : [it.affil, it.age && (String(it.age).match(/세|살/) ? it.age : it.age + '세')]).filter(Boolean).join(' · ');
+    const sub = (sec === 'pcs' ? [it.player && '플레이어 : ' + it.player] : [it.affil, it.age && (String(it.age).match(/세|살/) ? it.age : it.age + '세')]).filter(Boolean).join(' · ');
     if (sub) bd.append(el('div', 'sub', sub));
     if (it.said) { const q = el('div', 'quote'); q.append(linkify(it.said)); bd.append(q); }
     const kv = el('dl', 'kv');
