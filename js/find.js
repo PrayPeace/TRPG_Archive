@@ -44,7 +44,7 @@ function findIndex(){
   });
   (d.characters || []).forEach(c => {
     const title = c.name || c.tab || ''; if (!title) return;
-    out.push({ kind: '캐릭터', icon: '🎭', title, body: [c.occupation, c.player, c.tab].filter(Boolean).join(' '), sub: c.player ? '플레이어 ' + c.player : '', w: 35, go: () => showTab('chars') });
+    out.push({ kind: '캐릭터', icon: '🎭', title, body: [c.occupation, c.player, c.tab].filter(Boolean).join(' '), sub: c.player ? '플레이어 : ' + c.player : '', w: 35, go: () => showTab('chars') });
   });
   const strip = t => String(t || '').replace(/\s*\(#[^)]*\)/g, '').trim();
   (d.summaries || []).forEach(s => {
