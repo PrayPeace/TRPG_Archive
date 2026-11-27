@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-27.33';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.34';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1029,6 +1029,7 @@ function newRoom(name, rule, pw) {
   const cs = c.getSheetByName(SH.CONF);
   const rows = [['키', '값'], ['rule', rule], ['glossary', RULES[rule].gloss]];
   if (pw) rows.push(['roomPw', enc(String(pw))]);                  // 로비에서 정한 방 비밀번호 (Code.gs의 ROOM_PW보다 우선)
+  ['archiveUrl', 'archiveKey', 'archiveMe'].forEach(k => { const v = getConf(k); if (v) rows.push([k, String(v)]); });     // 📚 서고 연결은 새 방도 그대로 (주인 없는 세션은 어차피 안 보냄)
   if (cs) cs.getRange(1, 1, rows.length, 2).setNumberFormat('@').setValues(rows);
   let play = '';
   if (_hosted) {                                                   // 엔진 방식: 새 방을 바로 등록하고 시트를 맞춘다 → 배포 없이 바로 쓸 수 있다

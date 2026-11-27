@@ -66,5 +66,10 @@ ok('그래도 마스터 단추로는 보낼 수 있음', k3.ok && st.fetches.len
 st.fetches.length = 0;
 const a1 = run(ex(), "kArchiveSend('1', true)"), a2 = run(ex(), "kArchiveSend('2', true)"), a9 = run(ex(), "kArchiveSend('9', true)");
 const a0 = run(ex(), "kArchiveSend('1', true)"); ok('방 전체: 바뀐 세션은 보내고, 한 번 더 누르면 "이미 보냄", 주인 없는 세션은 뺌, 요약 없는 세션은 빈 것', a1.ok && !a1.already && a0.ok && a0.already && a2.ok && a2.skipped && a9.empty && st.fetches.length === 1, JSON.stringify([a0, a1, a2, a9, st.fetches.length]));
+// 로비에서 새 방을 만들면 서고 연결도 물려받음
+const nr = run(ex(), "newRoom('새 방', 'coc', 'pw1234')");
+const nid = Object.keys(st.books).find(k => k !== A && /^1COPY/.test(k));
+const nc = exec(st, nid);
+ok('새로 만든 방도 서고에 연결돼 있음 (주인 이름 그대로)', nr.ok && nid && run(nc, 'archiveLinked()') && run(nc, "getConf('archiveMe')") === '프레이피스' && run(nc, "getConf('archiveKey')") === KEY, JSON.stringify(nr).slice(0, 200));
 ok('연결 끊기', run(ex(), "kArchiveSet('', '')").ok && !run(ex(), 'archiveLinked()'));
 done();
