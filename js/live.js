@@ -13,17 +13,31 @@ function verTag(code){
   el.title = '화면 ' + app + ' · 서버 ' + (code || '예전 판 (판 번호를 알려 주지 않음)');
   el.classList.toggle('diff', !!code && code !== app || !code);
 }
-async function pollOnce(){
+/* 새 말 확인 고리. pollGen: 지켜보기(아래)가 멈춘 고리를 버리고 새로 시작할 때 옛 고리가 이어 돌지 않게 하는 번호.
+ * 서버에 닿지 못한 것만 '연결 끊김'으로 센다. 받은 답을 화면에 그리다 난 오류는 연결 문제가 아니므로 세지 않고 다음 확인을 계속한다. */
+let pollGen = 0, pollBeat = Date.now(), pollErr = '';
+async function pollOnce(gen){
+  if (gen == null) gen = ++pollGen; else if (gen !== pollGen) return;
+  pollBeat = Date.now();
+  let r = null;
   try {
-    const r = await api('poll', { since: lastId, me: cfg.name, mic: micStatus, why: micStatus === 'off' ? micWhy : '', hid: document.hidden ? '1' : '' });
+    r = await api('poll', { since: lastId, me: cfg.name, mic: micStatus, why: micStatus === 'off' ? micWhy : '', hid: document.hidden ? '1' : '' });
     if (!r.ok) throw new Error(r.error);
-    failCount = 0; net('on', '연결됨');
+  } catch (e) {
+    if (gen !== pollGen) return;
+    failCount++; pollErr = String(e.message || e); net('err', '연결 끊김 · 재시도');
+    if (String(e.message || '').includes('비밀번호')) { stopAll(''); showJoin('방 비밀번호가 틀렸어요'); return; }
+    setTimeout(() => pollOnce(gen), pollGap()); return;
+  }
+  if (gen !== pollGen) return;
+  failCount = 0; pollErr = ''; net('on', '연결됨');
+  try {
     const v = r.v;
     if (live.resetVer !== undefined && v.resetVer !== live.resetVer) {
       resetLog(); ver = {}; live = {};
       keeperReset();                                  // 지워진 회의록으로 만들던 마스터 쪽 결과·초안도 버린다 (늦게 오는 답 포함)
       toast('마스터가 기록을 초기화했어요');
-      setTimeout(pollOnce, 300); return;
+      setTimeout(() => pollOnce(gen), 300); return;
     }
     live = { session: v.session, resetVer: v.resetVer }; sessMark();
     $('sessPill').textContent = '세션 ' + v.session; verTag(v.code);
@@ -35,14 +49,21 @@ async function pollOnce(){
     renderWho(r.presence);
     renderSumState(v);
     if (data && ver.sumVer && v.sumVer !== ver.sumVer) srSay('새 요약이 도착했어요');
-    if (!data || ['sumVer','notesVer','charVer','imgVer','session','resetVer','colorVer'].some(k => v[k] !== ver[k])) await refreshData();
+    // 자료 다시 받기는 기다리지 않는다: 자료(요약·정리)가 커서 늦게 와도 새 말 확인은 계속 돈다
+    if (!data || ['sumVer','notesVer','charVer','imgVer','session','resetVer','colorVer'].some(k => v[k] !== ver[k])) refreshDataOnce().then(() => { try { nextCheck(); } catch (_) {} });      // 자료가 오면 다음 할 일의 '그 뒤 바뀜' 줄을 다시 고친다
     nextCheck();                                    // 세션이 넘어갔으면 지난 추천을 걷고, 다음 할 일 탭이 열려 있으면 "그 뒤 새 기록" 줄을 고친다 (AI는 부르지 않음)
-  } catch (e) {
-    failCount++; net('err', '연결 끊김 · 재시도');
-    if (String(e.message || '').includes('비밀번호')) { stopAll(''); showJoin('방 비밀번호가 틀렸어요'); return; }
-  }
-  setTimeout(pollOnce, pollGap());
+  } catch (e) { try { console.error('poll 화면 처리 오류', e); } catch (_) {} }
+  setTimeout(() => pollOnce(gen), pollGap());
 }
+// 자료 다시 받기는 한 번에 하나만 (늦게 오는 동안 같은 요청을 겹쳐 보내지 않는다)
+let refreshing = null;
+function refreshDataOnce(){ if (!refreshing) refreshing = refreshData().finally(() => { refreshing = null; }); return refreshing; }
+/* 지켜보기: 새 말 확인이 45초 넘게 한 번도 돌지 않았으면(요청이 멈춤, 숨은 탭에서 타이머가 밀림 등) 새로 시작한다 */
+setInterval(() => {
+  if ($('app').classList.contains('hide') || !cfg.url) return;
+  if (Date.now() - pollBeat > 45000) { pollBeat = Date.now(); pollOnce(); }
+}, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - pollBeat > 10000 && !$('app').classList.contains('hide') && cfg.url) pollOnce(); });
 /* 새로 고침 간격: 대화가 오가거나 내 마이크가 켜져 있으면 4초, 조용하면 8~12초, 다른 화면을 보고 있으면 15초.
  * 서버는 25초 동안 소식이 없으면 '접속 끊김'으로 보므로 15초를 넘기지 않는다. */
 function pollGap(){

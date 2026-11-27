@@ -41,16 +41,27 @@ let readPost = null;
 /* 기기 토큰(pt): 비밀번호로 처음 들어오면 서버가 준다. 비밀번호를 여러 번 틀리는 공격으로 입장이 잠겨도 이 토큰이 있는 기기는 그대로 쓴다. 주소(GET)에는 싣지 않는다. */
 function ptFor(url){ return (url && S.get('t_pt:' + url)) || ''; }
 function ptKeep(url, r){ if (url && r && r.pt) { S.set('t_pt:' + url, r.pt); delete r.pt; } return r; }
+/* 읽기 요청에는 기다리는 한도가 있다 (기본 60초, 새 말 확인 poll은 20초). 한도를 넘으면 끊고 오류로 돌려준다.
+ * 예전에는 한도가 없어서, 응답 하나가 멈추면 그 화면은 새 말을 다시 묻지 않았다 (받아쓰기는 따로 보내서 계속 됐지만
+ * 그 사람 화면에는 남의 말이 안 들어오고, 다른 사람 화면에는 '접속 끊김'이 떴다. 11-27 질긴 결속 세션 2) */
+const READ_MS = { poll: 20000 };
+async function fetchT(u, o, ms){
+  const ac = window.AbortController ? new AbortController() : null, t = ac ? setTimeout(() => ac.abort(), ms) : 0;
+  try { return await (await fetch(u, Object.assign({}, o, ac ? { signal: ac.signal } : {}))).json(); }
+  catch (e) { if (e && e.name === 'AbortError') throw new Error('서버 응답이 ' + Math.round(ms / 1000) + '초 넘게 없음'); throw e; }
+  finally { clearTimeout(t); }
+}
 async function readCall(url, pw, action, params){
   const p = { action, pw }; Object.entries(params || {}).forEach(([k, v]) => { p[k] = String(v); });
+  const ms = READ_MS[action] || 60000;
   if (readPost !== false) {
     const pt = ptFor(url);
-    const r = ptKeep(url, await (await fetch(url, { method: 'POST', body: JSON.stringify(pt ? Object.assign({ pt }, p) : p) })).json());
+    const r = ptKeep(url, await fetchT(url, { method: 'POST', body: JSON.stringify(pt ? Object.assign({ pt }, p) : p) }, ms));
     if (r && r.rp) { readPost = true; delete r.rp; return r; }
     if (readPost === true) return r;
     readPost = false;
   }
-  return (await fetch(withQ(url, new URLSearchParams(p).toString()))).json();
+  return fetchT(withQ(url, new URLSearchParams(p).toString()), {}, ms);
 }
 async function api(action, params){ return readCall(cfg.url, cfg.pw, action, params); }
 async function post(body){
