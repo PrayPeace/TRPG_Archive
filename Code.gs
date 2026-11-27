@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-27.36';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.37';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -2118,7 +2118,7 @@ function processNow(manual, maxMs) {
       if (nr.stale) stale = true; else { nDone = nr.done; nWarn = nr.warn || ''; }
     } catch (e) { nWarn = '정리 처리 중 오류: ' + String(e && e.message || e).slice(0, 160); }
   }
-  if (!err && !stale && (Date.now() - t0 < budget || (Date.now() - t0 < 270000 && storyText().length > STORY_MAX * 2))) {     // 줄거리가 많이 길면 요약 시간을 다 썼어도 줄인다 (6분 한도 안)
+  if (!err && !stale && (Date.now() - t0 < budget || (Date.now() - t0 < 270000 && storySplit(storyText()).tail.length > STORY_TAIL_MAX * 2))) {     // 줄거리가 많이 길면 요약 시간을 다 썼어도 줄인다 (6분 한도 안)
     try { setProg(job, '누적 줄거리를 다듬는 중', 94, 98); confLoad(true); compactStory(job); } catch (e) { Logger.log('줄거리 줄이기 실패: ' + e); }
   }
   releaseJob(job);
@@ -2619,37 +2619,43 @@ function storyApply(segKey, r) {
       let lastTag = null, m; const re = /【세션 (\d+)】/g;
       while ((m = re.exec(t))) lastTag = m[1];
       if (lastTag !== String(r.session)) t += (t ? '\n\n' : '') + '【세션 ' + r.session + '】';
-      t = (t + '\n' + add).slice(-20000);
+      t = (t + '\n' + add).slice(-40000);      // 지금 세션 부분은 길어지면 줄여 쓰므로 여기서 앞부분이 잘릴 일은 거의 없다 (예전 2만 자 상한은 앞 세션을 잘라 먹었다)
     }
   }
   storyWrite(t, d.k.concat([segKey]));
   return true;
 }
 // 누적 줄거리가 길어지면 한 번 줄여 쓴다. 실패해도 기록에는 영향이 없다 (다음 정리 때 다시 시도).
-/* 줄여 쓰기 (11-27.36 고침): 예전에는 답 길이 한도가 2600으로 작아서, 줄거리가 길어지면(두 세션째) 답이 잘려 매번 실패했고
- * 실패가 기록에 남지 않아 줄거리가 끝없이 길어졌다. 이제 한도를 넉넉히 주고, 세션마다 따로 줄인다(지난 세션은 짧게, 지금 세션은 조금 자세히).
- * 줄이기 전 글은 storyBak에 한 벌 남긴다 (사람이 되돌릴 수 있게). 실패하면 procStatus에 이유를 남긴다. */
+/* 줄여 쓰기 (11-27.36·.37 고침): 지난 세션 줄거리는 건드리지 않고, 맨 마지막 【세션 N】 부분(지금 세션)만 길어지면 줄여 쓴다.
+ * (.36 전에는 답 한도 2600에 잘려 매번 실패했고, .36은 줄거리 전체를 다시 써서 지난 세션까지 바뀔 수 있었다. 대장: "세션1의 사건은 그대로 두고")
+ * 줄이기 전 글은 storyBak에 한 벌 남긴다. 실패하면 storyFail에 이유를 남긴다. */
+const STORY_TAIL_MAX = 3500;     // 지금 세션 부분이 이보다 길면 줄여 쓴다 (목표 2000자 안팎: 대장 "줄이는 건 좋은데 너무 잘리면 안 됨")
+function storySplit(t) {
+  t = String(t || ''); const i = t.lastIndexOf('【세션 ');
+  return i < 0 ? { head: '', tail: t } : { head: t.slice(0, i), tail: t.slice(i) };
+}
+function storyTailLong() { return storySplit(storyText()).tail.length > STORY_TAIL_MAX; }
 function compactStory(job) {
-  const story = storyText();
-  if (story.length <= STORY_MAX) return false;
+  const story = storyText(), sp = storySplit(story);
+  if (sp.tail.length <= STORY_TAIL_MAX) return false;
+  const m = /^(【세션 [^】]*】)\s*/.exec(sp.tail), hdr = m ? m[1] : '', body = m ? sp.tail.slice(m[0].length) : sp.tail;
   let res;
   try {
     res = publicAi(() => parseJson(claude(
-      '너는 TRPG 세션 기록 담당이다. 길어진 누적 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
-      '## 누적 줄거리\n' + story + '\n\n## 할 일\n다시 써라. 【세션 N】 구분 줄은 그대로 두고, 세션마다 그 아래에 줄거리를 쓴다.\n' +
-      '- 지난 세션: 세션마다 400자 이내. 무슨 사건이었고 어떻게 끝났는지, 남은 떡밥만.\n' +
-      '- 가장 마지막 세션: 1000자 이내.\n' +
-      '- 문체: 짧고 쉬운 평서문 이야기체 ("~했다"). 판정 요구·규칙 설명·"결과는 아직 나오지 않았다" 같은 진행 상황, "마스터는 ~라고 밝혔다" 같은 말 전달은 빼고 이야기 속 사건으로만 쓴다. 같은 일을 되풀이하지 않는다.\n' +
+      '너는 TRPG 세션 기록 담당이다. 이번 세션의 길어진 줄거리를 줄여 다시 쓴다. 없는 내용을 더하지 마라. JSON 하나만 출력하라.',
+      (sp.head ? '## 지난 세션 줄거리 (참고만, 다시 쓰지 않는다)\n' + sp.head.slice(-1500) + '\n\n' : '') +
+      '## 이번 세션' + (hdr ? ' ' + hdr : '') + ' 줄거리\n' + body + '\n\n## 할 일\n이번 세션 줄거리만 1800~2200자로 다시 써라. 너무 짧게 깎지 말고, 장면마다 무슨 일이 있었는지 알 수 있게 남겨라. 【세션 N】 구분 줄은 쓰지 않는다.\n' +
+      '- 문체: 짧고 쉬운 평서문 이야기체 ("~했다"). 판정 요구·규칙 설명·"결과는 아직 나오지 않았다" 같은 진행 상황, "마스터는 ~라고 밝혔다" 같은 말 전달은 빼고 이야기 속 사건으로만 쓴다. 같은 일을 되풀이하지 않는다. 장면이 바뀌면 문단을 나눈다.\n' +
       '- 인물·장소 이름과 중요한 사건·결정·알아낸 사실·결말은 빠뜨리지 마라. 확인된 사실, NPC의 주장, ' + R().pc + '의 추측을 섞지 마라.\n' +
-      '## 출력 형식\n{"story":"줄여 쓴 누적 줄거리"}', 8000)));
-  } catch (e) { try { withLock(20000, () => setJson('storyFail', { at: now(), error: String(e && e.message || e).slice(0, 200), len: story.length })); } catch (x) {} throw e; }
-  const outStory = String(res.story || '').trim();
-  if (outStory.length < 100 || outStory.length >= story.length) return false;
+      '## 출력 형식\n{"story":"줄여 쓴 이번 세션 줄거리"}', 8000)));
+  } catch (e) { try { withLock(20000, () => setJson('storyFail', { at: now(), error: String(e && e.message || e).slice(0, 200), len: sp.tail.length })); } catch (x) {} throw e; }
+  const outBody = String(res.story || '').replace(/^【세션 [^】]*】\s*/, '').trim();
+  if (outBody.length < 100 || outBody.length >= body.length) return false;
   return withLock(20000, () => {
     const d = storyDoc();
     if (!jobAlive(job) || d.t !== story) return false;     // 그 사이 초기화됐거나 누가 고쳤으면 그대로 둔다
     setConf('storyBak', JSON.stringify({ at: now(), t: story.slice(-45000) }));
-    storyWrite(outStory, d.k); setJson('storyFail', null); bump('sumVer');              // 글만 바꾸고 "반영한 구간" 목록은 그대로
+    storyWrite(sp.head + (hdr ? hdr + '\n' : '') + outBody, d.k); setJson('storyFail', null); bump('sumVer');      // 지난 세션 부분(head)은 글자 그대로
     return true;
   });
 }
