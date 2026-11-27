@@ -131,7 +131,7 @@ function showTab(t){
   if (t === 'keeper') kOpen();
   if (t === 'next') nextOpen();
 }
-$('tabs').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.t); };
+$('tabs').onclick = e => { const b = e.target.closest('button'); if (b && b.dataset.t) showTab(b.dataset.t); };
 
 /* ── 창(모달) ── */
 let modalOnClose = null;

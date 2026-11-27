@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-27.34';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.35';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -813,6 +813,7 @@ function readAction(p) {
     case 'history':     return history(Number(p.before || 0), Number(p.limit || 300));
     case 'sessionLines':return sessionLines(String(p.session || ''));
     case 'sessions':    return sessionList();
+    case 'radar':       return radarData();
     case 'evidence':    return evidence(csv(p.uids), csv(p.ids).map(Number), String(p.rv || ''), Number(p.ctx || 2), p.session);
     case 'ping':        return { ok: true, title: roomTitle(), rule: ruleKey(), theme: confJson('theme', {}) };
   }
@@ -1164,6 +1165,73 @@ function sessionList() {
   const s = sheet(SH.LINES), last = s.getLastRow(), cnt = {};
   if (last >= 2) s.getRange(2, 3, last - 1, 4).getValues().forEach(r => { if (contOf(decS(r[3]))) return; const k = String(r[0]); cnt[k] = (cnt[k] || 0) + 1; });
   return { ok: true, sessions: Object.keys(cnt).sort((a, b) => Number(a) - Number(b)).map(k => ({ session: k, count: cnt[k] })) };
+}
+
+/* ───────────── 🛰 떡밥 레이더: 오래 안 나온 NPC, 오래 손대지 않은 미해결 단서 ─────────────
+ * 공개 자료(정리·요약·회의록)만 본다. 마스터 자료는 보지 않는다. AI를 부르지 않는다 (규칙으로만 고른다).
+ *  NPC: 이름·다른 이름이 나온 세션(회의록·요약·근거 줄)을 모아, 마지막으로 나온 뒤 세션이 RADAR_NPC번 이상 지났으면 후보
+ *  단서: 미해결이고, 근거 줄이 마지막으로 나온 세션에서 RADAR_CLUE번 이상 지났으면 후보 (근거 줄이 없는 단서는 고르지 않는다)
+ * 후보마다 근거(처음·마지막으로 나온 세션과 그 줄)를 붙인다. 마스터가 '해당 없음'을 누르면 다시 보이지 않고, '나중에'는 다음 세션이 시작되면 다시 보인다. */
+const RADAR_NPC = 3, RADAR_CLUE = 2, RADAR_MAX = 12;
+function radarOffMap() { const o = confJson('radarOff', {}); return o && typeof o === 'object' ? o : {}; }
+function radarData() {
+  const rows = allLineRows().filter(l => !/^※ 받아쓰기 끊김/.test(l.text || ''));
+  const sess = []; rows.forEach(l => { if (l.session && sess.indexOf(l.session) < 0) sess.push(l.session); });
+  sess.sort((a, b) => Number(a) - Number(b));
+  const off = radarOffMap();
+  if (sess.length < 2) return { ok: true, cur: sess[0] || '', items: [], hidden: [], sessions: sess.length };
+  const cur = sess[sess.length - 1], pos = s => sess.indexOf(String(s));
+  const byS = {}; rows.forEach(l => { (byS[l.session] = byS[l.session] || []).push(l); });
+  const sumS = {}; try { SS().getSheetByName(SH.SUM).getDataRange().getValues().slice(1).forEach(r => { const k = String(r[0]); sumS[k] = (sumS[k] || '') + '\n' + decS(r[3]); }); } catch (e) {}
+  const txtS = {}; sess.forEach(s => { txtS[s] = byS[s].map(l => l.text).join('\n') + (sumS[s] || ''); });
+  const byUid = {}; rows.forEach(l => { if (l.uid) byUid[l.uid] = l; });
+  const ev = l => l ? { s: l.session, t: String(l.time || '').slice(0, 16), who: l.name, text: String(l.text || '').slice(0, 120), uid: l.uid } : null;
+  const n = readNotes() || emptyNotes(), items = [];
+  (n.npcs || []).forEach(x => {
+    const names = [x.name].concat(akaList(x.aka)).map(v => String(v || '').trim()).filter(v => v.length >= 2);
+    if (!names.length) return;
+    const hit = t => names.some(v => t.indexOf(v) >= 0);
+    const seen = sess.filter(s => hit(txtS[s]));
+    (x.src || []).forEach(u => { const l = byUid[u]; if (l && seen.indexOf(l.session) < 0) seen.push(l.session); });
+    seen.sort((a, b) => pos(a) - pos(b));
+    if (!seen.length) return;
+    const last = seen[seen.length - 1], gap = pos(cur) - pos(last);
+    if (gap < RADAR_NPC) return;
+    const lastLine = (byS[last] || []).filter(l => hit(l.text)).pop() || (x.src || []).map(u => byUid[u]).filter(l => l && l.session === last).pop();
+    const firstLine = (byS[seen[0]] || []).find(l => hit(l.text));
+    items.push({ key: 'npc:' + x.id, kind: 'npc', id: x.id, title: x.name, gap, first: seen[0], last, seen: seen.slice(-6),
+      why: '세션 ' + last + ' 뒤로 ' + gap + '세션째 안 나왔어요', ev: [ev(firstLine), lastLine !== firstLine ? ev(lastLine) : null].filter(Boolean) });
+  });
+  (n.clues || []).forEach(x => {
+    if (String(x.status || '') === '해결') return;
+    const ls = (x.src || []).map(u => byUid[u]).filter(Boolean).sort((a, b) => pos(a.session) - pos(b.session) || a.id - b.id);
+    if (!ls.length) return;
+    const first = ls[0], lastL = ls[ls.length - 1], gap = pos(cur) - pos(lastL.session);
+    if (gap < RADAR_CLUE) return;
+    items.push({ key: 'clue:' + x.id, kind: 'clue', id: x.id, title: String(x.text || '').slice(0, 80), gap, first: first.session, last: lastL.session,
+      why: '세션 ' + first.session + '에서 나온 미해결 단서' + (lastL.session !== first.session ? ' (마지막 언급 세션 ' + lastL.session + ')' : '') + ', ' + gap + '세션째 그대로예요', ev: [ev(first), lastL !== first ? ev(lastL) : null].filter(Boolean) });
+  });
+  items.sort((a, b) => b.gap - a.gap || (a.kind === 'clue' ? -1 : 1));
+  const shown = [], hidden = [];
+  items.forEach(it => {
+    const o = off[it.key];
+    // '나중에'는 누른 세션이 끝나면(더 뒤 세션이 생기면) 다시 보인다. '해당 없음'은 마스터가 되돌리기 전까지 숨긴다
+    const isOff = o && (o.st === 'off' || (o.st === 'later' && String(o.sess) === cur));
+    (isOff ? hidden : shown).push(isOff ? Object.assign({ off: o.st }, it) : it);
+  });
+  return { ok: true, cur, sessions: sess.length, items: shown.slice(0, RADAR_MAX), more: Math.max(0, shown.length - RADAR_MAX), hidden: hidden.map(h => ({ key: h.key, kind: h.kind, title: h.title, off: h.off })) };
+}
+function kRadarOff(key, st) {
+  key = String(key || ''); st = String(st || '');
+  if (!/^(npc|clue):[\w-]{1,40}$/.test(key)) return { ok: false, error: '고를 항목이 잘못됐어요' };
+  if (['off', 'later', ''].indexOf(st) < 0) return { ok: false, error: '잘못된 요청' };
+  return withLock(20000, () => {
+    const o = radarOffMap(), list = sessionList().sessions;
+    if (st) o[key] = { st, sess: list.length ? list[list.length - 1].session : '', at: now() }; else delete o[key];
+    const ks = Object.keys(o); if (ks.length > 300) ks.sort((a, b) => String(o[a].at).localeCompare(String(o[b].at))).slice(0, ks.length - 300).forEach(k => delete o[k]);
+    setConf('radarOff', JSON.stringify(o));
+    return { ok: true };
+  });
 }
 
 // 근거 원문: 발언ID(단서) 또는 발언 번호(요약) → 그 줄과 앞뒤 몇 줄
@@ -3134,6 +3202,7 @@ function keeperTool(b) {
   switch (b.action) {
     case 'kData':          return kData();
     case 'kArchive':       return kArchive();
+    case 'kRadarOff':      return kRadarOff(b.key, b.st);
     case 'kArchiveSet':    return kArchiveSet(b.code, b.me);
     case 'kArchiveSend':   return kArchiveSend(b.session, !!b.auto);
     // 시나리오 자료
