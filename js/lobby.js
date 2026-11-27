@@ -262,8 +262,9 @@ function settingsPanel(){
     const b3 = el('button', '', '🔗 로비 링크 복사'); b3.onclick = async () => { try { await navigator.clipboard.writeText(lobbyLink()); toast('로비 링크를 복사했어요'); } catch (_) { prompt('이 링크를 복사해 보내 주세요', lobbyLink()); } };
     const b5 = el('button', '', '🔑 마스터 비밀번호'); b5.onclick = keeperPwForm;
     const b6 = el('button', '', '💳 잔액'); b6.onclick = credForm;
+    const b7 = el('button', '', '📚 서고 연결'); b7.onclick = seogoForm;
     const b4 = el('button', '', '로그아웃'); b4.onclick = () => { hubKtSave(''); sheetClose(); lobbyLoad(); };
-    row.append(b1, b2, b3, b5, b6, b4); s.append(row);
+    row.append(b1, b2, b3, b5, b6, b7, b4); s.append(row);
     const list = el('div'); list.style.marginTop = '14px'; s.append(list);
     if (!L.rooms.length) list.append(el('div', 'note', '아직 방이 없어요. "＋ 방 개설"로 만들어 보세요.'));
     L.rooms.forEach((r, i) => {
@@ -397,6 +398,40 @@ function roomPwForm(i){
       rememberRoomPw(r.url, nv);
       msg.ok('"' + r.name + '" 방 비밀번호를 바꿨어요');
       go.textContent = '닫기'; go.disabled = false; go.onclick = settingsPanel;
+    };
+  });
+}
+/* 📚 서고 연결: 로비와 로비에 있는 모든 방에 한 번에 (방마다 마스터 로그인 → kArchiveSet). 새로 만드는 방은 로비의 연결을 물려받는다 */
+function seogoForm(){
+  sheetOpen(s => {
+    s.append(el('h3', '', '📚 서고 연결 (모든 방)'));
+    s.append(el('div', 'note', '서고 사이트 점검 화면에서 만든 연결 코드를 붙여 넣으면, 로비와 아래 목록의 모든 방이 한 번에 서고와 연결돼요. 앞으로 새로 만드는 방도 자동으로 연결돼요. 서고 주인이 한 마디도 없는 세션은 보내지 않아요.'));
+    const c = field(s, '연결 코드', 'text');
+    const me = field(s, '서고 주인 이름 (받아쓰기에 쓰는 이름)', 'text'); me.value = cfg.name || '';
+    const k = field(s, '마스터 비밀번호', 'password');
+    const go = bigBtn(s, '모든 방에 연결'), msg = lmsg(s);
+    const res = el('div'); res.style.cssText = 'margin-top:10px;font-size:13px;line-height:1.7'; s.append(res);
+    go.onclick = async () => {
+      if (!c.value.trim() || !me.value.trim() || !k.value) { msg.err('세 칸을 모두 넣어 주세요'); return; }
+      go.disabled = true; msg.ok('연결하는 중… (방마다 몇 초씩 걸려요)'); res.innerHTML = '';
+      const seen = new Set();
+      const targets = [{ name: '로비 방' + (L.title ? ' (' + L.title + ')' : ''), url: L.hub }].concat(L.rooms.filter(r => r.url).map(r => ({ name: r.name, url: r.url })))
+        .filter(t => t.url && !seen.has(scriptUrl(t.url)) && seen.add(scriptUrl(t.url)));
+      let bad = 0;
+      for (const t of targets) {
+        const line = el('div', '', '… ' + t.name); res.append(line);
+        let x;
+        try {
+          const r = await roomCall(t.url, { action: 'hubLogin', kpw: k.value });
+          if (!r || !r.ok || !r.kt) x = { ok: false, error: (r && r.error) || '마스터 로그인 실패' };
+          else { x = await roomCall(t.url, { action: 'kArchiveSet', kt: r.kt, code: c.value.trim(), me: me.value.trim() }); try { roomCall(t.url, { action: 'klogout', kt: r.kt }); } catch (_) {} }
+        } catch (e) { x = { ok: false, error: '연결하지 못했어요' }; }
+        if (x && x.ok) line.textContent = '✔ ' + t.name;
+        else { bad++; line.textContent = '✖ ' + t.name + ': ' + ((x && x.error) || '실패'); line.style.color = '#ffb3ae'; }
+      }
+      go.disabled = false;
+      if (bad) msg.err(bad + '곳은 연결하지 못했어요. 이유를 보고 다시 눌러 주세요 (이미 된 방은 그대로예요)');
+      else { msg.ok('모든 방을 서고와 연결했어요'); c.value = ''; }
     };
   });
 }
