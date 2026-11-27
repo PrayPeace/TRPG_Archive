@@ -112,6 +112,27 @@ $('nrGo').onclick = async () => {
   } catch (e) { $('nrOut').textContent = '응답을 못 받았어요 (' + e.message + '). 구글 드라이브에 "🎲TRPG Archive · ' + name + '" 같은 이름의 파일이 생겼는지 확인해 주세요'; }
   b.disabled = false; b.textContent = '새 방 만들기';
 };
+// 📚 서고 연결
+async function kArcLoad(){
+  const r = await kpost({ action: 'kArchive' }); if (!r.ok) { $('kArcState').textContent = r.error || '불러오지 못했어요'; return; }
+  const sent = Object.entries(r.sent || {}).sort((a, b) => +b[0] - +a[0]).slice(0, 3).map(([s, x]) => '세션 ' + s + (x.ok ? ' 보냄 ✔' : ' 못 보냄 (' + (x.error || '') + ')') + ' ' + String(x.when || '').slice(5, 16)).join(' · ');
+  $('kArcState').textContent = r.linked ? '연결됨 · 서고 주인 ' + (r.me || '?') + (sent ? ' · ' + sent : ' · 아직 보낸 세션 없음') : '연결 안 됨: 서고 사이트 작업함에서 연결 코드를 만들어 붙여 주세요';
+  if (!$('kArcMe').value) $('kArcMe').value = r.me || cfg.name || '';
+  if (!$('kArcSess').value) $('kArcSess').value = (data && data.v && data.v.session) || '1';
+}
+$('kArcSave').onclick = async () => {
+  $('kArcOut').textContent = '서고에 확인하는 중…';
+  const r = await kpost({ action: 'kArchiveSet', code: $('kArcCode').value.trim(), me: $('kArcMe').value.trim() });
+  $('kArcOut').textContent = r.ok ? '✔ 서고와 연결했어요. 이제 세션 기록을 만들면 서고로 같이 가요' : (r.error || '연결하지 못했어요');
+  if (r.ok) $('kArcCode').value = ''; kArcLoad();
+};
+$('kArcOff').onclick = async () => { const r = await kpost({ action: 'kArchiveSet', code: '' }); $('kArcOut').textContent = r.ok ? '연결을 끊었어요' : r.error; kArcLoad(); };
+$('kArcSend').onclick = async () => {
+  const b = $('kArcSend'); b.disabled = true; $('kArcOut').textContent = '세션 기록을 만들고 서고로 보내는 중… (처음이면 1~3분)';
+  try { const r = await kpost({ action: 'kArchiveSend', session: $('kArcSess').value.trim() }); $('kArcOut').textContent = r.ok ? '✔ 서고로 보냈어요 (' + (r.title || '') + ')' : (r.error || '보내지 못했어요'); }
+  catch (e) { $('kArcOut').textContent = '보내지 못했어요: ' + (e.message || e); }
+  b.disabled = false; kArcLoad();
+};
 $('kNameSave').onclick = async () => { const r = await kpost({ action: 'keeperName', name: $('kName').value.trim() }); $('kOut').textContent = r.ok ? '마스터 이름 저장됨' : r.error; refreshData(); };
 function drawMap(tabs, saved){
   const box = $('kMap'); box.innerHTML = '';
@@ -183,7 +204,7 @@ $('imgGo').onclick = async () => {
 const K = { d: null, view: '', sess: '', digesting: false, stop: false, digestErr: '', epoch: 0, rv: null, gen: null,
   stats: {}, statsRv: {}, aw: {}, awMeta: {}, npcF: null, rollF: null, kbF: null, npcR: null, rollR: null, recapF: {}, ccf: null,
   boardFull: false, fbFull: false, upNote: '', uploading: false };
-const APP_VER = '2026-11-21.30';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
+const APP_VER = '2026-11-27.31';            // 이 화면의 판. 서버(Code.gs)의 CODE_VER와 같아야 한다
 const KVIEWS = [['now', '지금 장면'], ['board', '현황판'], ['npc', 'NPC 반응'], ['roll', '판정 보조'], ['kb', '시나리오 자료'], ['recap', '시작 카드'], ['awards', '시상식'], ['feedback', '피드백']];
 const LEVELS = ['대성공', '극단적 성공', '어려운 성공', '성공', '실패', '대실패'];
 const LEVEL_FIELD = { '대성공': 'extreme', '극단적 성공': 'extreme', '어려운 성공': 'hard', '성공': 'success', '실패': 'fail', '대실패': 'fumble' };
@@ -307,6 +328,7 @@ async function kLoad(){
   if (K.rv != null && r.resetVer !== K.rv) kForgetSession();
   if (K.gen != null && r.kbGen !== K.gen) { K.npcR = null; K.rollR = null; }
   K.rv = r.resetVer; K.gen = r.kbGen;
+  if (!K.arcLoaded) { K.arcLoaded = true; kArcLoad().catch(() => {}); }
   K.d = r; if (!K.sess) K.sess = r.session;
   if (!K.view) K.view = (r.kb.clues.length || r.kb.truth) ? ((r.kb.places.length || r.kb.npcs.length) ? 'now' : 'board') : 'kb';
   kRender();

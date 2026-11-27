@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-21.30';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.31';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1389,7 +1389,7 @@ function myRecord(sess, me, force) {
   const sh = ensureSheet('세션기록');
   const old = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues() : [];
   let rowAt = -1;
-  for (let i = 0; i < old.length; i++) if (String(old[i][0]) === sess) { rowAt = i + 2; if (String(old[i][1]) === hash && !force) { try { return Object.assign({ ok: true, reused: true }, JSON.parse(decS(old[i][3]))); } catch (e) {} } }
+  for (let i = 0; i < old.length; i++) if (String(old[i][0]) === sess) { rowAt = i + 2; if (String(old[i][1]) === hash && !force) { try { return archiveAfter(sess, Object.assign({ ok: true, reused: true }, JSON.parse(decS(old[i][3])))); } catch (e) {} } }
   const c = roomCache(), bk = 'myRecBusy:' + sess;
   if (c.get(bk)) return { ok: false, busy: true, error: '다른 사람이 이 세션 기록을 만드는 중이에요. 1~2분 뒤 다시 눌러 주세요' };
   c.put(bk, '1', 300);
@@ -1461,10 +1461,79 @@ function myRecord(sess, me, force) {
       return true;
     });
     if (!saved) return { ok: false, stale: true, error: '만드는 사이 기록이 초기화됐어요. 새로 고친 뒤 다시 해 주세요' };
-    return Object.assign({ ok: true, reused: false }, o);
+    return archiveAfter(sess, Object.assign({ ok: true, reused: false }, o));
   } finally { c.remove(bk); }
 }
 const MYREC_VER = '3';
+
+/* ═══ 📚 서고로 보내기 ═══
+ * 세션 기록(위 myRecord)이 만들어지면, 서고(캐릭터 서고 웹 앱)에 그 세션을 보낸다 → 서고 세션 로그에 한 줄, 결말은 서고의 비공개 칸, AI 명대사는 추억관(로그인한 사람만).
+ * 연결: 서고 사이트(관리자)에서 만든 "연결 코드"(웹 앱 주소#열쇠)를 마스터 도구에 붙여 넣는다. 열쇠는 설정 시트에만 있고 어떤 응답에도 싣지 않는다.
+ * 서고 주인(archiveMe): 서고 세션 로그의 '대장PC'를 고를 받아쓰기 이름. PL 목록에서는 빠진다. */
+function archiveLinked() { return !!(getConf('archiveUrl') && getConf('archiveKey')); }
+function roomTag() { return 'r' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, ssId(), Utilities.Charset.UTF_8)).replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toLowerCase(); }
+function archivePayload(sess, rec) {
+  const owner = String(getConf('archiveMe') || '').trim(), keeper = String(getConf('keeperName') || '').trim();
+  const chars = sheet(SH.CHAR).getDataRange().getValues().slice(1).map(r => { let c = {}; try { c = JSON.parse(decS(r[2]) || '{}'); } catch (e) {} c = cardClean(c); return { player: decS(r[1]), name: c.name || decS(r[0]) }; }).filter(c => c.name);
+  let pl = chars.map(c => c.player).filter(w => w && w !== owner && w !== keeper);
+  if (!pl.length) { const m = /PL:\s*(.*)$/.exec(String(rec.kp || '')); pl = m ? m[1].split(/,\s*/).filter(w => w && w !== '?' && w !== owner) : []; }
+  pl = pl.filter((w, i) => pl.indexOf(w) === i);
+  const mine = (chars.find(c => owner && c.player === owner) || {}).name || '';
+  const g = rec.glance || {}, m = rec.memo || {};
+  return { op: 'trpg_in', key: String(getConf('archiveKey') || ''), v: 1, id: roomTag() + '#' + sess, room: roomTitle(), rule: ruleInfo().name, sess: String(sess),
+    title: String(rec.title || roomTitle()).slice(0, 120), kp: keeper === owner ? '나' : keeper, pl: pl.slice(0, 12), myPc: keeper === owner ? '' : mine,
+    date: rec.date || '', play: rec.play || null, one: String(g.one || '').slice(0, 200), keys: String(g.keys || '').slice(0, 300),
+    ending: String(rec.ending || g.ending || '').slice(0, 400), epilogue: (rec.epilogue || []).slice(0, 20),
+    quotes: (m.quotes || []).slice(0, 3), body: String(rec.body || '').slice(0, 20000), at: rec.at || '' };
+}
+function archiveSend(sess, rec) {
+  const url = String(getConf('archiveUrl') || '');
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) return { ok: false, error: '서고 연결 코드가 없어요' };
+  let r, j = {};
+  try {
+    r = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify(archivePayload(sess, rec)), muteHttpExceptions: true, followRedirects: true });
+    try { j = JSON.parse(r.getContentText()); } catch (e) { j = {}; }
+  } catch (e) { return { ok: false, error: '서고에 닿지 못했어요: ' + String(e.message || e).slice(0, 120) }; }
+  if (!j.ok) return { ok: false, error: j.error === 'key' ? '서고 연결 코드가 맞지 않아요. 서고에서 새 코드를 만들어 다시 붙여 주세요' : '서고가 받지 못했어요 (' + (j.error || r.getResponseCode()) + ')' };
+  return { ok: true, row: j.row || '', added: !!j.added };
+}
+// 세션 기록을 만든 뒤: 서고에 연결돼 있고 이 판(at)을 아직 못 보냈으면 보낸다. 실패해도 기록은 그대로 돌려준다
+function archiveAfter(sess, rec) {
+  if (!rec || !rec.ok || !archiveLinked()) return rec;
+  const sent = confJson('archiveSent', {}), was = sent[sess];
+  const sig = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([rec.at, rec.title, rec.body, rec.ending, rec.epilogue, (rec.memo || {}).quotes, getConf('archiveMe'), getConf('keeperName')]), Utilities.Charset.UTF_8)).slice(0, 16);
+  if (was && was.ok && was.sig === sig) { rec.archive = { ok: true, already: true }; return rec; }
+  const res = archiveSend(sess, rec);
+  withLock(20000, () => { confLoad(true); const s2 = confJson('archiveSent', {}); s2[sess] = { ok: res.ok, sig, when: now(), error: res.error || '' }; setJson('archiveSent', s2); });
+  rec.archive = res;
+  return rec;
+}
+function kArchive() {
+  const url = String(getConf('archiveUrl') || '');
+  return { ok: true, linked: archiveLinked(), url: url ? url.replace(/\/s\/([\w-]{6})[\w-]*\//, '/s/$1…/') : '', me: getConf('archiveMe') || '', sent: confJson('archiveSent', {}) };
+}
+function kArchiveSet(code, me) {
+  code = String(code || '').trim(); me = String(me || '').trim().slice(0, 40);
+  if (code === '' ) return withLock(20000, () => { setConf('archiveUrl', ''); setConf('archiveKey', ''); return { ok: true, linked: false }; });
+  const m = /^(https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec)#([A-Za-z0-9_-]{24,80})$/.exec(code);
+  if (!m) return { ok: false, error: '연결 코드 모양이 아니에요. 서고 작업함의 "TRPG 아카이브 연결 코드"를 그대로 붙여 주세요' };
+  if (!me) return { ok: false, error: '서고 주인의 받아쓰기 이름을 적어 주세요' };
+  let j = {};
+  try { j = JSON.parse(UrlFetchApp.fetch(m[1], { method: 'post', contentType: 'application/json', payload: JSON.stringify({ op: 'trpg_ping', key: m[2] }), muteHttpExceptions: true, followRedirects: true }).getContentText()); } catch (e) { j = {}; }
+  if (!j.ok) return { ok: false, error: j.error === 'key' ? '서고가 이 코드를 모른대요. 서고에서 새로 만든 코드인지 확인해 주세요' : '서고에 닿지 못했어요. 코드를 확인해 주세요' };
+  return withLock(20000, () => { setConf('archiveUrl', m[1]); setConf('archiveKey', m[2]); setConf('archiveMe', me); return { ok: true, linked: true }; });
+}
+// 마스터가 누르는 "이 세션 서고로 보내기": 기록이 없으면 만들고(같은 내용이면 저장된 것), 이미 보낸 판이어도 다시 보낸다
+function kArchiveSend(sess) {
+  sess = String(sess || getConf('session') || '1');
+  if (!archiveLinked()) return { ok: false, error: '먼저 서고 연결 코드를 붙여 주세요' };
+  if (!/^\d{1,5}$/.test(sess)) return { ok: false, error: '세션을 골라 주세요' };
+  withLock(20000, () => { confLoad(true); const s2 = confJson('archiveSent', {}); delete s2[sess]; setJson('archiveSent', s2); });
+  const rec = myRecord(sess, String(getConf('archiveMe') || ''), false);
+  if (!rec.ok) return rec;
+  if (rec.empty) return { ok: false, error: rec.error };
+  return { ok: !!(rec.archive && rec.archive.ok), error: rec.archive && rec.archive.error, title: rec.title, reused: rec.reused };
+}
 
 function saveColor(name, color) {
   if (!name || !/^#[0-9a-fA-F]{6}$/.test(String(color || ''))) return { ok: false, error: '색이 올바르지 않아요' };
@@ -3058,6 +3127,9 @@ function kDocText(url) {
 function keeperTool(b) {
   switch (b.action) {
     case 'kData':          return kData();
+    case 'kArchive':       return kArchive();
+    case 'kArchiveSet':    return kArchiveSet(b.code, b.me);
+    case 'kArchiveSend':   return kArchiveSend(b.session);
     // 시나리오 자료
     case 'kSrcAdd':        return kbGuard(b.gen, () => kSrcAdd(b));
     case 'kSrcDel':        return kSrcDel(b.source);

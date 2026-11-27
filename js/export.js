@@ -220,7 +220,8 @@ $('exportBtn').onclick = async () => {
       const fname = ((data.roomTitle || title) + ' 세션기록' + (ss.value === 'all' ? '' : ' ' + ss.value + '회차')).replace(/[\\/:*?"<>|]/g, '_');
       if (fmt === 'txt') saveBlob(new Blob(['﻿' + doc.map(b => b.text).join('\n') + '\n'], { type: 'text/plain;charset=utf-8' }), fname + '.txt');
       else saveBlob(await docToHwpx(doc, title), fname + '.hwpx');
-      msg2.textContent = '✔ 받았어요 (' + fname + '.' + fmt + ')' + (skipped.length ? ' · 요약이 없어 뺀 세션: ' + skipped.join(', ') : '') + (recs.every(r => r.reused) ? ' · 저장된 기록을 다시 썼어요 (요금 없음)' : '');
+      msg2.textContent = '✔ 받았어요 (' + fname + '.' + fmt + ')' + (skipped.length ? ' · 요약이 없어 뺀 세션: ' + skipped.join(', ') : '') + (recs.every(r => r.reused) ? ' · 저장된 기록을 다시 썼어요 (요금 없음)' : '') +
+        (recs.some(r => r.archive && r.archive.ok && !r.archive.already) ? ' · 📚 서고로도 보냈어요' : '') + (recs.some(r => r.archive && !r.archive.ok) ? ' · 📚 서고로는 못 보냈어요 (마스터 도구에서 다시 보내기)' : '');
     } catch (e) { msg2.textContent = '만들지 못했어요: ' + (e.message || e); }
     [...row2.children].forEach(x => x.disabled = false);
   };
