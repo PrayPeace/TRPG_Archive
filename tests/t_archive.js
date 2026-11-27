@@ -53,5 +53,14 @@ run(ex(), "setConf('keeperName','프레이피스')"); st.fetches.length = 0;
 run(ex(), "kArchiveSend('1')");
 const s2 = (st.fetches[0] || {}).b || {};
 ok('서고 주인이 마스터면 KP "나", PL에서 빼고, 대장PC는 빈칸', s2.kp === '나' && s2.myPc === '' && s2.pl.join() === '소금빵', JSON.stringify({ kp: s2.kp, pl: s2.pl, pc: s2.myPc }));
+// 서고 주인이 없는 세션: 자동으로는 안 보내고, 마스터 단추로는 보냄
+run(ex(), "setConf('keeperName','달토끼')");
+post(ex(), { action: 'lines', pw: 'pwA', items: [{ uid: 'S2', name: '소금빵', session: '2', t: new Date(base + 9e6).toISOString(), text: '오늘은 대장 없이 해요' }] });
+run(ex(), "withLock(20000, () => { sheet(SH.SUM).appendRow(['2','2026-11-21 16:00:00','2026-11-21 16:30:00', enc('【항구】\\n- 배를 탐'),'','']); bump('sumVer'); })");
+st.fetches.length = 0;
+r = post(ex(), { action: 'myRecord', pw: 'pwA', session: '2', me: '소금빵' });
+ok('서고 주인이 말 한 마디 없는 세션은 자동으로 안 보냄 (기록은 그대로)', r.ok && r.archive && r.archive.skipped && st.fetches.length === 0, JSON.stringify(r.archive));
+const k3 = run(ex(), "kArchiveSend('2')");
+ok('그래도 마스터 단추로는 보낼 수 있음', k3.ok && st.fetches.length === 1 && st.fetches[0].b.id.endsWith('#2'), JSON.stringify(k3));
 ok('연결 끊기', run(ex(), "kArchiveSet('', '')").ok && !run(ex(), 'archiveLinked()'));
 done();

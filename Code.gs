@@ -71,7 +71,7 @@ const AI_EFFORT = 'medium';
 // 자동 요약을 건너뛰는 기준: 새 대화가 이 글자 수보다 적거나 마스터 발언이 없으면 이번 5분은 쉬고, 그래도 SUM_MAX_WAIT가 지나면 요약한다
 const SUM_MIN_CHARS = 1500;
 const SUM_MAX_WAIT = 9 * 60 * 1000;
-const CODE_VER = '2026-11-27.31';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
+const CODE_VER = '2026-11-27.32';          // 이 파일의 판. 화면(index.html)의 APP_VER와 같아야 한다 (다르면 마스터 탭에 알림이 뜬다)
 const TZ = 'Asia/Seoul';
 
 const SH = {
@@ -1389,7 +1389,7 @@ function myRecord(sess, me, force) {
   const sh = ensureSheet('세션기록');
   const old = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues() : [];
   let rowAt = -1;
-  for (let i = 0; i < old.length; i++) if (String(old[i][0]) === sess) { rowAt = i + 2; if (String(old[i][1]) === hash && !force) { try { return archiveAfter(sess, Object.assign({ ok: true, reused: true }, JSON.parse(decS(old[i][3])))); } catch (e) {} } }
+  for (let i = 0; i < old.length; i++) if (String(old[i][0]) === sess) { rowAt = i + 2; if (String(old[i][1]) === hash && !force) { try { return archiveAfter(sess, Object.assign({ ok: true, reused: true }, JSON.parse(decS(old[i][3]))), inp.who); } catch (e) {} } }
   const c = roomCache(), bk = 'myRecBusy:' + sess;
   if (c.get(bk)) return { ok: false, busy: true, error: '다른 사람이 이 세션 기록을 만드는 중이에요. 1~2분 뒤 다시 눌러 주세요' };
   c.put(bk, '1', 300);
@@ -1461,7 +1461,7 @@ function myRecord(sess, me, force) {
       return true;
     });
     if (!saved) return { ok: false, stale: true, error: '만드는 사이 기록이 초기화됐어요. 새로 고친 뒤 다시 해 주세요' };
-    return archiveAfter(sess, Object.assign({ ok: true, reused: false }, o));
+    return archiveAfter(sess, Object.assign({ ok: true, reused: false }, o), inp.who);
   } finally { c.remove(bk); }
 }
 const MYREC_VER = '3';
@@ -1498,8 +1498,11 @@ function archiveSend(sess, rec) {
   return { ok: true, row: j.row || '', added: !!j.added };
 }
 // 세션 기록을 만든 뒤: 서고에 연결돼 있고 이 판(at)을 아직 못 보냈으면 보낸다. 실패해도 기록은 그대로 돌려준다
-function archiveAfter(sess, rec) {
+function archiveAfter(sess, rec, who, always) {
   if (!rec || !rec.ok || !archiveLinked()) return rec;
+  // 서고 주인이 이 세션에서 한 마디도 안 했으면(빠진 세션) 자동으로는 안 보낸다. 마스터 단추(always)로는 보낼 수 있다
+  const owner = String(getConf('archiveMe') || '').trim();
+  if (!always && owner && Array.isArray(who) && who.indexOf(owner) < 0) { rec.archive = { ok: true, skipped: true, why: owner + '님이 없는 세션이라 서고로 보내지 않았어요' }; return rec; }
   const sent = confJson('archiveSent', {}), was = sent[sess];
   const sig = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify([rec.at, rec.title, rec.body, rec.ending, rec.epilogue, (rec.memo || {}).quotes, getConf('archiveMe'), getConf('keeperName')]), Utilities.Charset.UTF_8)).slice(0, 16);
   if (was && was.ok && was.sig === sig) { rec.archive = { ok: true, already: true }; return rec; }
@@ -1532,6 +1535,7 @@ function kArchiveSend(sess) {
   const rec = myRecord(sess, String(getConf('archiveMe') || ''), false);
   if (!rec.ok) return rec;
   if (rec.empty) return { ok: false, error: rec.error };
+  if (rec.archive && rec.archive.skipped) { delete rec.archive; archiveAfter(sess, rec, null, true); }
   return { ok: !!(rec.archive && rec.archive.ok), error: rec.archive && rec.archive.error, title: rec.title, reused: rec.reused };
 }
 
