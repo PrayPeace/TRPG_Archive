@@ -1101,13 +1101,14 @@ async function radarLoad(force){
 function radarDraw(){
   const box = $('radarBox'); if (!box) return; box.innerHTML = '';
   const r = radarSt.r; if (!r) return;
+  const items = Array.isArray(r.items) ? r.items : [];          // 예전 엔진(레이더 없음)이나 이상한 답이어도 화면이 멈추지 않게
   const c = el('div', 'nxnow rdr');
   const h = el('div', 'nxh'); h.append(el('b', '', '🛰 떡밥 레이더'), el('span', 'note', '오래 안 나온 NPC와 오래 그대로인 미해결 단서예요. 공개 기록만 보고 AI 없이 골라요' + (r.cur ? ' · 지금 세션 ' + r.cur : '')));
   c.append(h);
   if (!r.ok) { c.append(el('div', 'note', '레이더를 불러오지 못했어요' + (r.error ? ': ' + r.error : ''))); box.append(c); return; }
-  if (!r.items.length) c.append(el('div', 'note', r.sessions < 2 ? '세션이 두 번 넘게 쌓이면 보여요' : '지금은 걸리는 떡밥이 없어요'));
+  if (!items.length) c.append(el('div', 'note', r.sessions < 2 ? '세션이 두 번 넘게 쌓이면 보여요' : '지금은 걸리는 떡밥이 없어요'));
   const isK = !!cfg.kt;
-  r.items.forEach(it => {
+  items.forEach(it => {
     const row = el('div', 'rdi');
     const top = el('div', 'rdt');
     top.append(el('span', 'rdk', it.kind === 'npc' ? '👤 NPC' : '🔎 단서'), el('b', '', it.title), el('span', 'note', it.why));
@@ -1127,7 +1128,7 @@ function radarDraw(){
     }
     c.append(row);
   });
-  if (r.more) c.append(el('div', 'note', '그 밖에 ' + r.more + '개 더 있어요 (오래된 순으로 ' + r.items.length + '개만 보여요)'));
+  if (r.more) c.append(el('div', 'note', '그 밖에 ' + r.more + '개 더 있어요 (오래된 순으로 ' + items.length + '개만 보여요)'));
   if (isK && r.hidden && r.hidden.length) {
     const d = el('details', 'rdh'); d.append(el('summary', '', '숨긴 떡밥 ' + r.hidden.length + '개'));
     r.hidden.forEach(x => { const l = el('div', 'row'); const b = el('button', '', '되돌리기'); b.onclick = () => radarMark(x.key, '', b); l.append(el('span', 'grow', (x.kind === 'npc' ? '👤 ' : '🔎 ') + x.title + (x.off === 'later' ? ' (나중에)' : ' (해당 없음)')), b); d.append(l); });
