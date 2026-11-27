@@ -813,7 +813,7 @@ function nextFresh(){
 }
 async function nextOpen(force){
   const t0 = performance.now();
-  nextCheck(); nextInstant(); nextFresh();
+  nextCheck(); nextInstant(); nextFresh(); radarLoad(force);
   if (typeof statMs === 'function') { statMs('nextInstant', performance.now() - t0); stat(force ? 'nextForce' : 'nextOpen'); if (!force && nextSt.data && (nextBehind() || nextMoved())) stat('nextStale'); }
   if (nextSt.loading) return;
   const st = $('nextSt'), go = $('nextGo');
@@ -1086,3 +1086,71 @@ $('copySum').onclick = () => {
   data.summaries.forEach(s => { if (s.session !== cur) { cur = s.session; out.push('\n■ 세션 ' + cur); } out.push('(' + String(s.from).slice(11,16) + '~' + String(s.to).slice(11,16) + ')\n' + s.text); });
   copyText($('copySum'), out.join('\n').trim());
 };
+
+/* ── 🛰 떡밥 레이더 (🧭 다음 할 일 탭 아래): 오래 안 나온 NPC·오래 손대지 않은 미해결 단서. 공개 기록만 보고 AI 없이 고른다 ──
+ * 근거 줄을 누르면 그 대화를 보여 준다. 마스터는 [해당 없음](계속 숨김)·[나중에](이번 세션 동안 숨김)를 누를 수 있다 */
+let radarSt = { loading: false, at: 0, r: null };
+async function radarLoad(force){
+  const box = $('radarBox'); if (!box) return;
+  if (radarSt.loading || (!force && radarSt.r && Date.now() - radarSt.at < 60000)) { radarDraw(); return; }
+  radarSt.loading = true;
+  try { const r = await api('radar'); if (r && r.ok) { radarSt.r = r; radarSt.at = Date.now(); } else if (!radarSt.r) radarSt.r = { ok: false, error: (r && r.error) || '' }; }
+  catch (e) { if (!radarSt.r) radarSt.r = { ok: false, error: '연결이 끊겼어요' }; }
+  radarSt.loading = false; radarDraw();
+}
+function radarDraw(){
+  const box = $('radarBox'); if (!box) return; box.innerHTML = '';
+  const r = radarSt.r; if (!r) return;
+  const c = el('div', 'nxnow rdr');
+  const h = el('div', 'nxh'); h.append(el('b', '', '🛰 떡밥 레이더'), el('span', 'note', '오래 안 나온 NPC와 오래 그대로인 미해결 단서예요. 공개 기록만 보고 AI 없이 골라요' + (r.cur ? ' · 지금 세션 ' + r.cur : '')));
+  c.append(h);
+  if (!r.ok) { c.append(el('div', 'note', '레이더를 불러오지 못했어요' + (r.error ? ': ' + r.error : ''))); box.append(c); return; }
+  if (!r.items.length) c.append(el('div', 'note', r.sessions < 2 ? '세션이 두 번 넘게 쌓이면 보여요' : '지금은 걸리는 떡밥이 없어요'));
+  const isK = !!cfg.kt;
+  r.items.forEach(it => {
+    const row = el('div', 'rdi');
+    const top = el('div', 'rdt');
+    top.append(el('span', 'rdk', it.kind === 'npc' ? '👤 NPC' : '🔎 단서'), el('b', '', it.title), el('span', 'note', it.why));
+    row.append(top);
+    (it.ev || []).forEach(e => {
+      const q = el('div', 'rde go'); q.title = '눌러서 그 대화 앞뒤 보기';
+      q.append(el('span', 'k', '세션 ' + e.s + (e.t ? ' · ' + e.t.slice(5, 16) : '')), el('span', 'v', (e.who ? e.who + ': ' : '') + e.text));
+      q.onclick = () => radarEvidence(e);
+      row.append(q);
+    });
+    if (isK) {
+      const bar = el('div', 'row'); bar.style.marginTop = '4px';
+      const no = el('button', '', '해당 없음'); no.title = '이 떡밥은 일부러 둔 것이거나 끝난 것: 다시 보이지 않아요 (아래 숨긴 목록에서 되돌릴 수 있어요)';
+      const later = el('button', '', '나중에'); later.title = '이번 세션 동안만 숨겨요. 다음 세션에 다시 보여요';
+      no.onclick = () => radarMark(it.key, 'off', no); later.onclick = () => radarMark(it.key, 'later', later);
+      bar.append(no, later); row.append(bar);
+    }
+    c.append(row);
+  });
+  if (r.more) c.append(el('div', 'note', '그 밖에 ' + r.more + '개 더 있어요 (오래된 순으로 ' + r.items.length + '개만 보여요)'));
+  if (isK && r.hidden && r.hidden.length) {
+    const d = el('details', 'rdh'); d.append(el('summary', '', '숨긴 떡밥 ' + r.hidden.length + '개'));
+    r.hidden.forEach(x => { const l = el('div', 'row'); const b = el('button', '', '되돌리기'); b.onclick = () => radarMark(x.key, '', b); l.append(el('span', 'grow', (x.kind === 'npc' ? '👤 ' : '🔎 ') + x.title + (x.off === 'later' ? ' (나중에)' : ' (해당 없음)')), b); d.append(l); });
+    c.append(d);
+  }
+  box.append(c);
+}
+async function radarMark(key, st, btn){
+  if (btn) btn.disabled = true;
+  const r = await kpost({ action: 'kRadarOff', key, st });
+  if (r && r.ok) { toast(st === 'off' ? '해당 없음으로 숨겼어요' : st === 'later' ? '이번 세션 동안 숨겼어요' : '다시 보이게 했어요'); await radarLoad(true); }
+  else { if (btn) btn.disabled = false; toast((r && r.error) || '실패했어요'); }
+}
+async function radarEvidence(e){
+  const m = $('modalBody'); m.className = 'm'; m.innerHTML = '';
+  m.append(el('h3', '', '근거 · 세션 ' + e.s));
+  const box = el('div', 'evb'); box.append(el('div', 'note', '불러오는 중…')); m.append(box);
+  const cl = el('button', '', '닫기'); cl.onclick = closeModal; const row = el('div', 'row'); row.style.marginTop = '10px'; row.append(cl); m.append(row);
+  $('modal').classList.remove('hide');
+  try {
+    const r = await api('evidence', { uids: e.uid, ctx: 3, session: e.s });
+    box.innerHTML = '';
+    if (!r.ok || !(r.lines || []).length) { box.append(el('div', 'note', '원문을 찾지 못했어요' + (r.error ? ': ' + r.error : ''))); return; }
+    r.lines.forEach(l => { const d = el('div', 'evl' + (l.focus ? ' on' : '')); d.append(el('b', '', (l.name || '') + ': '), document.createTextNode(l.text || '')); box.append(d); });
+  } catch (err) { box.innerHTML = ''; box.append(el('div', 'note', '연결이 끊겼어요')); }
+}
